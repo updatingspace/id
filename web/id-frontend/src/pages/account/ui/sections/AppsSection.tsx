@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
+import type { OAuthAppRow } from '../../model/types';
 
 type Props = {
   t: (k: string) => string;
-  apps: any[]; // [{ client_id, name, scopes }]
+  apps: OAuthAppRow[];
   onRevoke: (clientId: string) => Promise<void>;
 };
 
@@ -23,7 +24,7 @@ export const AppsSection: React.FC<Props> = ({ t, apps, onRevoke }) => {
       <h3>{t('apps.title')}</h3>
 
       <div className="list">
-        {apps.map((app: any) => (
+        {apps.map((app) => (
           <div key={app.client_id} className="list-row">
             <div>
               <strong>{app.name}</strong>

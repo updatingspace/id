@@ -7,7 +7,7 @@ import { useI18n } from '../../lib/i18n';
 import { mapCreationOptions, serializeCredential } from '../../lib/webauthn';
 
 import { useAccountData } from './model/useAccountData';
-import type { AccountSection } from './model/types';
+import type { AccountSection, Preferences } from './model/types';
 
 import { AccountHero } from './ui/AccountHero';
 import { AccountHeroSkeleton } from './ui/AccountHeroSkeleton';
@@ -29,6 +29,16 @@ import { DataSection } from './ui/sections/DataSection';
 import { DataSectionSkeleton } from './ui/sections/DataSectionSkeleton';
 import { LoginHistoryCard } from './ui/sections/LoginHistoryCard';
 import { LoginHistorySkeleton } from './ui/sections/LoginHistorySkeleton';
+
+const toErrorMessage = (err: unknown, fallback: string): string => {
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+    return err.message;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return fallback;
+};
 
 const AccountPage = () => {
   const { user, loading: authLoading, refresh } = useAuth();
@@ -76,15 +86,20 @@ const AccountPage = () => {
 
   // ---- actions (оставляем в AccountPage, секции тонкие) ----
 
-  const saveProfile = async (payload: any) => {
+  const saveProfile = async (payload: {
+    first_name: string;
+    last_name: string;
+    phone_number: string;
+    birth_date: string;
+  }) => {
     setMessage(null);
     setError(null);
     try {
       await api.updateProfile(payload);
       await refresh();
       setMessage('Профиль обновлён');
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось обновить профиль');
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Не удалось обновить профиль'));
     }
   };
 
@@ -94,12 +109,12 @@ const AccountPage = () => {
     try {
       await api.changePassword(current, next);
       setMessage('Пароль обновлён');
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось обновить пароль');
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Не удалось обновить пароль'));
     }
   };
 
-  const savePreferences = async (nextPrefs: any) => {
+  const savePreferences = async (nextPrefs: Preferences) => {
     setMessage(null);
     setError(null);
     try {
@@ -108,8 +123,8 @@ const AccountPage = () => {
         setLanguage(updated.language === 'en' ? 'en' : 'ru');
       }
       setMessage('Предпочтения обновлены');
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось обновить предпочтения');
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Не удалось обновить предпочтения'));
     }
   };
 
@@ -118,15 +133,15 @@ const AccountPage = () => {
     setError(null);
     try {
       const begin = await api.passkeysBegin(false);
-      const publicKey = mapCreationOptions(begin.creation_options.publicKey || begin.creation_options);
+      const publicKey = mapCreationOptions(begin.creation_options);
       const credential = (await navigator.credentials.create({ publicKey })) as PublicKeyCredential;
       const serialized = serializeCredential(credential);
       const name = window.prompt('Название Passkey', 'Passkey') || 'Passkey';
       await api.passkeysComplete(name, serialized);
       await q.passkeys.refetch();
       setMessage('Passkey добавлен');
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось добавить Passkey');
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Не удалось добавить Passkey'));
     }
   };
 
@@ -137,6 +152,13 @@ const AccountPage = () => {
       if (q.emailStatus.isLoading) return <ProfileSectionSkeleton />;
       return (
         <ProfileSection
+          key={[
+            user.id,
+            user.first_name,
+            user.last_name,
+            user.phone_number,
+            user.birth_date,
+          ].join(':')}
           t={t}
           user={user}
           emailVerified={!!emailVerified}
@@ -148,8 +170,8 @@ const AccountPage = () => {
             try {
               await api.resendEmailVerification();
               setMessage(t('account.email.resendSent'));
-            } catch (err: any) {
-              setError(err?.message || t('error.SERVER_ERROR'));
+            } catch (err: unknown) {
+              setError(toErrorMessage(err, t('error.SERVER_ERROR')));
             }
           }}
           onRequestEmailChange={async (newEmail: string) => {
@@ -159,8 +181,8 @@ const AccountPage = () => {
               await api.changeEmail(newEmail);
               await q.emailStatus.refetch();
               setMessage(t('account.email.changeRequested'));
-            } catch (err: any) {
-              setError(err?.message || t('error.SERVER_ERROR'));
+            } catch (err: unknown) {
+              setError(toErrorMessage(err, t('error.SERVER_ERROR')));
             }
           }}
         />

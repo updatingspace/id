@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../lib/auth';
@@ -14,7 +14,13 @@ const SignupPage = () => {
   const [username, setUsername] = useState('');
 
   const [lang, setLang] = useState<'ru' | 'en'>(language);
-  const [timezone, setTimezone] = useState<string>('');
+  const [timezone] = useState<string>(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch {
+      return '';
+    }
+  });
 
   const [consentData, setConsentData] = useState(false);
   const [consentMarketing, setConsentMarketing] = useState(false);
@@ -27,15 +33,6 @@ const SignupPage = () => {
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    try {
-      const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      setTimezone(browserTimezone || '');
-    } catch (e) {
-      console.warn('Failed to detect timezone:', e);
-    }
-  }, []);
 
   const getErrorMessage = (code?: string, message?: string): string => {
     if (code) {

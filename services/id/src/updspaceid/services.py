@@ -81,7 +81,9 @@ def ensure_tenant(tenant_id: str, tenant_slug: str) -> Tenant:
         if str(tenant.id) != str(tenant_id):
             # In dev mode we allow slug to be authoritative to avoid cross-service
             # tenant id mismatches breaking internal calls.
-            if getattr(settings, "DEBUG", False) or getattr(settings, "DEV_AUTH_MODE", False):
+            if getattr(settings, "DEBUG", False) or getattr(
+                settings, "DEV_AUTH_MODE", False
+            ):
                 return tenant
             raise HttpError(
                 409,
@@ -173,9 +175,7 @@ def approve_application(
     application.status = ApplicationStatus.APPROVED
     application.reviewed_by_user_id = reviewer_user_id
     application.reviewed_at = timezone.now()
-    application.save(
-        update_fields=["status", "reviewed_by_user_id", "reviewed_at"]
-    )
+    application.save(update_fields=["status", "reviewed_by_user_id", "reviewed_at"])
 
     activation, raw_token = issue_activation_token(
         user=user,
@@ -240,9 +240,7 @@ def reject_application(
     application.status = ApplicationStatus.REJECTED
     application.reviewed_by_user_id = reviewer_user_id
     application.reviewed_at = timezone.now()
-    application.save(
-        update_fields=["status", "reviewed_by_user_id", "reviewed_at"]
-    )
+    application.save(update_fields=["status", "reviewed_by_user_id", "reviewed_at"])
     actor = (
         User.objects.filter(user_id=reviewer_user_id).first()
         if reviewer_user_id
@@ -436,9 +434,7 @@ def consume_magic_link(
 
 def get_session_user(session_token: str) -> User:
     try:
-        session = IdSession.objects.select_related("user").get(
-            token=session_token
-        )
+        session = IdSession.objects.select_related("user").get(token=session_token)
     except IdSession.DoesNotExist as exc:
         raise HttpError(
             401,

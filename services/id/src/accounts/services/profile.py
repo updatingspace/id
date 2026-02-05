@@ -229,7 +229,10 @@ class ProfileService:
                 if not profile.avatar.storage.exists(profile.avatar.name):
                     logger.warning(
                         "Avatar file missing in storage",
-                        extra={"user_id": getattr(user, "id", None), "avatar_name": profile.avatar.name},
+                        extra={
+                            "user_id": getattr(user, "id", None),
+                            "avatar_name": profile.avatar.name,
+                        },
                     )
                     return AvatarState(
                         url=None,
@@ -262,9 +265,7 @@ class ProfileService:
         if not normalized:
             return None
         email_hash = hashlib.md5(normalized.encode("utf-8")).hexdigest()
-        url = (
-            "https://www.gravatar.com/avatar/" f"{email_hash}?d=404&s={cls.AVATAR_SIZE}"
-        )
+        url = f"https://www.gravatar.com/avatar/{email_hash}?d=404&s={cls.AVATAR_SIZE}"
         request = urllib.request.Request(
             url,
             headers={

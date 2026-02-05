@@ -6,6 +6,7 @@ This module provides:
 - Request/response instrumentation
 - Business metrics tracking (logins, MFA enrollments, token issuance)
 """
+
 from __future__ import annotations
 
 import logging
@@ -14,8 +15,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
-from django.conf import settings
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class MetricsRegistry:
     """
 
     _instance: MetricsRegistry | None = None
-    
+
     def __new__(cls) -> MetricsRegistry:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -36,14 +36,18 @@ class MetricsRegistry:
             cls._instance._gauges: dict[str, dict[tuple, float]] = {}
         return cls._instance
 
-    def inc_counter(self, name: str, labels: dict[str, str] | None = None, value: int = 1) -> None:
+    def inc_counter(
+        self, name: str, labels: dict[str, str] | None = None, value: int = 1
+    ) -> None:
         """Increment a counter metric."""
         if name not in self._counters:
             self._counters[name] = {}
         label_key = tuple(sorted((labels or {}).items()))
         self._counters[name][label_key] = self._counters[name].get(label_key, 0) + value
 
-    def observe_histogram(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
+    def observe_histogram(
+        self, name: str, value: float, labels: dict[str, str] | None = None
+    ) -> None:
         """Record a histogram observation."""
         if name not in self._histograms:
             self._histograms[name] = {}
@@ -56,7 +60,9 @@ class MetricsRegistry:
         if len(observations) > 1000:
             self._histograms[name][label_key] = observations[-1000:]
 
-    def set_gauge(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
+    def set_gauge(
+        self, name: str, value: float, labels: dict[str, str] | None = None
+    ) -> None:
         """Set a gauge metric."""
         if name not in self._gauges:
             self._gauges[name] = {}
@@ -147,7 +153,10 @@ ERRORS_TOTAL = "id_errors_total"
 # Instrumentation helpers
 # ============================================================================
 
-def track_login_attempt(success: bool, method: str = "password", reason: str | None = None) -> None:
+
+def track_login_attempt(
+    success: bool, method: str = "password", reason: str | None = None
+) -> None:
     """Track login attempt metrics."""
     labels = {"method": method}
     metrics.inc_counter(AUTH_LOGIN_ATTEMPTS_TOTAL, labels)
@@ -158,7 +167,9 @@ def track_login_attempt(success: bool, method: str = "password", reason: str | N
         metrics.inc_counter(AUTH_LOGIN_FAILURE_TOTAL, failure_labels)
 
 
-def track_mfa_event(event_type: str, method: str = "totp", success: bool = True) -> None:
+def track_mfa_event(
+    event_type: str, method: str = "totp", success: bool = True
+) -> None:
     """Track MFA-related events."""
     labels = {"method": method, "success": str(success).lower()}
     if event_type == "enrollment":
@@ -232,19 +243,21 @@ def track_error(error_code: str, endpoint: str | None = None) -> None:
 # Decorator for tracking function execution
 # ============================================================================
 
+
 def instrumented(
     metric_name: str,
     labels_fn: Callable[..., dict[str, str]] | None = None,
 ) -> Callable:
     """
     Decorator to instrument a function with timing metrics.
-    
+
     Usage:
-        @instrumented("id_service_operation_duration_seconds", 
+        @instrumented("id_service_operation_duration_seconds",
                       labels_fn=lambda result: {"operation": "fetch_user"})
         def fetch_user(user_id):
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -261,7 +274,9 @@ def instrumented(
                 labels = labels_fn(*args, **kwargs) if labels_fn else {}
                 labels["success"] = str(success).lower()
                 metrics.observe_histogram(metric_name, duration, labels)
+
         return wrapper
+
     return decorator
 
 
@@ -269,20 +284,21 @@ def instrumented(
 # Prometheus metrics endpoint view
 # ============================================================================
 
+
 def prometheus_metrics_view(request: HttpRequest) -> HttpResponse:
     """
     Expose metrics in Prometheus text exposition format.
-    
+
     Mount at /metrics in urls.py
     """
     all_metrics = metrics.get_all_metrics()
-    
+
     lines = []
     lines.append("# HELP id_service_metrics UpdSpace ID Service metrics")
     lines.append("# TYPE id_service_info gauge")
-    lines.append(f'id_service_info{{version="1.0.0"}} 1')
+    lines.append('id_service_info{version="1.0.0"} 1')
     lines.append("")
-    
+
     # Export counters
     for name, label_values in all_metrics["counters"].items():
         lines.append(f"# HELP {name} Counter metric")
@@ -292,17 +308,17 @@ def prometheus_metrics_view(request: HttpRequest) -> HttpResponse:
             label_part = _format_labels(labels_str)
             lines.append(f"{name}{label_part} {count}")
         lines.append("")
-    
+
     # Export histograms (simplified - just sum and count)
     for name, label_values in all_metrics["histograms"].items():
         lines.append(f"# HELP {name} Histogram metric")
         lines.append(f"# TYPE {name} histogram")
         for labels_str, stats in label_values.items():
             label_part = _format_labels(labels_str)
-            lines.append(f'{name}_count{label_part} {stats["count"]}')
-            lines.append(f'{name}_sum{label_part} {stats["sum"]:.6f}')
+            lines.append(f"{name}_count{label_part} {stats['count']}")
+            lines.append(f"{name}_sum{label_part} {stats['sum']:.6f}")
         lines.append("")
-    
+
     # Export gauges
     for name, label_values in all_metrics["gauges"].items():
         lines.append(f"# HELP {name} Gauge metric")
@@ -311,7 +327,7 @@ def prometheus_metrics_view(request: HttpRequest) -> HttpResponse:
             label_part = _format_labels(labels_str)
             lines.append(f"{name}{label_part} {value}")
         lines.append("")
-    
+
     content = "\n".join(lines)
     return HttpResponse(content, content_type="text/plain; charset=utf-8")
 
@@ -325,6 +341,7 @@ def _format_labels(labels_str: str) -> str:
     try:
         # Safe eval alternative: parse manually
         import ast
+
         labels_tuple = ast.literal_eval(labels_str)
         if not labels_tuple:
             return ""

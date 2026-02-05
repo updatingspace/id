@@ -7,15 +7,16 @@ Provides:
 - Contextual fields (user_id, tenant_id, request_id)
 - Per-environment log level configuration
 """
+
 from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
-import threading
-import time
 import traceback
 import uuid
+from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any
@@ -27,6 +28,63 @@ correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", defaul
 user_id_var: ContextVar[str | None] = ContextVar("user_id", default=None)
 tenant_id_var: ContextVar[str | None] = ContextVar("tenant_id", default=None)
 request_path_var: ContextVar[str | None] = ContextVar("request_path", default=None)
+
+SENSITIVE_FIELD_MARKER = "[REDACTED]"
+EMAIL_FIELD_MARKER = "[REDACTED_EMAIL]"
+_SENSITIVE_KEYWORDS = (
+    "password",
+    "token",
+    "secret",
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "session",
+    "refresh",
+    "access",
+    "id_token",
+)
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
+_BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9\-._~+/]+=*")
+_KEY_VALUE_SECRET_RE = re.compile(
+    r"(?i)\b(password|token|secret|authorization|cookie|set-cookie)\s*=\s*([^\s&;]+)"
+)
+_HEADER_SECRET_RE = re.compile(
+    r"(?i)\b(authorization|cookie|set-cookie)\s*:\s*([^\n\r]+)"
+)
+
+
+def _is_sensitive_key(key: str | None) -> bool:
+    if not key:
+        return False
+    normalized = key.lower()
+    return any(keyword in normalized for keyword in _SENSITIVE_KEYWORDS)
+
+
+def _sanitize_string(value: str) -> str:
+    sanitized = _BEARER_RE.sub("Bearer [REDACTED]", value)
+    sanitized = _HEADER_SECRET_RE.sub(r"\1: [REDACTED]", sanitized)
+    sanitized = _KEY_VALUE_SECRET_RE.sub(r"\1=[REDACTED]", sanitized)
+    sanitized = _EMAIL_RE.sub(EMAIL_FIELD_MARKER, sanitized)
+    return sanitized
+
+
+def sanitize_log_data(value: Any, *, key: str | None = None) -> Any:
+    """
+    Recursively redact sensitive logging payload fields and free-form strings.
+    """
+    if _is_sensitive_key(key):
+        return SENSITIVE_FIELD_MARKER
+
+    if isinstance(value, Mapping):
+        return {str(k): sanitize_log_data(v, key=str(k)) for k, v in value.items()}
+
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [sanitize_log_data(item, key=key) for item in value]
+
+    if isinstance(value, str):
+        return _sanitize_string(value)
+
+    return value
 
 
 def get_correlation_id() -> str | None:
@@ -63,7 +121,7 @@ def clear_context() -> None:
 class JsonFormatter(logging.Formatter):
     """
     JSON log formatter for structured logging.
-    
+
     Output format compatible with common log aggregation systems
     (ELK, Loki, Datadog, etc.)
     """
@@ -84,6 +142,7 @@ class JsonFormatter(logging.Formatter):
     def _get_hostname(self) -> str:
         if self._hostname is None:
             import socket
+
             try:
                 self._hostname = socket.gethostname()
             except Exception:
@@ -94,7 +153,7 @@ class JsonFormatter(logging.Formatter):
         log_obj: dict[str, Any] = {
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": sanitize_log_data(record.getMessage()),
         }
 
         # Add timestamp
@@ -136,8 +195,14 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             log_obj["exception"] = {
                 "type": record.exc_info[0].__name__ if record.exc_info[0] else None,
-                "message": str(record.exc_info[1]) if record.exc_info[1] else None,
-                "traceback": traceback.format_exception(*record.exc_info),
+                "message": (
+                    sanitize_log_data(str(record.exc_info[1]))
+                    if record.exc_info[1]
+                    else None
+                ),
+                "traceback": sanitize_log_data(
+                    traceback.format_exception(*record.exc_info)
+                ),
             }
 
         # Add thread info
@@ -148,19 +213,36 @@ class JsonFormatter(logging.Formatter):
 
         # Add extra fields from record
         extra_keys = set(record.__dict__.keys()) - {
-            "name", "msg", "args", "created", "filename", "funcName",
-            "levelname", "levelno", "lineno", "module", "msecs",
-            "pathname", "process", "processName", "relativeCreated",
-            "stack_info", "exc_info", "exc_text", "thread", "threadName",
-            "message", "asctime",
+            "name",
+            "msg",
+            "args",
+            "created",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "module",
+            "msecs",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "stack_info",
+            "exc_info",
+            "exc_text",
+            "thread",
+            "threadName",
+            "message",
+            "asctime",
         }
         for key in extra_keys:
             value = getattr(record, key, None)
             if value is not None and key not in log_obj:
-                log_obj[key] = value
+                log_obj[key] = sanitize_log_data(value, key=key)
 
         # Add configured extra fields
-        log_obj.update(self.extra_fields)
+        log_obj.update(sanitize_log_data(self.extra_fields))
 
         return json.dumps(log_obj, default=str, ensure_ascii=False)
 
@@ -171,10 +253,10 @@ class ConsoleFormatter(logging.Formatter):
     """
 
     COLORS = {
-        "DEBUG": "\033[36m",     # Cyan
-        "INFO": "\033[32m",      # Green
-        "WARNING": "\033[33m",   # Yellow
-        "ERROR": "\033[31m",     # Red
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
         "CRITICAL": "\033[35m",  # Magenta
     }
     RESET = "\033[0m"
@@ -195,11 +277,13 @@ class ConsoleFormatter(logging.Formatter):
 
         formatted = (
             f"{color}{timestamp} {record.levelname:8}{reset} "
-            f"{prefix} {record.name}: {record.getMessage()}"
+            f"{prefix} {record.name}: {sanitize_log_data(record.getMessage())}"
         )
 
         if record.exc_info:
-            formatted += "\n" + "".join(traceback.format_exception(*record.exc_info))
+            formatted += "\n" + "".join(
+                sanitize_log_data(traceback.format_exception(*record.exc_info))
+            )
 
         return formatted
 
@@ -212,7 +296,7 @@ def configure_logging(
 ) -> None:
     """
     Configure logging for the application.
-    
+
     Args:
         json_format: Use JSON formatting. Default: True in production, False in DEBUG.
         log_level: Logging level. Default: from LOG_LEVEL env or INFO.
@@ -236,7 +320,10 @@ def configure_logging(
     # Set formatter
     if json_format:
         formatter = JsonFormatter(
-            extra_fields={"service": service_name, "env": os.getenv("ENV", "development")}
+            extra_fields={
+                "service": service_name,
+                "env": os.getenv("ENV", "development"),
+            }
         )
     else:
         formatter = ConsoleFormatter()
@@ -246,7 +333,7 @@ def configure_logging(
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(numeric_level)
-    
+
     # Remove existing handlers and add ours
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
@@ -269,6 +356,7 @@ def configure_logging(
 # Logging helpers
 # ============================================================================
 
+
 def log_auth_event(
     event: str,
     *,
@@ -281,7 +369,7 @@ def log_auth_event(
 ) -> None:
     """
     Log an authentication event with structured data.
-    
+
     Args:
         event: Event type (login, logout, mfa_verify, etc.)
         user_id: User ID if known
@@ -292,12 +380,12 @@ def log_auth_event(
         extra: Additional fields to include
     """
     logger = logging.getLogger("accounts.auth")
-    
+
     log_data = {
         "event": event,
         "success": success,
     }
-    
+
     if user_id:
         log_data["user_id"] = user_id
     if email:
@@ -309,7 +397,7 @@ def log_auth_event(
         log_data["ip_address"] = ip_address
     if extra:
         log_data.update(extra)
-    
+
     level = logging.INFO if success else logging.WARNING
     logger.log(level, f"Auth event: {event}", extra=log_data)
 
@@ -326,12 +414,12 @@ def log_oidc_event(
 ) -> None:
     """Log an OIDC event with structured data."""
     logger = logging.getLogger("idp.oidc")
-    
+
     log_data = {
         "event": event,
         "success": success,
     }
-    
+
     if client_id:
         log_data["client_id"] = client_id
     if user_id:
@@ -342,7 +430,7 @@ def log_oidc_event(
         log_data["error_code"] = error_code
     if extra:
         log_data.update(extra)
-    
+
     level = logging.INFO if success else logging.WARNING
     logger.log(level, f"OIDC event: {event}", extra=log_data)
 

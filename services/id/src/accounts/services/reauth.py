@@ -12,7 +12,13 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class ReauthService:
     @staticmethod
-    def verify(user, *, password: str, mfa_code: str | None = None, recovery_code: str | None = None) -> None:
+    def verify(
+        user,
+        *,
+        password: str,
+        mfa_code: str | None = None,
+        recovery_code: str | None = None,
+    ) -> None:
         if not user.check_password(password):
             logger.info(
                 "Reauth failed: invalid password",

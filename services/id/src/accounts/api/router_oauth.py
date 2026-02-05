@@ -3,7 +3,13 @@ from ninja import Router
 from ninja.errors import HttpError
 
 from accounts.services.oauth import OAuthService
-from accounts.transport.schemas import ErrorOut, OAuthLinkOut, OAuthUnlinkIn, OkOut, ProvidersOut
+from accounts.transport.schemas import (
+    ErrorOut,
+    OAuthLinkOut,
+    OAuthUnlinkIn,
+    OkOut,
+    ProvidersOut,
+)
 from updspaceid.services import require_active_user
 
 router_oauth = Router(tags=["OAuth"], auth=[x_session_token_auth])

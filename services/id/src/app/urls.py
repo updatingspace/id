@@ -1,7 +1,6 @@
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.http import JsonResponse
 from django.urls import path, include, re_path
 from django.views.static import serve
 from ninja import NinjaAPI
@@ -13,9 +12,14 @@ from updspaceid.dev_api import dev_router
 from updspaceid.api import router as updspaceid_router
 from idp.router import oidc_router
 from idp.views import jwks, openid_configuration
-from core.health import liveness_view, readiness_view, health_view, set_service_start_time
+from core.health import (
+    liveness_view,
+    readiness_view,
+    health_view,
+    set_service_start_time,
+)
 from core.monitoring import prometheus_metrics_view
-from core.logging_config import configure_logging
+from core.logging_config import configure_logging, sanitize_log_data
 
 # Initialize production logging
 configure_logging()
@@ -42,12 +46,32 @@ oidc_api.add_router("", oidc_router)
 
 @oidc_api.exception_handler(HttpError)
 def oidc_http_error(request, exc):
-    payload = exc.message
-    if payload is None:
-        payload = {"code": "HTTP_ERROR", "message": "Error"}
-    elif not isinstance(payload, dict):
-        payload = {"code": "HTTP_ERROR", "message": str(payload)}
-    return oidc_api.create_response(request, payload, status=exc.status_code)
+    status = getattr(exc, "status_code", 500)
+    raw = exc.message
+    if raw is None:
+        raw = {"code": "HTTP_ERROR", "message": "Error"}
+    elif not isinstance(raw, dict):
+        raw = {"code": "HTTP_ERROR", "message": str(raw)}
+
+    if status >= 500:
+        code = "SERVER_ERROR"
+        message = "Internal server error"
+        details = None
+    else:
+        code = str(raw.get("code") or "HTTP_ERROR")
+        message = str(raw.get("message") or "Error")
+        details = sanitize_log_data(raw.get("details"))
+
+    payload = {
+        "error": {
+            "code": code,
+            "message": message,
+            "details": details,
+            "request_id": str(request.headers.get("X-Request-Id") or ""),
+        }
+    }
+    return oidc_api.create_response(request, payload, status=status)
+
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -72,5 +96,7 @@ urlpatterns = [
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += [
-        re_path(r"^avatars/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
+        re_path(
+            r"^avatars/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}
+        ),
     ]

@@ -10,7 +10,7 @@ from unittest.mock import patch
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from updspaceid.enums import MembershipStatus, OAuthPurpose, UserStatus
+from updspaceid.enums import MembershipStatus, UserStatus
 from updspaceid.models import (
     ActivationToken,
     MagicLinkToken,
@@ -47,7 +47,7 @@ class UpdSpaceIdFlowsTests(TestCase):
             email_verified=False,
         )
         raw_token = "activation-raw-token"
-        token = ActivationToken.objects.create(
+        ActivationToken.objects.create(
             token=_hash_token(raw_token),
             user=user,
             tenant=self.tenant,
@@ -121,7 +121,7 @@ class UpdSpaceIdFlowsTests(TestCase):
             email_verified=True,
         )
         raw_token = "magic-raw-token"
-        token = MagicLinkToken.objects.create(
+        MagicLinkToken.objects.create(
             token=_hash_token(raw_token),
             user=user,
             expires_at=timezone.now() + timedelta(minutes=10),
@@ -183,7 +183,9 @@ class UpdSpaceIdFlowsTests(TestCase):
 
         self.assertEqual(resp.status_code, 200)
 
-    @override_settings(BFF_INTERNAL_HMAC_SECRET="test-hmac", GRAVATAR_AUTOLOAD_ENABLED=False)
+    @override_settings(
+        BFF_INTERNAL_HMAC_SECRET="test-hmac", GRAVATAR_AUTOLOAD_ENABLED=False
+    )
     def test_me_internal_includes_account_profile(self):
         tenant = self.tenant
         user = User.objects.create(

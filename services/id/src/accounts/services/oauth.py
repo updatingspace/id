@@ -103,9 +103,7 @@ class OAuthService:
 
     @staticmethod
     def unlink_provider(user, provider: str) -> None:
-        account = SocialAccount.objects.filter(
-            user=user, provider=provider
-        ).first()
+        account = SocialAccount.objects.filter(user=user, provider=provider).first()
         if not account:
             raise HttpError(404, "not linked")
         SocialToken.objects.filter(account=account).delete()

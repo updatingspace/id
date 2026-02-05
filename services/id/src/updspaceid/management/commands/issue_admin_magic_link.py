@@ -97,8 +97,7 @@ class Command(BaseCommand):
             existing_by_id = Tenant.objects.filter(id=tenant_id).first()
             if existing_by_id and existing_by_id.slug != tenant_slug:
                 raise CommandError(
-                    f"Tenant id {tenant_id} belongs to slug "
-                    f"'{existing_by_id.slug}'."
+                    f"Tenant id {tenant_id} belongs to slug '{existing_by_id.slug}'."
                 )
             tenant = ensure_tenant(tenant_id, tenant_slug)
 
@@ -165,9 +164,7 @@ class Command(BaseCommand):
 
         redirect_to = str(options["redirect_to"] or "").strip()
         if not redirect_to:
-            redirect_to = (
-                f"http://{tenant_slug}.localhost/api/v1/session/callback"
-            )
+            redirect_to = f"http://{tenant_slug}.localhost/api/v1/session/callback"
 
         magic_link = build_magic_link_url(
             token=token.raw_token,

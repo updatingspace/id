@@ -114,13 +114,9 @@ class Command(BaseCommand):
         self.stdout.write(f"  Client ID: {client.client_id}")
 
         if options["show_secret"] and secret_generated:
+            self.stdout.write(self.style.WARNING(f"  Client Secret: {secret}"))
             self.stdout.write(
-                self.style.WARNING(f"  Client Secret: {secret}")
-            )
-            self.stdout.write(
-                self.style.NOTICE(
-                    "  ⚠ Save this secret! It cannot be retrieved later."
-                )
+                self.style.NOTICE("  ⚠ Save this secret! It cannot be retrieved later.")
             )
         elif options["show_secret"] and not secret_generated:
             self.stdout.write(

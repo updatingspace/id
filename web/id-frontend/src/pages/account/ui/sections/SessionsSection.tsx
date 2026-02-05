@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
+import type { SessionRow } from '../../model/types';
 
 type Props = {
   t: (k: string) => string;
-  sessions: any[]; // [{ id, user_agent, ip, current }]
+  sessions: SessionRow[];
   onRevokeSession: (id: string) => Promise<void>;
   onRevokeAll: () => Promise<void>;
 };
@@ -24,7 +25,7 @@ export const SessionsSection: React.FC<Props> = ({ t, sessions, onRevokeSession,
       <h3>{t('sessions.title')}</h3>
 
       <div className="list">
-        {sessions.map((session: any) => (
+        {sessions.map((session) => (
           <div key={session.id} className="list-row">
             <div>
               <strong>{session.user_agent || 'Unknown device'}</strong>

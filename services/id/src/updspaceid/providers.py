@@ -11,7 +11,11 @@ from urllib.request import Request, urlopen
 from django.conf import settings
 from ninja.errors import HttpError
 
-from core.resilience import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpenError
+from core.resilience import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerOpenError,
+)
 from updspaceid.errors import error_payload
 
 logger = logging.getLogger(__name__)
@@ -62,7 +66,9 @@ def _get_provider_config(provider: str) -> ProviderConfig:
             authorize_url=GITHUB_AUTHORIZE_URL,
             token_url=GITHUB_TOKEN_URL,
             user_url=GITHUB_USER_URL,
-            scopes=list(getattr(settings, "GITHUB_SCOPES", ["read:user"]) or ["read:user"]),
+            scopes=list(
+                getattr(settings, "GITHUB_SCOPES", ["read:user"]) or ["read:user"]
+            ),
             redirect_uris=list(getattr(settings, "GITHUB_REDIRECT_URIS", []) or []),
         )
     if provider == "discord":
@@ -73,7 +79,9 @@ def _get_provider_config(provider: str) -> ProviderConfig:
             authorize_url=DISCORD_AUTHORIZE_URL,
             token_url=DISCORD_TOKEN_URL,
             user_url=DISCORD_USER_URL,
-            scopes=list(getattr(settings, "DISCORD_SCOPES", ["identify"]) or ["identify"]),
+            scopes=list(
+                getattr(settings, "DISCORD_SCOPES", ["identify"]) or ["identify"]
+            ),
             redirect_uris=list(getattr(settings, "DISCORD_REDIRECT_URIS", []) or []),
         )
     if provider == "steam":
@@ -87,7 +95,9 @@ def _get_provider_config(provider: str) -> ProviderConfig:
             scopes=[],
             redirect_uris=list(getattr(settings, "STEAM_REDIRECT_URIS", []) or []),
         )
-    raise HttpError(404, error_payload("PROVIDER_NOT_SUPPORTED", "Provider not supported"))
+    raise HttpError(
+        404, error_payload("PROVIDER_NOT_SUPPORTED", "Provider not supported")
+    )
 
 
 def _require_oauth_config(cfg: ProviderConfig) -> None:
@@ -188,7 +198,9 @@ def build_authorization_url(
         }
         return f"{cfg.authorize_url}?{urlencode(params)}"
 
-    raise HttpError(404, error_payload("PROVIDER_NOT_SUPPORTED", "Provider not supported"))
+    raise HttpError(
+        404, error_payload("PROVIDER_NOT_SUPPORTED", "Provider not supported")
+    )
 
 
 def _get_circuit_for_provider(provider: str) -> CircuitBreaker:
@@ -226,7 +238,11 @@ def _request_json_internal(
             error_payload(
                 "OAUTH_EXCHANGE_FAILED",
                 "OAuth provider rejected the request",
-                details={"provider": provider, "status": exc.code, "body": body[:200].decode("utf-8", "ignore")},
+                details={
+                    "provider": provider,
+                    "status": exc.code,
+                    "body": body[:200].decode("utf-8", "ignore"),
+                },
             ),
         ) from exc
     except URLError as exc:
@@ -270,9 +286,11 @@ def _request_json(
     """Make HTTP request with circuit breaker protection."""
     circuit = _get_circuit_for_provider(provider)
     try:
-        return circuit(lambda: _request_json_internal(
-            url=url, method=method, data=data, headers=headers, provider=provider
-        ))()
+        return circuit(
+            lambda: _request_json_internal(
+                url=url, method=method, data=data, headers=headers, provider=provider
+            )
+        )()
     except CircuitBreakerOpenError:
         logger.warning(
             "OAuth circuit breaker open, rejecting request",
@@ -337,7 +355,9 @@ def _request_form(
     """Make form-encoded request with circuit breaker protection."""
     circuit = _get_circuit_for_provider(provider)
     try:
-        return circuit(lambda: _request_form_internal(url=url, data=data, provider=provider))()
+        return circuit(
+            lambda: _request_form_internal(url=url, data=data, provider=provider)
+        )()
     except CircuitBreakerOpenError:
         logger.warning(
             "OAuth circuit breaker open, rejecting request",
@@ -396,7 +416,10 @@ def _exchange_discord_code(cfg: ProviderConfig, code: str, redirect_uri: str) ->
         url=cfg.token_url or "",
         method="POST",
         data=payload,
-        headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
         provider=cfg.provider,
     )
     token = str(data.get("access_token") or "")
@@ -434,15 +457,21 @@ def _fetch_user_subject(cfg: ProviderConfig, token: str) -> str:
 def _steam_subject_from_claimed_id(claimed_id: str) -> str:
     m = STEAM_CLAIMED_ID_RE.match(str(claimed_id))
     if not m:
-        raise HttpError(400, error_payload("INVALID_CLAIMED_ID", "Invalid steam claimed_id"))
+        raise HttpError(
+            400, error_payload("INVALID_CLAIMED_ID", "Invalid steam claimed_id")
+        )
     return m.group(1)
 
 
-def _steam_verify_openid(openid_params: dict[str, str], expected_state: str | None) -> str:
+def _steam_verify_openid(
+    openid_params: dict[str, str], expected_state: str | None
+) -> str:
     if not openid_params:
         raise HttpError(
             400,
-            error_payload("MISSING_OPENID_PARAMS", "openid_params are required for steam"),
+            error_payload(
+                "MISSING_OPENID_PARAMS", "openid_params are required for steam"
+            ),
         )
     return_to = openid_params.get("openid.return_to") or ""
     if expected_state:
@@ -453,9 +482,15 @@ def _steam_verify_openid(openid_params: dict[str, str], expected_state: str | No
                 400,
                 error_payload("INVALID_STATE", "state does not match return_to"),
             )
-    claimed_id = openid_params.get("openid.claimed_id") or openid_params.get("openid.identity") or ""
+    claimed_id = (
+        openid_params.get("openid.claimed_id")
+        or openid_params.get("openid.identity")
+        or ""
+    )
     if not claimed_id:
-        raise HttpError(400, error_payload("MISSING_CLAIMED_ID", "claimed_id is required for steam"))
+        raise HttpError(
+            400, error_payload("MISSING_CLAIMED_ID", "claimed_id is required for steam")
+        )
     payload = {k: v for k, v in openid_params.items() if k.startswith("openid.")}
     payload["openid.mode"] = "check_authentication"
     body = _request_form(
@@ -464,7 +499,9 @@ def _steam_verify_openid(openid_params: dict[str, str], expected_state: str | No
         provider="steam",
     )
     if "is_valid:true" not in body:
-        raise HttpError(400, error_payload("INVALID_OPENID", "Steam OpenID validation failed"))
+        raise HttpError(
+            400, error_payload("INVALID_OPENID", "Steam OpenID validation failed")
+        )
     return _steam_subject_from_claimed_id(claimed_id)
 
 
@@ -486,12 +523,17 @@ def exchange_code_for_subject(
         if openid_params:
             return _steam_verify_openid(openid_params, expected_state)
         if not claimed_id:
-            raise HttpError(400, error_payload("MISSING_CLAIMED_ID", "claimed_id is required for steam"))
+            raise HttpError(
+                400,
+                error_payload("MISSING_CLAIMED_ID", "claimed_id is required for steam"),
+            )
         return _steam_subject_from_claimed_id(claimed_id)
 
     redirect_uri = _normalize_redirect_uri(cfg, redirect_uri)
     if not code:
-        raise HttpError(400, error_payload("MISSING_CODE", "code is required for oauth provider"))
+        raise HttpError(
+            400, error_payload("MISSING_CODE", "code is required for oauth provider")
+        )
 
     if provider == "github":
         token = _exchange_github_code(cfg, code, redirect_uri)
@@ -501,4 +543,6 @@ def exchange_code_for_subject(
         token = _exchange_discord_code(cfg, code, redirect_uri)
         return _fetch_user_subject(cfg, token)
 
-    raise HttpError(404, error_payload("PROVIDER_NOT_SUPPORTED", "Provider not supported"))
+    raise HttpError(
+        404, error_payload("PROVIDER_NOT_SUPPORTED", "Provider not supported")
+    )

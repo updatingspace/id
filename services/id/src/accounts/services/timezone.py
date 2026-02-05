@@ -2,6 +2,7 @@
 Timezone service for managing user timezone preferences.
 Uses pytz for timezone validation and data.
 """
+
 from __future__ import annotations
 
 import logging

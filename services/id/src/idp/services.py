@@ -142,20 +142,20 @@ def _verify_pkce(code_verifier: str, code_challenge: str, method: str) -> bool:
     verifier = (code_verifier or "").strip()
     if not verifier:
         return False
-    if not method or method == "plain":
-        return secrets.compare_digest(verifier, code_challenge)
-    if method.upper() == "S256":
-        hashed = hashlib.sha256(verifier.encode("ascii")).digest()
-        computed = base64.urlsafe_b64encode(hashed).rstrip(b"=").decode("ascii")
-        return secrets.compare_digest(computed, code_challenge)
-    return False
+    if method.upper() != "S256":
+        return False
+    hashed = hashlib.sha256(verifier.encode("ascii")).digest()
+    computed = base64.urlsafe_b64encode(hashed).rstrip(b"=").decode("ascii")
+    return secrets.compare_digest(computed, code_challenge)
 
 
 def _resolve_token_public_key(token: str) -> str:
     try:
         header = jwt.get_unverified_header(token)
     except InvalidTokenError as exc:
-        raise HttpError(401, {"code": "INVALID_TOKEN", "message": "invalid token"}) from exc
+        raise HttpError(
+            401, {"code": "INVALID_TOKEN", "message": "invalid token"}
+        ) from exc
     kid = header.get("kid")
     if kid:
         key = public_key_for_kid(kid)
@@ -165,7 +165,7 @@ def _resolve_token_public_key(token: str) -> str:
             401,
             {
                 "code": "UNKNOWN_KEY",
-                "message": f"unknown token key: {kid}",
+                "message": "unknown token key",
             },
         )
     return load_keypair().public_key_pem
@@ -182,7 +182,9 @@ def _decode_jwt_token(token: str) -> dict:
             options={"verify_aud": False},
         )
     except InvalidTokenError as exc:
-        raise HttpError(401, {"code": "INVALID_TOKEN", "message": "invalid token"}) from exc
+        raise HttpError(
+            401, {"code": "INVALID_TOKEN", "message": "invalid token"}
+        ) from exc
 
 
 def _claims_for_scopes(
@@ -253,12 +255,17 @@ class OidcService:
         if response_type != "code":
             raise HttpError(
                 400,
-                {"code": "UNSUPPORTED_RESPONSE_TYPE", "message": "response_type must be code"},
+                {
+                    "code": "UNSUPPORTED_RESPONSE_TYPE",
+                    "message": "response_type must be code",
+                },
             )
 
         client = OidcClient.objects.filter(client_id=client_id).first()
         if not client:
-            raise HttpError(404, {"code": "CLIENT_NOT_FOUND", "message": "client not found"})
+            raise HttpError(
+                404, {"code": "CLIENT_NOT_FOUND", "message": "client not found"}
+            )
         if redirect_uri not in (client.redirect_uris or []):
             raise HttpError(
                 400,
@@ -267,12 +274,43 @@ class OidcService:
         if client.response_types and "code" not in (client.response_types or []):
             raise HttpError(
                 400,
-                {"code": "UNSUPPORTED_RESPONSE_TYPE", "message": "response_type not allowed"},
+                {
+                    "code": "UNSUPPORTED_RESPONSE_TYPE",
+                    "message": "response_type not allowed",
+                },
+            )
+        challenge_method = (code_challenge_method or "").strip().upper()
+        if code_challenge and challenge_method != "S256":
+            raise HttpError(
+                400,
+                {
+                    "code": "INVALID_PKCE_METHOD",
+                    "message": "code_challenge_method must be S256",
+                },
+            )
+        if code_challenge_method and not code_challenge:
+            raise HttpError(
+                400,
+                {
+                    "code": "INVALID_PKCE_METHOD",
+                    "message": "code_challenge is required when code_challenge_method is set",
+                },
             )
         if client.is_public and not code_challenge:
             raise HttpError(
                 400,
-                {"code": "PKCE_REQUIRED", "message": "code_challenge required for public clients"},
+                {
+                    "code": "PKCE_REQUIRED",
+                    "message": "code_challenge required for public clients",
+                },
+            )
+        if client.is_public and challenge_method != "S256":
+            raise HttpError(
+                400,
+                {
+                    "code": "INVALID_PKCE_METHOD",
+                    "message": "public clients must use S256 PKCE",
+                },
             )
 
         scopes = _normalize_scope_request(scope_raw, client)
@@ -334,10 +372,14 @@ class OidcService:
     ) -> str:
         req = OidcAuthorizationRequest.objects.filter(request_id=request_id).first()
         if not req or req.user_id != getattr(user, "id", None):
-            raise HttpError(404, {"code": "REQUEST_NOT_FOUND", "message": "request not found"})
+            raise HttpError(
+                404, {"code": "REQUEST_NOT_FOUND", "message": "request not found"}
+            )
         if req.expires_at < timezone.now():
             req.delete()
-            raise HttpError(400, {"code": "REQUEST_EXPIRED", "message": "request expired"})
+            raise HttpError(
+                400, {"code": "REQUEST_EXPIRED", "message": "request expired"}
+            )
 
         requested_scopes = normalize_scopes(req.scope)
         if approved_scopes:
@@ -376,7 +418,9 @@ class OidcService:
     def deny_authorization(user, *, request_id: str) -> str:
         req = OidcAuthorizationRequest.objects.filter(request_id=request_id).first()
         if not req or req.user_id != getattr(user, "id", None):
-            raise HttpError(404, {"code": "REQUEST_NOT_FOUND", "message": "request not found"})
+            raise HttpError(
+                404, {"code": "REQUEST_NOT_FOUND", "message": "request not found"}
+            )
         redirect = _build_redirect(
             req.redirect_uri,
             {"error": "access_denied", "state": req.state},
@@ -400,13 +444,17 @@ class OidcService:
                 )
         client = OidcClient.objects.filter(client_id=client_id).first()
         if not client or not client.check_secret(client_secret):
-            raise HttpError(401, {"code": "INVALID_CLIENT", "message": "invalid client"})
+            raise HttpError(
+                401, {"code": "INVALID_CLIENT", "message": "invalid client"}
+            )
         return client
 
     @staticmethod
     def exchange_code(payload: dict, request=None) -> dict:
         client = OidcService.authenticate_client(request, payload)
-        if client.grant_types and "authorization_code" not in (client.grant_types or []):
+        if client.grant_types and "authorization_code" not in (
+            client.grant_types or []
+        ):
             raise HttpError(
                 400,
                 {"code": "UNSUPPORTED_GRANT_TYPE", "message": "grant_type not allowed"},
@@ -424,8 +472,20 @@ class OidcService:
                 400, {"code": "INVALID_REDIRECT_URI", "message": "redirect mismatch"}
             )
         if code_obj.code_challenge:
-            if not _verify_pkce(code_verifier, code_obj.code_challenge, code_obj.code_challenge_method):
-                raise HttpError(400, {"code": "INVALID_PKCE", "message": "pkce check failed"})
+            if (code_obj.code_challenge_method or "").strip().upper() != "S256":
+                raise HttpError(
+                    400,
+                    {
+                        "code": "INVALID_PKCE_METHOD",
+                        "message": "code_challenge_method must be S256",
+                    },
+                )
+            if not _verify_pkce(
+                code_verifier, code_obj.code_challenge, code_obj.code_challenge_method
+            ):
+                raise HttpError(
+                    400, {"code": "INVALID_PKCE", "message": "pkce check failed"}
+                )
 
         code_obj.used_at = timezone.now()
         code_obj.save(update_fields=["used_at"])
@@ -456,9 +516,12 @@ class OidcService:
             .order_by("-created_at")
             .first()
         )
-        if not token or (token.refresh_expires_at and token.refresh_expires_at < timezone.now()):
+        if not token or (
+            token.refresh_expires_at and token.refresh_expires_at < timezone.now()
+        ):
             raise HttpError(
-                400, {"code": "INVALID_REFRESH_TOKEN", "message": "invalid refresh token"}
+                400,
+                {"code": "INVALID_REFRESH_TOKEN", "message": "invalid refresh token"},
             )
         _ensure_user_active(token.user)
         token.revoked_at = timezone.now()
@@ -472,7 +535,9 @@ class OidcService:
         )
 
     @staticmethod
-    def _issue_tokens(*, user, client: OidcClient, scope: str, nonce: str, request=None) -> dict:
+    def _issue_tokens(
+        *, user, client: OidcClient, scope: str, nonce: str, request=None
+    ) -> dict:
         _ensure_user_active(user)
         scope_list = normalize_scopes(scope)
         subject_id = _resolve_subject_id(user)
@@ -564,7 +629,9 @@ class OidcService:
     def userinfo(access_token: str, request=None) -> dict:
         payload = _decode_jwt_token(access_token)
         jti = str(payload.get("jti") or "")
-        token = OidcToken.objects.filter(access_jti=jti, revoked_at__isnull=True).first()
+        token = OidcToken.objects.filter(
+            access_jti=jti, revoked_at__isnull=True
+        ).first()
         if not token:
             raise HttpError(401, {"code": "TOKEN_REVOKED", "message": "token revoked"})
         scope_list = normalize_scopes(payload.get("scope") or "")

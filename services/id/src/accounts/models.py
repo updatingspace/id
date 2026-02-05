@@ -124,7 +124,9 @@ class UserDevice(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["user", "last_seen"], name="acct_device_user_last_idx"),
+            models.Index(
+                fields=["user", "last_seen"], name="acct_device_user_last_idx"
+            ),
         ]
 
 
@@ -205,7 +207,9 @@ class DataExportRequest(models.Model):
         verbose_name_plural = "Запросы на экспорт данных"
         indexes = [
             models.Index(fields=["user", "requested_at"], name="acct_export_user_idx"),
-            models.Index(fields=["status", "requested_at"], name="acct_export_status_idx"),
+            models.Index(
+                fields=["status", "requested_at"], name="acct_export_status_idx"
+            ),
         ]
 
 
@@ -233,8 +237,11 @@ class AccountDeletionRequest(models.Model):
         verbose_name = "Запрос на удаление аккаунта"
         verbose_name_plural = "Запросы на удаление аккаунта"
         indexes = [
-            models.Index(fields=["status", "requested_at"], name="acct_delete_status_idx"),
+            models.Index(
+                fields=["status", "requested_at"], name="acct_delete_status_idx"
+            ),
         ]
+
 
 __all__ = [
     "UserProfile",

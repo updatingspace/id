@@ -42,7 +42,7 @@ class HeadlessService:
             getattr(
                 settings,
                 "HEADLESS_TOKEN_STRATEGY",
-                "allauth.headless.tokens.sessions.SessionTokenStrategy",
+                "allauth.headless.tokens.strategies.sessions.SessionTokenStrategy",
             )
         )
         return Strategy().create_session_token(request)
@@ -146,7 +146,9 @@ class HeadlessService:
             elif rc_auth and RecoveryCodes(rc_auth).validate_code(code):
                 validated = True
                 mfa_used = "recovery_code"
-                record_authentication(request, user, method="mfa", type="recovery_codes")
+                record_authentication(
+                    request, user, method="mfa", type="recovery_codes"
+                )
             if not validated:
                 logger.warning(
                     "Headless login failed: invalid MFA code",
@@ -379,7 +381,9 @@ def _sync_updspace_identity(request, user) -> None:
     if not display_name:
         display_name = getattr(user, "username", "") or email.split("@")[0]
     is_verified = EmailAddress.objects.filter(user=user, verified=True).exists()
-    is_admin = bool(getattr(user, "is_staff", False) or getattr(user, "is_superuser", False))
+    is_admin = bool(
+        getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
+    )
     try:
         tenant = ensure_tenant(tenant_id, tenant_slug)
         with transaction.atomic():

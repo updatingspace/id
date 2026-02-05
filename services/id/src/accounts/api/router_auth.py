@@ -1,6 +1,7 @@
 from allauth.headless.contrib.ninja.security import x_session_token_auth
 from ninja import Body, Router
 from ninja.errors import HttpError
+from ninja.responses import Response
 
 from accounts.api.security import authenticate_optional
 from accounts.services.auth import AuthService
@@ -16,6 +17,7 @@ from accounts.transport.schemas import (
 
 auth_router = Router(tags=["Auth"])
 REQUIRED_BODY = Body(...)
+NO_STORE_HEADERS = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 
 
 def _require_user(request):
@@ -37,7 +39,11 @@ def _require_user(request):
 )
 def jwt_from_session(request):
     user = _require_user(request)
-    return AuthService.issue_pair_for_session(request, user)
+    pair = AuthService.issue_pair_for_session(request, user)
+    return Response(
+        {"access": pair.access, "refresh": pair.refresh},
+        headers=NO_STORE_HEADERS,
+    )
 
 
 @auth_router.post(
@@ -91,4 +97,8 @@ def change_password(request, payload: ChangePasswordIn = REQUIRED_BODY):
     operation_id="auth_refresh",
 )
 def refresh_pair(request, payload: TokenRefreshIn = REQUIRED_BODY):
-    return AuthService.refresh_pair(payload)
+    tokens = AuthService.refresh_pair(payload)
+    return Response(
+        {"refresh": tokens.refresh, "access": tokens.access},
+        headers=NO_STORE_HEADERS,
+    )

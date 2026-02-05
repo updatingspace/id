@@ -302,7 +302,8 @@ class SessionService:
                 continue
 
             us_revoked = bool(
-                us and (getattr(us, "ended_at", None) or getattr(us, "revoked_at", None))
+                us
+                and (getattr(us, "ended_at", None) or getattr(us, "revoked_at", None))
             )
             meta_revoked = bool(meta and meta.revoked_at)
 
@@ -380,7 +381,9 @@ class SessionService:
             raise HttpError(404, "session not found")
 
         now = timezone.now()
-        if us and not (getattr(us, "ended_at", None) or getattr(us, "revoked_at", None)):
+        if us and not (
+            getattr(us, "ended_at", None) or getattr(us, "revoked_at", None)
+        ):
             for field, value in (("ended_at", now), ("revoked_at", now)):
                 if hasattr(us, field):
                     setattr(us, field, value)

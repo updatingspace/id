@@ -1,11 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import type { AccountUser } from '../../model/types';
+
+type ProfilePayload = {
+  first_name: string;
+  last_name: string;
+  phone_number: string;
+  birth_date: string;
+};
 
 type Props = {
   t: (k: string) => string;
-  user: any;
+  user: AccountUser;
   emailVerified: boolean;
   emailAddress: string;
-  onSaveProfile: (payload: any) => Promise<void>;
+  onSaveProfile: (payload: ProfilePayload) => Promise<void>;
   onResendEmail: () => Promise<void>;
   onRequestEmailChange: (newEmail: string) => Promise<void>;
 };
@@ -19,22 +27,13 @@ export const ProfileSection: React.FC<Props> = ({
   onResendEmail,
   onRequestEmailChange,
 }) => {
-  const [profileForm, setProfileForm] = useState({
-    first_name: '',
-    last_name: '',
-    phone_number: '',
-    birth_date: '',
-  });
+  const [profileForm, setProfileForm] = useState<ProfilePayload>(() => ({
+    first_name: user.first_name || '',
+    last_name: user.last_name || '',
+    phone_number: user.phone_number || '',
+    birth_date: user.birth_date || '',
+  }));
   const [emailForm, setEmailForm] = useState({ newEmail: '' });
-
-  useEffect(() => {
-    setProfileForm({
-      first_name: user.first_name || '',
-      last_name: user.last_name || '',
-      phone_number: user.phone_number || '',
-      birth_date: user.birth_date || '',
-    });
-  }, [user]);
 
   return (
     <div className="stack">

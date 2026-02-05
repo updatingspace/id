@@ -1,10 +1,23 @@
 """Tests for monitoring module."""
-import pytest
-from core.monitoring import MetricsRegistry, track_login_attempt, track_oidc_event
+
+from django.test import RequestFactory
+
+from core.monitoring import (
+    AUTH_LOGIN_ATTEMPTS_TOTAL,
+    AUTH_LOGIN_FAILURE_TOTAL,
+    AUTH_LOGIN_SUCCESS_TOTAL,
+    MetricsRegistry,
+    track_login_attempt,
+    track_oidc_event,
+    prometheus_metrics_view,
+)
 
 
 class TestMetricsRegistry:
     """Tests for MetricsRegistry singleton."""
+
+    def setup_method(self):
+        MetricsRegistry().reset()
 
     def test_singleton_instance(self):
         """Registry returns same instance."""
@@ -15,48 +28,54 @@ class TestMetricsRegistry:
     def test_counter_increment(self):
         """Counter increments correctly."""
         registry = MetricsRegistry()
-        registry.counter("test_counter", labels={"type": "test"})
-        registry.counter("test_counter", labels={"type": "test"})
+        registry.inc_counter("test_counter", labels={"type": "test"})
+        registry.inc_counter("test_counter", labels={"type": "test"})
 
-        stats = registry._counters.get("test_counter", {})
-        assert stats.get(("type", "test"), 0) >= 2
+        labels_key = tuple(sorted({"type": "test"}.items()))
+        assert registry._counters["test_counter"][labels_key] == 2
 
     def test_gauge_set(self):
         """Gauge sets value correctly."""
         registry = MetricsRegistry()
-        registry.gauge("test_gauge", 42.5)
+        registry.set_gauge("test_gauge", 42.5)
 
-        assert registry._gauges.get("test_gauge") == 42.5
+        labels_key = tuple()
+        assert registry._gauges["test_gauge"][labels_key] == 42.5
 
     def test_histogram_observe(self):
         """Histogram records observations."""
         registry = MetricsRegistry()
-        registry.histogram(
-            "test_histogram", 0.5, labels={"method": "GET"}
-        )
+        registry.observe_histogram("test_histogram", 0.5, labels={"method": "GET"})
 
-        key = "test_histogram"
-        assert key in registry._histograms
+        key = tuple(sorted({"method": "GET"}.items()))
+        assert registry._histograms["test_histogram"][key] == [0.5]
 
 
 class TestTrackingFunctions:
     """Tests for tracking helper functions."""
 
+    def setup_method(self):
+        MetricsRegistry().reset()
+
     def test_track_login_attempt_success(self):
         """Track successful login."""
-        # Should not raise
-        track_login_attempt(
-            success=True,
-            user_id="test-user-123",
-            method="password",
-        )
+        track_login_attempt(success=True, method="password")
+
+        counters = MetricsRegistry()._counters
+        assert counters[AUTH_LOGIN_ATTEMPTS_TOTAL][(("method", "password"),)] == 1
+        assert counters[AUTH_LOGIN_SUCCESS_TOTAL][(("method", "password"),)] == 1
 
     def test_track_login_attempt_failure(self):
         """Track failed login."""
-        track_login_attempt(
-            success=False,
-            method="password",
-            failure_reason="invalid_password",
+        track_login_attempt(success=False, method="password", reason="invalid_password")
+
+        counters = MetricsRegistry()._counters
+        assert counters[AUTH_LOGIN_ATTEMPTS_TOTAL][(("method", "password"),)] == 1
+        assert (
+            counters[AUTH_LOGIN_FAILURE_TOTAL][
+                (("method", "password"), ("reason", "invalid_password"))
+            ]
+            == 1
         )
 
     def test_track_oidc_event(self):
@@ -71,12 +90,16 @@ class TestTrackingFunctions:
 class TestPrometheusExport:
     """Tests for Prometheus export format."""
 
+    def setup_method(self):
+        MetricsRegistry().reset()
+
     def test_export_format(self):
         """Export produces valid Prometheus format."""
         registry = MetricsRegistry()
-        registry.counter("export_test_total", labels={"status": "200"})
+        registry.inc_counter("export_test_total", labels={"status": "200"})
 
-        output = registry.export_prometheus()
+        response = prometheus_metrics_view(RequestFactory().get("/metrics"))
+        output = response.content.decode("utf-8")
 
         assert "# HELP" in output
         assert "# TYPE" in output

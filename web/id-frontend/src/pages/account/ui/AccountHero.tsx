@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
+import type { AccountUser } from '../model/types';
 
 type BadgeTone = 'accent' | 'info' | 'muted' | 'danger';
 
 type Props = {
-  user: any;
+  user: AccountUser | null;
   displayName: string;
   emailAddress: string;
   emailVerified: boolean;

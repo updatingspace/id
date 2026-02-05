@@ -82,9 +82,7 @@ def _require_authenticated_user(request) -> User:
 @transaction.atomic
 def account_update_profile(request, payload: ProfileUpdateIn = REQUIRED_BODY):
     user = _require_authenticated_user(request)
-    ProfileService.update_name(
-        user, first=payload.first_name, last=payload.last_name
-    )
+    ProfileService.update_name(user, first=payload.first_name, last=payload.last_name)
     if payload.phone_number is not None or payload.birth_date is not None:
         birth_date = None
         if payload.birth_date:
@@ -171,9 +169,7 @@ def account_email_status(request):
 def account_change_email(request, payload: ChangeEmailIn = REQUIRED_BODY):
     user = _require_authenticated_user(request)
     EmailService.request_change(request, user, new_email=payload.new_email)
-    return OkOut(
-        ok=True, message="Проверьте почту, чтобы подтвердить новый адрес"
-    )
+    return OkOut(ok=True, message="Проверьте почту, чтобы подтвердить новый адрес")
 
 
 @account_router.post(
@@ -219,9 +215,7 @@ def account_preferences_get(request):
     summary="Update privacy and communication preferences",
     operation_id="account_preferences_update",
 )
-def account_preferences_update(
-    request, payload: PreferencesUpdateIn = REQUIRED_BODY
-):
+def account_preferences_update(request, payload: PreferencesUpdateIn = REQUIRED_BODY):
     user = _require_authenticated_user(request)
     PreferencesService.update(
         user,
@@ -421,9 +415,7 @@ def account_delete(request, payload: AccountDeleteIn = REQUIRED_BODY):
         mfa_code=payload.mfa_code,
         recovery_code=payload.recovery_code,
     )
-    AccountDeletionService.delete_account(
-        request, user, reason=payload.reason
-    )
+    AccountDeletionService.delete_account(request, user, reason=payload.reason)
     return OkOut(ok=True, message="Аккаунт удалён")
 
 

@@ -6,7 +6,7 @@ import LoginPage from './LoginPage';
 import { AuthContext } from '../../lib/auth';
 import { I18nProvider } from '../../lib/i18n';
 
-vi.mock('../lib/api', () => ({
+vi.mock('../../lib/api', () => ({
   api: {
     getOAuthProviders: vi.fn().mockResolvedValue({ providers: [] }),
     getOAuthLoginUrl: vi.fn(),

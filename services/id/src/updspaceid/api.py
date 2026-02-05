@@ -12,8 +12,9 @@ from ninja import NinjaAPI, Router
 from ninja.errors import HttpError
 from functools import wraps
 
+from core.logging_config import sanitize_log_data
 from core.security import require_internal_signature
-from updspaceid.enums import ApplicationStatus, ExternalProvider, OAuthPurpose
+from updspaceid.enums import ExternalProvider, OAuthPurpose
 from updspaceid.errors import error_payload
 from updspaceid.http import require_context
 from updspaceid.models import Application, Tenant, TenantMembership, User
@@ -65,14 +66,21 @@ def _error_envelope_response(request, exc: HttpError):
     if not isinstance(raw, dict):
         raw = {"code": "HTTP_ERROR", "message": str(raw)}
 
+    if status >= 500:
+        code = "SERVER_ERROR"
+        message = "Internal server error"
+        details = None
+    else:
+        code = str(raw.get("code") or "HTTP_ERROR")
+        message = str(raw.get("message") or "Error")
+        details = sanitize_log_data(raw.get("details"))
+
     request_id = request.headers.get("X-Request-Id") or ""
     payload = {
         "error": {
-            "code": str(
-                raw.get("code") or ("SERVER_ERROR" if status >= 500 else "HTTP_ERROR")
-            ),
-            "message": str(raw.get("message") or "Error"),
-            "details": raw.get("details"),
+            "code": code,
+            "message": message,
+            "details": details,
             "request_id": str(request_id),
         }
     }
@@ -114,7 +122,9 @@ def _require_session_user(request) -> User:
     user = get_session_user(token)
     # Tenant isolation: user must have membership in current tenant
     tenant = ensure_tenant(ctx.tenant_id, ctx.tenant_slug)
-    if not TenantMembership.objects.filter(user=user, tenant=tenant, status="active").exists():
+    if not TenantMembership.objects.filter(
+        user=user, tenant=tenant, status="active"
+    ).exists():
         raise HttpError(403, error_payload("TENANT_FORBIDDEN", "No access to tenant"))
     return user
 
@@ -201,7 +211,13 @@ def applications_list(request, status: str | None = None):
 
 @router.post(
     "/applications/{application_id}/approve",
-    response={200: ApproveOut, 401: ErrorEnvelopeOut, 403: ErrorEnvelopeOut, 404: ErrorEnvelopeOut, 409: ErrorEnvelopeOut},
+    response={
+        200: ApproveOut,
+        401: ErrorEnvelopeOut,
+        403: ErrorEnvelopeOut,
+        404: ErrorEnvelopeOut,
+        409: ErrorEnvelopeOut,
+    },
     operation_id="applications_approve",
 )
 @_with_error_envelope
@@ -212,7 +228,9 @@ def applications_approve(request, application_id: int):
     try:
         application = Application.objects.get(id=application_id)
     except Application.DoesNotExist as exc:
-        raise HttpError(404, error_payload("NOT_FOUND", "Application not found")) from exc
+        raise HttpError(
+            404, error_payload("NOT_FOUND", "Application not found")
+        ) from exc
 
     activation = approve_application(
         application,
@@ -241,7 +259,13 @@ def applications_approve(request, application_id: int):
 
 @router.post(
     "/applications/{application_id}/reject",
-    response={200: RejectOut, 401: ErrorEnvelopeOut, 403: ErrorEnvelopeOut, 404: ErrorEnvelopeOut, 409: ErrorEnvelopeOut},
+    response={
+        200: RejectOut,
+        401: ErrorEnvelopeOut,
+        403: ErrorEnvelopeOut,
+        404: ErrorEnvelopeOut,
+        409: ErrorEnvelopeOut,
+    },
     operation_id="applications_reject",
 )
 @_with_error_envelope
@@ -250,7 +274,9 @@ def applications_reject(request, application_id: int):
     try:
         application = Application.objects.get(id=application_id)
     except Application.DoesNotExist as exc:
-        raise HttpError(404, error_payload("NOT_FOUND", "Application not found")) from exc
+        raise HttpError(
+            404, error_payload("NOT_FOUND", "Application not found")
+        ) from exc
 
     from updspaceid.services import reject_application
 
@@ -260,7 +286,14 @@ def applications_reject(request, application_id: int):
 
 @router.post(
     "/auth/activate",
-    response={200: ActivateOut, 400: ErrorEnvelopeOut, 403: ErrorEnvelopeOut, 404: ErrorEnvelopeOut, 409: ErrorEnvelopeOut, 410: ErrorEnvelopeOut},
+    response={
+        200: ActivateOut,
+        400: ErrorEnvelopeOut,
+        403: ErrorEnvelopeOut,
+        404: ErrorEnvelopeOut,
+        409: ErrorEnvelopeOut,
+        410: ErrorEnvelopeOut,
+    },
     operation_id="auth_activate",
 )
 @_with_error_envelope
@@ -358,7 +391,9 @@ def me(request):
             "timezone": getattr(account_profile, "timezone", None),
             "avatar_url": avatar_url,
             "avatar_source": getattr(account_profile, "avatar_source", None),
-            "avatar_gravatar_enabled": getattr(account_profile, "avatar_gravatar_enabled", None),
+            "avatar_gravatar_enabled": getattr(
+                account_profile, "avatar_gravatar_enabled", None
+            ),
         },
         "memberships": [
             {
@@ -374,14 +409,27 @@ def me(request):
 
 def _validate_provider(provider: str) -> str:
     provider = str(provider)
-    if provider not in {ExternalProvider.GITHUB, ExternalProvider.DISCORD, ExternalProvider.STEAM}:
-        raise HttpError(404, error_payload("PROVIDER_NOT_SUPPORTED", "Provider not supported"))
+    if provider not in {
+        ExternalProvider.GITHUB,
+        ExternalProvider.DISCORD,
+        ExternalProvider.STEAM,
+    }:
+        raise HttpError(
+            404, error_payload("PROVIDER_NOT_SUPPORTED", "Provider not supported")
+        )
     return provider
 
 
 @router.post(
     "/external-identities/{provider}/link/start",
-    response={200: OAuthStartOut, 400: ErrorEnvelopeOut, 401: ErrorEnvelopeOut, 403: ErrorEnvelopeOut, 404: ErrorEnvelopeOut, 501: ErrorEnvelopeOut},
+    response={
+        200: OAuthStartOut,
+        400: ErrorEnvelopeOut,
+        401: ErrorEnvelopeOut,
+        403: ErrorEnvelopeOut,
+        404: ErrorEnvelopeOut,
+        501: ErrorEnvelopeOut,
+    },
     operation_id="external_identities_link_start",
 )
 @_with_error_envelope
@@ -417,7 +465,17 @@ def external_identities_link_start(request, provider: str, payload: OAuthStartIn
 
 @router.post(
     "/external-identities/{provider}/link/callback",
-    response={200: OkOut, 400: ErrorEnvelopeOut, 401: ErrorEnvelopeOut, 403: ErrorEnvelopeOut, 404: ErrorEnvelopeOut, 409: ErrorEnvelopeOut, 410: ErrorEnvelopeOut, 501: ErrorEnvelopeOut, 502: ErrorEnvelopeOut},
+    response={
+        200: OkOut,
+        400: ErrorEnvelopeOut,
+        401: ErrorEnvelopeOut,
+        403: ErrorEnvelopeOut,
+        404: ErrorEnvelopeOut,
+        409: ErrorEnvelopeOut,
+        410: ErrorEnvelopeOut,
+        501: ErrorEnvelopeOut,
+        502: ErrorEnvelopeOut,
+    },
     operation_id="external_identities_link_callback",
 )
 @_with_error_envelope
@@ -453,7 +511,12 @@ def external_identities_link_callback(request, provider: str, payload: OAuthCall
 
 @router.post(
     "/oauth/{provider}/login/start",
-    response={200: OAuthStartOut, 400: ErrorEnvelopeOut, 404: ErrorEnvelopeOut, 501: ErrorEnvelopeOut},
+    response={
+        200: OAuthStartOut,
+        400: ErrorEnvelopeOut,
+        404: ErrorEnvelopeOut,
+        501: ErrorEnvelopeOut,
+    },
     operation_id="oauth_login_start",
 )
 @_with_error_envelope
@@ -488,7 +551,16 @@ def oauth_login_start(request, provider: str, payload: OAuthStartIn):
 
 @router.post(
     "/oauth/{provider}/login/callback",
-    response={200: OAuthLoginOut, 400: ErrorEnvelopeOut, 403: ErrorEnvelopeOut, 404: ErrorEnvelopeOut, 409: ErrorEnvelopeOut, 410: ErrorEnvelopeOut, 501: ErrorEnvelopeOut, 502: ErrorEnvelopeOut},
+    response={
+        200: OAuthLoginOut,
+        400: ErrorEnvelopeOut,
+        403: ErrorEnvelopeOut,
+        404: ErrorEnvelopeOut,
+        409: ErrorEnvelopeOut,
+        410: ErrorEnvelopeOut,
+        501: ErrorEnvelopeOut,
+        502: ErrorEnvelopeOut,
+    },
     operation_id="oauth_login_callback",
 )
 @_with_error_envelope
@@ -570,7 +642,9 @@ def migrations_aefvote_import(request, payload: MigrationImportIn):
                 "email_verified": False,
             },
         )
-        MigrationMap.objects.get_or_create(old_system="aefvote", old_user_id=old_user_id, defaults={"user": user})
+        MigrationMap.objects.get_or_create(
+            old_system="aefvote", old_user_id=old_user_id, defaults={"user": user}
+        )
         if created:
             imported += 1
     return {"imported": imported}
@@ -578,7 +652,12 @@ def migrations_aefvote_import(request, payload: MigrationImportIn):
 
 @router.post(
     "/migrations/aefvote/claim-token/{user_id}",
-    response={200: ClaimTokenOut, 401: ErrorEnvelopeOut, 403: ErrorEnvelopeOut, 404: ErrorEnvelopeOut},
+    response={
+        200: ClaimTokenOut,
+        401: ErrorEnvelopeOut,
+        403: ErrorEnvelopeOut,
+        404: ErrorEnvelopeOut,
+    },
     operation_id="migrations_aefvote_claim_token",
 )
 @_with_error_envelope

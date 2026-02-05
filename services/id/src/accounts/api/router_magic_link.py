@@ -295,10 +295,7 @@ def exchange(request, payload: ExchangeIn):
     cache.delete(_cache_key(payload.code))
 
     user_id = str(raw.get("user_id") or "")
-    ttl_seconds = int(
-        raw.get("ttl_seconds")
-        or int(SESSION_TTL.total_seconds())
-    )
+    ttl_seconds = int(raw.get("ttl_seconds") or int(SESSION_TTL.total_seconds()))
     master_flags = raw.get("master_flags")
     if not isinstance(master_flags, dict):
         master_flags = {}

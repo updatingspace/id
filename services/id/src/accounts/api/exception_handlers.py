@@ -5,6 +5,7 @@ from ninja import NinjaAPI
 from ninja.errors import HttpError
 
 from accounts.transport.schemas import ErrorOut
+from core.logging_config import sanitize_log_data
 
 logger = logging.getLogger(__name__)
 
@@ -15,15 +16,21 @@ def _error_envelope_response(api: NinjaAPI, request, status: int, raw_detail):
     if not isinstance(raw_detail, dict):
         raw_detail = {"code": "HTTP_ERROR", "message": str(raw_detail)}
 
+    if status >= 500:
+        code = "SERVER_ERROR"
+        message = "Internal server error"
+        details = None
+    else:
+        code = str(raw_detail.get("code") or "HTTP_ERROR")
+        message = str(raw_detail.get("message") or "Error")
+        details = sanitize_log_data(raw_detail.get("details"))
+
     request_id = request.headers.get("X-Request-Id") or ""
     payload = {
         "error": {
-            "code": str(
-                raw_detail.get("code")
-                or ("SERVER_ERROR" if status >= 500 else "HTTP_ERROR")
-            ),
-            "message": str(raw_detail.get("message") or "Error"),
-            "details": raw_detail.get("details"),
+            "code": code,
+            "message": message,
+            "details": details,
             "request_id": str(request_id),
         }
     }
@@ -79,12 +86,24 @@ def install_http_error_handler(api: NinjaAPI) -> None:
             "HTTP error handled",
             extra={
                 "status": status,
-                "detail": str(raw_detail),
+                "detail": str(sanitize_log_data(raw_detail)),
                 "path": getattr(request, "path", None),
                 "method": getattr(request, "method", None),
                 "user_id": getattr(user, "id", None),
             },
         )
+        if status >= 500:
+            return api.create_response(
+                request,
+                ErrorOut(
+                    code="SERVER_ERROR",
+                    message="Внутренняя ошибка сервиса",
+                    details=None,
+                    status=status,
+                    detail=None,
+                ),
+                status=status,
+            )
         errors, fields = _normalize_form_errors(str(raw_detail))
         payload_detail = raw_detail
         payload_code = None
@@ -105,12 +124,12 @@ def install_http_error_handler(api: NinjaAPI) -> None:
                 request,
                 ErrorOut(
                     code=payload_code,
-                    message=payload_message,
+                    message=sanitize_log_data(payload_message),
                     details=payload_details,
                     errors=errors,
                     fields=fields,
                     status=status,
-                    detail=str(payload_detail),
+                    detail=str(sanitize_log_data(payload_detail)),
                 ),
                 status=status,
             )
@@ -124,10 +143,10 @@ def install_http_error_handler(api: NinjaAPI) -> None:
             request,
             ErrorOut(
                 code=str(payload_code),
-                message=str(payload_message),
-                details=payload_details,
+                message=str(sanitize_log_data(payload_message)),
+                details=sanitize_log_data(payload_details),
                 status=status,
-                detail=str(payload_detail),
+                detail=str(sanitize_log_data(payload_detail)),
             ),
             status=status,
         )

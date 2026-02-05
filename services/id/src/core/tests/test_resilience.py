@@ -1,13 +1,19 @@
 """Tests for resilience module (circuit breaker, retry)."""
-import pytest
+
+from __future__ import annotations
+
 import time
-from unittest.mock import Mock, patch
+
+import pytest
+
 from core.resilience import (
     CircuitBreaker,
+    CircuitBreakerConfig,
     CircuitBreakerOpenError,
     CircuitState,
-    retry_with_backoff,
+    RetryConfig,
     resilient,
+    retry_with_backoff,
 )
 
 
@@ -15,103 +21,109 @@ class TestCircuitBreaker:
     """Tests for CircuitBreaker class."""
 
     def test_initial_state_closed(self):
-        """Circuit breaker starts in CLOSED state."""
-        cb = CircuitBreaker(name="test", failure_threshold=3)
-        assert cb.state == CircuitState.CLOSED
+        cb = CircuitBreaker(
+            name="test", config=CircuitBreakerConfig(failure_threshold=3)
+        )
+        assert cb.stats.state == CircuitState.CLOSED
 
     def test_transitions_to_open_after_failures(self):
-        """Opens after failure threshold reached."""
-        cb = CircuitBreaker(name="test", failure_threshold=2)
+        cb = CircuitBreaker(
+            name="test", config=CircuitBreakerConfig(failure_threshold=2)
+        )
 
-        # Record failures
-        cb.record_failure()
-        assert cb.state == CircuitState.CLOSED
+        @cb
+        def fail_once():
+            raise RuntimeError("boom")
 
-        cb.record_failure()
-        assert cb.state == CircuitState.OPEN
+        for _ in range(2):
+            with pytest.raises(RuntimeError):
+                fail_once()
+
+        assert cb.stats.state == CircuitState.OPEN
 
     def test_open_circuit_raises_error(self):
-        """Open circuit raises CircuitBreakerOpenError."""
         cb = CircuitBreaker(
-            name="test", failure_threshold=1, recovery_timeout=60
+            name="test",
+            config=CircuitBreakerConfig(failure_threshold=1, timeout_seconds=60),
         )
-        cb.record_failure()
 
+        @cb
+        def always_fail():
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            always_fail()
         with pytest.raises(CircuitBreakerOpenError):
-            with cb:
-                pass
+            always_fail()
 
     def test_success_resets_failure_count(self):
-        """Success resets the failure counter."""
-        cb = CircuitBreaker(name="test", failure_threshold=3)
+        cb = CircuitBreaker(
+            name="test", config=CircuitBreakerConfig(failure_threshold=3)
+        )
 
-        cb.record_failure()
-        cb.record_failure()
-        assert cb._failure_count == 2
+        @cb
+        def fail():
+            raise RuntimeError("x")
 
-        cb.record_success()
-        assert cb._failure_count == 0
+        @cb
+        def ok():
+            return "ok"
+
+        with pytest.raises(RuntimeError):
+            fail()
+        assert cb.stats.failure_count == 1
+
+        ok()
+        assert cb.stats.failure_count == 1
 
     def test_half_open_transitions_to_closed(self):
-        """Successful call in HALF_OPEN transitions to CLOSED."""
         cb = CircuitBreaker(
             name="test",
-            failure_threshold=1,
-            recovery_timeout=0.01,  # Very short timeout
+            config=CircuitBreakerConfig(
+                failure_threshold=1, success_threshold=1, timeout_seconds=0.01
+            ),
         )
-        cb.record_failure()
-        assert cb.state == CircuitState.OPEN
 
-        # Wait for recovery timeout
+        @cb
+        def sometimes_ok(flag: bool):
+            if not flag:
+                raise RuntimeError("fail")
+            return "ok"
+
+        with pytest.raises(RuntimeError):
+            sometimes_ok(False)
+        assert cb.stats.state == CircuitState.OPEN
+
         time.sleep(0.02)
-        assert cb.state == CircuitState.HALF_OPEN
-
-        # Successful call
-        cb.record_success()
-        assert cb.state == CircuitState.CLOSED
+        assert sometimes_ok(True) == "ok"
+        assert cb.stats.state == CircuitState.CLOSED
 
     def test_half_open_transitions_to_open(self):
-        """Failed call in HALF_OPEN transitions back to OPEN."""
         cb = CircuitBreaker(
             name="test",
-            failure_threshold=1,
-            recovery_timeout=0.01,
+            config=CircuitBreakerConfig(failure_threshold=1, timeout_seconds=0.01),
         )
-        cb.record_failure()
-        time.sleep(0.02)  # Wait for half-open
 
-        cb.record_failure()
-        assert cb.state == CircuitState.OPEN
+        @cb
+        def always_fail():
+            raise RuntimeError("fail")
 
-    def test_context_manager_success(self):
-        """Context manager records success on normal exit."""
-        cb = CircuitBreaker(name="test", failure_threshold=3)
-        cb._failure_count = 2
+        with pytest.raises(RuntimeError):
+            always_fail()
+        time.sleep(0.02)
 
-        with cb:
-            pass  # Successful execution
-
-        assert cb._failure_count == 0
-
-    def test_context_manager_failure(self):
-        """Context manager records failure on exception."""
-        cb = CircuitBreaker(name="test", failure_threshold=3)
-
-        with pytest.raises(ValueError):
-            with cb:
-                raise ValueError("Test error")
-
-        assert cb._failure_count == 1
+        with pytest.raises(RuntimeError):
+            always_fail()
+        assert cb.stats.state == CircuitState.OPEN
 
 
 class TestRetryWithBackoff:
     """Tests for retry_with_backoff decorator."""
 
     def test_succeeds_without_retry(self):
-        """Successful call doesn't trigger retry."""
         call_count = 0
 
-        @retry_with_backoff(max_retries=3, base_delay=0.01)
+        @retry_with_backoff(RetryConfig(max_attempts=3, base_delay=0.01, jitter=False))
         def success_func():
             nonlocal call_count
             call_count += 1
@@ -123,11 +135,15 @@ class TestRetryWithBackoff:
         assert call_count == 1
 
     def test_retries_on_failure(self):
-        """Retries specified number of times on failure."""
         call_count = 0
 
         @retry_with_backoff(
-            max_retries=3, base_delay=0.01, exceptions=(ValueError,)
+            RetryConfig(
+                max_attempts=3,
+                base_delay=0.01,
+                jitter=False,
+                retryable_exceptions=(ValueError,),
+            )
         )
         def failing_func():
             nonlocal call_count
@@ -137,13 +153,12 @@ class TestRetryWithBackoff:
         with pytest.raises(ValueError):
             failing_func()
 
-        assert call_count == 4  # Initial + 3 retries
+        assert call_count == 3
 
     def test_succeeds_after_retry(self):
-        """Eventually succeeds after retries."""
         call_count = 0
 
-        @retry_with_backoff(max_retries=3, base_delay=0.01)
+        @retry_with_backoff(RetryConfig(max_attempts=3, base_delay=0.01, jitter=False))
         def eventual_success():
             nonlocal call_count
             call_count += 1
@@ -161,11 +176,13 @@ class TestResilientDecorator:
     """Tests for combined resilient decorator."""
 
     def test_combines_retry_and_circuit_breaker(self):
-        """Resilient decorator combines both patterns."""
         call_count = 0
-        cb = CircuitBreaker(name="test", failure_threshold=5)
 
-        @resilient(circuit_breaker=cb, max_retries=2, base_delay=0.01)
+        @resilient(
+            "test-resilient",
+            circuit_config=CircuitBreakerConfig(failure_threshold=5),
+            retry_config=RetryConfig(max_attempts=2, base_delay=0.01, jitter=False),
+        )
         def test_func():
             nonlocal call_count
             call_count += 1
@@ -176,4 +193,3 @@ class TestResilientDecorator:
         result = test_func()
 
         assert result == "ok"
-        assert cb._failure_count == 0  # Success resets

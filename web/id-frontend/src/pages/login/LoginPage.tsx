@@ -22,6 +22,15 @@ const ProvidersSkeleton = () => (
   </div>
 );
 
+const toError = (err: unknown): { code?: string; message?: string } => {
+  if (err && typeof err === 'object') {
+    const code = 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+    const message = 'message' in err && typeof err.message === 'string' ? err.message : undefined;
+    return { code, message };
+  }
+  return { message: err instanceof Error ? err.message : undefined };
+};
+
 const LoginPage = () => {
   const { user, login } = useAuth();
   const { t } = useI18n();
@@ -67,7 +76,6 @@ const LoginPage = () => {
 
   useEffect(() => {
     let active = true;
-    setProvidersLoading(true);
 
     api
       .getOAuthProviders()
@@ -99,10 +107,10 @@ const LoginPage = () => {
         document.body.appendChild(form);
         form.submit();
       } else {
-        window.location.href = data.authorize_url;
+        window.location.assign(data.authorize_url);
       }
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось открыть провайдера');
+    } catch (err: unknown) {
+      setError(toError(err).message || 'Не удалось открыть провайдера');
     }
   };
 
@@ -148,9 +156,10 @@ const LoginPage = () => {
         '';
 
       if (token) setSessionToken(token);
-      window.location.href = redirectTo;
-    } catch (err: any) {
-      setError(getErrorMessage(err?.code, err?.message));
+      window.location.assign(redirectTo);
+    } catch (err: unknown) {
+      const parsed = toError(err);
+      setError(getErrorMessage(parsed.code, parsed.message));
     }
   };
 

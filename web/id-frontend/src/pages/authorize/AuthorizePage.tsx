@@ -20,6 +20,16 @@ type PreparePayload = {
 
 type ViewMode = 'loading' | 'consent' | 'confirm' | 'error';
 
+const toErrorMessage = (err: unknown, fallback: string): string => {
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+    return err.message;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return fallback;
+};
+
 const ConsentSkeleton = () => (
   <div className="consent-card">
     <div className="consent-header" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -85,8 +95,8 @@ const AuthorizePage = () => {
         setScopes(nextScopes);
 
         setViewMode(result.consent_required ? 'consent' : 'confirm');
-      } catch (err: any) {
-        setError(err?.message || 'Не удалось подготовить запрос');
+      } catch (err: unknown) {
+        setError(toErrorMessage(err, 'Не удалось подготовить запрос'));
         setViewMode('error');
       }
     };
@@ -107,9 +117,9 @@ const AuthorizePage = () => {
         .map(([name]) => name);
 
       const res = await api.oidcApprove({ request_id: data.request_id, scopes: selected, remember: true });
-      window.location.href = res.redirect_uri;
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось подтвердить вход');
+      window.location.assign(res.redirect_uri);
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Не удалось подтвердить вход'));
       setApproving(false);
     }
   };
@@ -117,7 +127,7 @@ const AuthorizePage = () => {
   const deny = async () => {
     if (!data) return;
     const res = await api.oidcDeny(data.request_id);
-    window.location.href = res.redirect_uri;
+    window.location.assign(res.redirect_uri);
   };
 
   const switchAccount = async () => {

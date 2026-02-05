@@ -24,7 +24,9 @@ class ExportService:
         profile = getattr(user, "profile", None)
         primary = EmailAddress.objects.filter(user=user, primary=True).first()
         social = list(
-            SocialAccount.objects.filter(user=user).values("provider", "uid", "last_login")
+            SocialAccount.objects.filter(user=user).values(
+                "provider", "uid", "last_login"
+            )
         )
         consents = list(
             UserConsent.objects.filter(user=user)
@@ -57,10 +59,16 @@ class ExportService:
                 "date_joined": getattr(user, "date_joined", None),
             },
             "profile": {
-                "phone_number": getattr(profile, "phone_number", None) if profile else None,
-                "phone_verified": getattr(profile, "phone_verified", None) if profile else None,
+                "phone_number": getattr(profile, "phone_number", None)
+                if profile
+                else None,
+                "phone_verified": getattr(profile, "phone_verified", None)
+                if profile
+                else None,
                 "birth_date": getattr(profile, "birth_date", None) if profile else None,
-                "avatar_source": getattr(profile, "avatar_source", None) if profile else None,
+                "avatar_source": getattr(profile, "avatar_source", None)
+                if profile
+                else None,
                 "avatar_url": getattr(profile, "avatar", None).url
                 if profile and getattr(profile, "avatar", None)
                 else None,
@@ -76,7 +84,9 @@ class ExportService:
 
     @staticmethod
     def create_request(user) -> DataExportRequest:
-        req = DataExportRequest.objects.create(user=user, status=DataExportRequest.Status.PENDING)
+        req = DataExportRequest.objects.create(
+            user=user, status=DataExportRequest.Status.PENDING
+        )
         return req
 
     @staticmethod

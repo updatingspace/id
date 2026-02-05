@@ -12,9 +12,13 @@ from django.contrib.auth import logout as dj_logout
 from django.contrib.sessions.models import Session
 from django.db import transaction
 from django.utils import timezone
-from ninja.errors import HttpError
 
-from accounts.models import AccountDeletionRequest, UserConsent, UserPreferences, UserProfile
+from accounts.models import (
+    AccountDeletionRequest,
+    UserConsent,
+    UserPreferences,
+    UserProfile,
+)
 from core.models import UserSessionMeta, UserSessionToken
 
 logger = logging.getLogger(__name__)
@@ -25,7 +29,9 @@ User = get_user_model()
 class AccountDeletionService:
     @staticmethod
     @transaction.atomic
-    def delete_account(request, user, *, reason: str | None = None) -> AccountDeletionRequest:
+    def delete_account(
+        request, user, *, reason: str | None = None
+    ) -> AccountDeletionRequest:
         now = timezone.now()
         deletion = AccountDeletionRequest.objects.create(
             user=user,

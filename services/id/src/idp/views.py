@@ -15,9 +15,15 @@ def openid_configuration(request):
         "authorization_endpoint": getattr(
             settings, "OIDC_AUTHORIZATION_ENDPOINT", f"{public_base}/oauth/authorize"
         ),
-        "token_endpoint": getattr(settings, "OIDC_TOKEN_ENDPOINT", f"{public_base}/oauth/token"),
-        "userinfo_endpoint": getattr(settings, "OIDC_USERINFO_ENDPOINT", f"{public_base}/oauth/userinfo"),
-        "jwks_uri": getattr(settings, "OIDC_JWKS_URI", f"{issuer}/.well-known/jwks.json"),
+        "token_endpoint": getattr(
+            settings, "OIDC_TOKEN_ENDPOINT", f"{public_base}/oauth/token"
+        ),
+        "userinfo_endpoint": getattr(
+            settings, "OIDC_USERINFO_ENDPOINT", f"{public_base}/oauth/userinfo"
+        ),
+        "jwks_uri": getattr(
+            settings, "OIDC_JWKS_URI", f"{issuer}/.well-known/jwks.json"
+        ),
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],
@@ -30,13 +36,9 @@ def openid_configuration(request):
         "revocation_endpoint": getattr(
             settings, "OIDC_REVOCATION_ENDPOINT", f"{public_base}/oauth/revoke"
         ),
-        "code_challenge_methods_supported": ["plain", "S256"],
+        "code_challenge_methods_supported": ["S256"],
         "claims_supported": sorted(
-            {
-                claim
-                for scope in SCOPES.values()
-                for claim in scope.claims
-            }
+            {claim for scope in SCOPES.values() for claim in scope.claims}
         ),
     }
     return JsonResponse(cfg)

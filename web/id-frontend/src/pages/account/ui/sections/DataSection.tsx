@@ -1,11 +1,22 @@
 import React, { useState } from 'react';
+import type { ExportPayloadResponse } from '../../model/types';
+
+const toErrorMessage = (err: unknown, fallback: string): string => {
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+    return err.message;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return fallback;
+};
 
 type Props = {
   t: (k: string) => string;
   requiresMfa: boolean;
 
-  onExport: (payload: { password: string; mfa_code?: string }) => Promise<any>;
-  onDelete: (payload: { password: string; mfa_code?: string; reason: string }) => Promise<any>;
+  onExport: (payload: { password: string; mfa_code?: string }) => Promise<ExportPayloadResponse>;
+  onDelete: (payload: { password: string; mfa_code?: string; reason: string }) => Promise<void>;
 
   onDone: () => void;
   setError: (v: string | null) => void;
@@ -42,8 +53,8 @@ export const DataSection: React.FC<Props> = ({
       link.download = 'id-data.json';
       link.click();
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось экспортировать данные');
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Не удалось экспортировать данные'));
     } finally {
       setBusy((p) => ({ ...p, export: false }));
     }
@@ -62,8 +73,8 @@ export const DataSection: React.FC<Props> = ({
         reason: 'user_request',
       });
       onDone();
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось удалить аккаунт');
+    } catch (err: unknown) {
+      setError(toErrorMessage(err, 'Не удалось удалить аккаунт'));
     } finally {
       setBusy((p) => ({ ...p, delete: false }));
     }

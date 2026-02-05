@@ -20,6 +20,10 @@ class AuthorizationApproveIn(Schema):
     remember: bool = True
 
 
+class AuthorizationDenyIn(Schema):
+    request_id: str
+
+
 class AuthorizationDecisionOut(Schema):
     redirect_uri: str
 

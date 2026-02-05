@@ -2,7 +2,10 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 def read_env_flag(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -10,17 +13,20 @@ def read_env_flag(name: str, default: bool) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
 def read_env_list(name: str, default: list[str] | None = None) -> list[str]:
     value = os.getenv(name)
     if value is None:
         return default or []
     return [item.strip() for item in value.split(",") if item.strip()]
 
+
 def read_env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
     if value is None:
         return default
     return value
+
 
 def read_env_secret(name: str, default: str | None = None) -> str | None:
     raw = os.getenv(name)
@@ -37,6 +43,7 @@ def read_env_secret(name: str, default: str | None = None) -> str | None:
             raise RuntimeError(f"Cannot read secret file for {name}: {exc}") from exc
     return raw
 
+
 # Security: SECRET_KEY handling
 # In production (DEBUG=False), SECRET_KEY MUST be explicitly set via environment
 _secret_key_default = "id-service-secret-CHANGE-ME-IN-PRODUCTION"
@@ -47,6 +54,7 @@ DEBUG = read_env_flag("DJANGO_DEBUG", False)
 # Fail fast in production if SECRET_KEY is not configured
 if not DEBUG and SECRET_KEY == _secret_key_default:
     import sys
+
     print(
         "SECURITY ERROR: DJANGO_SECRET_KEY must be set in production. "
         "Generate a secure key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'",
@@ -63,16 +71,14 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django.contrib.sites", # Required by allauth
+    "django.contrib.sites",  # Required by allauth
     "corsheaders",
-    
     # Internal apps
     "core",
     "accounts",
     "updspaceid",
     "idp",
     # "id.usid_service", # If needed
-
     # Third party
     "allauth",
     "allauth.account",
@@ -133,8 +139,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "app.wsgi.application"
-
-import dj_database_url
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL:
     DATABASES = {
@@ -292,7 +296,9 @@ LOG_FORMAT = read_env("LOG_FORMAT", "json" if not DEBUG else "console")
 # Email backend configuration for production
 EMAIL_BACKEND = read_env(
     "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend",
+    "django.core.mail.backends.console.EmailBackend"
+    if DEBUG
+    else "django.core.mail.backends.smtp.EmailBackend",
 )
 EMAIL_HOST = read_env("EMAIL_HOST", "localhost")
 EMAIL_PORT = int(read_env("EMAIL_PORT", "587") or "587")
@@ -302,6 +308,12 @@ EMAIL_USE_TLS = read_env_flag("EMAIL_USE_TLS", True)
 EMAIL_USE_SSL = read_env_flag("EMAIL_USE_SSL", False)
 
 # Rate limiting configuration
-RATE_LIMIT_OIDC_TOKEN = int(read_env("RATE_LIMIT_OIDC_TOKEN", "60"))  # requests per minute
-RATE_LIMIT_OIDC_USERINFO = int(read_env("RATE_LIMIT_OIDC_USERINFO", "120"))  # requests per minute
-RATE_LIMIT_OIDC_AUTHORIZE = int(read_env("RATE_LIMIT_OIDC_AUTHORIZE", "30"))  # requests per minute
+RATE_LIMIT_OIDC_TOKEN = int(
+    read_env("RATE_LIMIT_OIDC_TOKEN", "60")
+)  # requests per minute
+RATE_LIMIT_OIDC_USERINFO = int(
+    read_env("RATE_LIMIT_OIDC_USERINFO", "120")
+)  # requests per minute
+RATE_LIMIT_OIDC_AUTHORIZE = int(
+    read_env("RATE_LIMIT_OIDC_AUTHORIZE", "30")
+)  # requests per minute

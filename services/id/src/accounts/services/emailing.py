@@ -24,7 +24,9 @@ class EmailService:
         return email
 
     @staticmethod
-    def send_new_device_alert(user: User, *, ip: str | None, user_agent: str | None) -> None:
+    def send_new_device_alert(
+        user: User, *, ip: str | None, user_agent: str | None
+    ) -> None:
         email = EmailService._primary_email(user)
         if not email:
             return

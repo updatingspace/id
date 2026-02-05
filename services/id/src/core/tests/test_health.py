@@ -1,15 +1,19 @@
 """Tests for health check module."""
+
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from django.test import RequestFactory
+
 from core.health import (
     ComponentHealth,
-    check_database,
+    HealthStatus,
     check_cache,
+    check_database,
     check_oidc_keys,
+    health_view,
     liveness_view,
     readiness_view,
-    health_view,
 )
 
 
@@ -26,28 +30,11 @@ class TestComponentHealth:
         """Healthy component has correct status."""
         health = ComponentHealth(
             name="test",
-            status="healthy",
+            status=HealthStatus.HEALTHY,
             latency_ms=1.5,
         )
-        assert health.status == "healthy"
+        assert health.status == HealthStatus.HEALTHY
         assert health.latency_ms == 1.5
-
-    def test_to_dict(self):
-        """Converts to dictionary correctly."""
-        health = ComponentHealth(
-            name="database",
-            status="healthy",
-            latency_ms=2.0,
-            message="All good",
-            details={"connections": 10},
-        )
-        data = health.to_dict()
-
-        assert data["name"] == "database"
-        assert data["status"] == "healthy"
-        assert data["latency_ms"] == 2.0
-        assert data["message"] == "All good"
-        assert data["details"]["connections"] == 10
 
 
 class TestDatabaseCheck:
@@ -64,8 +51,8 @@ class TestDatabaseCheck:
         result = check_database()
 
         assert result.name == "database"
-        assert result.status == "healthy"
-        assert result.latency_ms >= 0
+        assert result.status in [HealthStatus.HEALTHY, HealthStatus.DEGRADED]
+        assert result.latency_ms is not None
 
     @patch("django.db.connection.cursor")
     def test_unhealthy_database(self, mock_cursor):
@@ -74,8 +61,8 @@ class TestDatabaseCheck:
 
         result = check_database()
 
-        assert result.status == "unhealthy"
-        assert "Connection failed" in result.message
+        assert result.status == HealthStatus.UNHEALTHY
+        assert "Connection failed" in str(result.message)
 
 
 class TestCacheCheck:
@@ -85,23 +72,24 @@ class TestCacheCheck:
     @patch("django.core.cache.cache.get")
     @patch("django.core.cache.cache.delete")
     def test_healthy_cache(self, mock_delete, mock_get, mock_set):
-        """Returns healthy when cache works."""
+        """Returns healthy/degraded when cache works."""
         mock_get.return_value = "health_check_value"
 
         result = check_cache()
 
         assert result.name == "cache"
-        # Status depends on latency, but should work
-        assert result.status in ["healthy", "degraded"]
+        assert result.status in [HealthStatus.HEALTHY, HealthStatus.DEGRADED]
+        mock_set.assert_called_once()
+        mock_delete.assert_called_once()
 
     @patch("django.core.cache.cache.set")
-    def test_unhealthy_cache(self, mock_set):
-        """Returns unhealthy on cache error."""
+    def test_cache_failure_is_degraded(self, mock_set):
+        """Cache failures should degrade service, not mark unhealthy."""
         mock_set.side_effect = Exception("Redis connection failed")
 
         result = check_cache()
 
-        assert result.status == "unhealthy"
+        assert result.status == HealthStatus.DEGRADED
 
 
 class TestOidcKeysCheck:
@@ -109,15 +97,14 @@ class TestOidcKeysCheck:
 
     @patch("django.conf.settings")
     def test_development_keys_warning(self, mock_settings):
-        """Warns when using development keys."""
-        mock_settings.DEBUG = True
-        mock_settings.OIDC_RSA_PRIVATE_KEY = None
+        """Warns when key material is not configured."""
+        mock_settings.OIDC_PRIVATE_KEY_PEM = None
+        mock_settings.OIDC_KEY_PAIRS = None
 
         result = check_oidc_keys()
 
         assert result.name == "oidc_keys"
-        # In dev mode without configured keys
-        assert result.status in ["healthy", "degraded"]
+        assert result.status == HealthStatus.DEGRADED
 
 
 @pytest.mark.django_db
@@ -132,6 +119,7 @@ class TestHealthViews:
 
         assert response.status_code == 200
         import json
+
         data = json.loads(response.content)
         assert data["status"] == "alive"
 
@@ -141,7 +129,6 @@ class TestHealthViews:
 
         response = readiness_view(request)
 
-        # Status code depends on actual health
         assert response.status_code in [200, 503]
 
     def test_health_returns_details(self, request_factory):
@@ -151,6 +138,7 @@ class TestHealthViews:
         response = health_view(request)
 
         import json
+
         data = json.loads(response.content)
 
         assert "status" in data

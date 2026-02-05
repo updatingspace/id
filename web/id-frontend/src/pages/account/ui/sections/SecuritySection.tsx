@@ -1,27 +1,45 @@
 import React, { useMemo, useState } from 'react';
+import type {
+  AccountUser,
+  MfaStatus,
+  OAuthLinkResponse,
+  PasskeyRow,
+  ProviderRow,
+  TotpBeginResponse,
+  TotpConfirmResponse,
+} from '../../model/types';
+
+const toError = (err: unknown): { code?: string; message?: string } => {
+  if (err && typeof err === 'object') {
+    const code = 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+    const message = 'message' in err && typeof err.message === 'string' ? err.message : undefined;
+    return { code, message };
+  }
+  return { message: err instanceof Error ? err.message : undefined };
+};
 
 type Props = {
   t: (k: string) => string;
-  user: any;
+  user: AccountUser;
   emailVerified: boolean;
 
-  mfaStatus: any; // { has_totp, has_webauthn, has_recovery_codes, ... }
-  passkeys: any[]; // [{ id, name, is_passwordless, ... }]
-  providers: Array<{ id: string; name: string }>;
+  mfaStatus?: MfaStatus;
+  passkeys: PasskeyRow[];
+  providers: ProviderRow[];
   requiresMfa: boolean;
 
   onChangePassword: (current: string, next: string) => Promise<void>;
 
-  onEnableTotp: () => Promise<any>; // totpBegin -> { svg_data_uri, ... }
-  onConfirmTotp: (code: string) => Promise<any>; // totpConfirm -> { recovery_codes? }
-  onDisableTotp: () => Promise<any>;
+  onEnableTotp: () => Promise<TotpBeginResponse>;
+  onConfirmTotp: (code: string) => Promise<TotpConfirmResponse>;
+  onDisableTotp: () => Promise<void>;
 
   onRegenRecovery: () => Promise<{ recovery_codes: string[] }>;
 
   onAddPasskey: () => Promise<void>;
   onDeletePasskey: (id: string) => Promise<void>;
 
-  onLinkProvider: (providerId: string) => Promise<any>; // getOAuthLinkUrl(providerId, '/account') -> { authorize_url, method }
+  onLinkProvider: (providerId: string) => Promise<OAuthLinkResponse>;
   onUnlinkProvider: (providerId: string) => Promise<void>;
 
   setMessage: (v: string | null) => void;
@@ -50,7 +68,7 @@ export const SecuritySection: React.FC<Props> = ({
 }) => {
   const [passwordForm, setPasswordForm] = useState({ current: '', next: '' });
 
-  const [totpSetup, setTotpSetup] = useState<any | null>(null);
+  const [totpSetup, setTotpSetup] = useState<TotpBeginResponse | null>(null);
   const [totpCode, setTotpCode] = useState('');
   const [busy, setBusy] = useState<{ [k: string]: boolean }>({});
 
@@ -81,11 +99,12 @@ export const SecuritySection: React.FC<Props> = ({
       try {
         const begin = await onEnableTotp();
         setTotpSetup(begin);
-      } catch (err: any) {
-        if (err?.code === 'EMAIL_VERIFICATION_REQUIRED') {
+      } catch (err: unknown) {
+        const parsed = toError(err);
+        if (parsed.code === 'EMAIL_VERIFICATION_REQUIRED') {
           setError(t('security.totp.emailVerificationRequired'));
         } else {
-          setError(err?.message || 'Не удалось начать настройку 2FA');
+          setError(parsed.message || 'Не удалось начать настройку 2FA');
         }
       }
     });
@@ -104,13 +123,14 @@ export const SecuritySection: React.FC<Props> = ({
         setTotpSetup(null);
         setTotpCode('');
         setMessage('2FA включена');
-      } catch (err: any) {
-        if (err?.code === 'TOTP_SETUP_REQUIRED') {
+      } catch (err: unknown) {
+        const parsed = toError(err);
+        if (parsed.code === 'TOTP_SETUP_REQUIRED') {
           setTotpSetup(null);
           setTotpCode('');
           setError('Начните настройку 2FA заново');
         } else {
-          setError(err?.message || 'Не удалось подтвердить 2FA');
+          setError(parsed.message || 'Не удалось подтвердить 2FA');
         }
       }
     });
@@ -135,6 +155,10 @@ export const SecuritySection: React.FC<Props> = ({
     });
   };
 
+  const addPasskey = async () => {
+    await safe('addPk', onAddPasskey);
+  };
+
   const linkProvider = async (providerId: string) => {
     setMessage(null);
     setError(null);
@@ -148,7 +172,7 @@ export const SecuritySection: React.FC<Props> = ({
         document.body.appendChild(form);
         form.submit();
       } else {
-        window.location.href = data.authorize_url;
+        window.location.assign(data.authorize_url);
       }
     });
   };
@@ -243,7 +267,7 @@ export const SecuritySection: React.FC<Props> = ({
         {passkeys.length === 0 && <p className="muted">{t('security.passkeys.empty')}</p>}
 
         <div className="list">
-          {passkeys.map((pk: any) => (
+          {passkeys.map((pk) => (
             <div key={pk.id} className="list-row">
               <div>
                 <strong>{pk.name || 'Passkey'}</strong>
@@ -260,7 +284,7 @@ export const SecuritySection: React.FC<Props> = ({
           ))}
         </div>
 
-        <button className="secondary-button" onClick={onAddPasskey} disabled={!!busy.addPk}>
+        <button className="secondary-button" onClick={addPasskey} disabled={!!busy.addPk}>
           {t('security.passkeys.add')}
         </button>
       </div>

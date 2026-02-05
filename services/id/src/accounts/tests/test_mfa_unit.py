@@ -17,7 +17,17 @@ class _DummyQuery:
         self._items = items
 
     def filter(self, **kwargs):
-        return self
+        filtered = self._items
+        for key, value in kwargs.items():
+            if key == "type":
+                filtered = [
+                    item for item in filtered if getattr(item, "type", None) == value
+                ]
+            elif key == "type__in":
+                filtered = [
+                    item for item in filtered if getattr(item, "type", None) in value
+                ]
+        return _DummyQuery(filtered)
 
     def exists(self) -> bool:
         return bool(self._items)
@@ -33,19 +43,19 @@ class _AuthType:
 
 
 class _RC:
-    def __init__(self, codes: list[str]):
-        self._codes = codes
+    def __init__(self, _auth):
+        self._codes = ["a", "b", "c"]
 
     def get_unused_codes(self) -> list[str]:
         return self._codes
 
     @classmethod
-    def activate(cls, user):  # noqa: ARG003 - user unused in stub
-        return SimpleNamespace(instance=_RC(["a", "b", "c"]))
+    def activate(cls, _user):
+        return SimpleNamespace(instance=SimpleNamespace(type=_AuthType.RECOVERY_CODES))
 
 
 @contextmanager
-def _ctx(request):  # noqa: ARG001 - mimics context.request_context
+def _ctx(_request):
     yield
 
 
@@ -58,7 +68,7 @@ class MfaServiceUnitTests(TestCase):
         @patch("accounts.services.mfa._mfa_imports")
         def _run(mock_imports):
             mock_imports.return_value = (
-                lambda: None,  # adapter getter unused
+                lambda: None,
                 SimpleNamespace(Type=_AuthType, objects=auths),
                 _RC,
                 None,
@@ -74,14 +84,21 @@ class MfaServiceUnitTests(TestCase):
         _run()
 
     def test_totp_begin_requires_reauth_when_raised(self):
-        @patch("accounts.services.mfa.context.request_context", side_effect=ReauthenticationRequired())
+        @patch(
+            "accounts.services.mfa.EmailService.status",
+            return_value={"email": "u@example.com", "verified": True},
+        )
+        @patch(
+            "accounts.services.mfa.context.request_context",
+            side_effect=ReauthenticationRequired(),
+        )
         @patch("accounts.services.mfa._mfa_imports")
-        def _run(mock_imports, _ctx_patch):
+        def _run(mock_imports, _ctx_patch, _status):
             mock_imports.return_value = (
                 lambda: None,
                 None,
                 None,
-                SimpleNamespace,  # ActivateTOTPForm stub not used because ctx raises
+                SimpleNamespace,
                 None,
                 None,
             )
@@ -102,7 +119,9 @@ class MfaServiceUnitTests(TestCase):
             with self.assertRaises(HttpError) as exc:
                 MfaService.totp_begin(request)
             self.assertEqual(exc.exception.status_code, 400)
-            self.assertEqual(exc.exception.message.get("code"), "EMAIL_VERIFICATION_REQUIRED")
+            self.assertEqual(
+                exc.exception.message.get("code"), "EMAIL_VERIFICATION_REQUIRED"
+            )
 
         _run()
 
@@ -123,7 +142,7 @@ class MfaServiceUnitTests(TestCase):
 
         @patch("accounts.services.mfa.context.request_context", _ctx)
         @patch("accounts.services.mfa._mfa_imports")
-        def _run(mock_imports, _ctx_patch):
+        def _run(mock_imports):
             mock_imports.return_value = (
                 None,
                 None,
@@ -132,7 +151,9 @@ class MfaServiceUnitTests(TestCase):
                 None,
                 SimpleNamespace(activate_totp=lambda _r, _f: (SimpleNamespace(), None)),
             )
-            request = SimpleNamespace(user=SimpleNamespace(), session={"mfa.totp.secret": "s"})
+            request = SimpleNamespace(
+                user=SimpleNamespace(), session={"mfa.totp.secret": "s"}
+            )
             with self.assertRaises(HttpError) as exc:
                 MfaService.totp_confirm(request, "000000")
             self.assertEqual(exc.exception.status_code, 400)
@@ -141,7 +162,10 @@ class MfaServiceUnitTests(TestCase):
         _run()
 
     def test_totp_confirm_raises_reauth(self):
-        @patch("accounts.services.mfa.context.request_context", side_effect=ReauthenticationRequired())
+        @patch(
+            "accounts.services.mfa.context.request_context",
+            side_effect=ReauthenticationRequired(),
+        )
         @patch("accounts.services.mfa._mfa_imports")
         def _run(mock_imports, _ctx_patch):
             class _Form:
@@ -159,7 +183,9 @@ class MfaServiceUnitTests(TestCase):
                 None,
                 SimpleNamespace(activate_totp=lambda _r, _f: (SimpleNamespace(), None)),
             )
-            request = SimpleNamespace(user=SimpleNamespace(), session={"mfa.totp.secret": "s"})
+            request = SimpleNamespace(
+                user=SimpleNamespace(), session={"mfa.totp.secret": "s"}
+            )
             with self.assertRaises(HttpError) as exc:
                 MfaService.totp_confirm(request, "111111")
             self.assertEqual(exc.exception.status_code, 401)
@@ -179,7 +205,7 @@ class MfaServiceUnitTests(TestCase):
         @patch("accounts.services.mfa.get_object_or_404", return_value=auth_obj)
         @patch("accounts.services.mfa.context.request_context", _ctx)
         @patch("accounts.services.mfa._mfa_imports")
-        def _run(mock_imports, _ctx_patch, _get):
+        def _run(mock_imports, _get):
             mock_imports.return_value = (
                 None,
                 SimpleNamespace(Type=_AuthType),
@@ -196,16 +222,16 @@ class MfaServiceUnitTests(TestCase):
         _run()
 
     def test_regenerate_recovery_codes_blocks_without_mfa(self):
+        class _AuthMgr:
+            def __init__(self, items: list[Any]):
+                self.items = items
+
+            def filter(self, **kwargs):
+                return _DummyQuery(self.items).filter(**kwargs)
+
         @patch("accounts.services.mfa.context.request_context", _ctx)
         @patch("accounts.services.mfa._mfa_imports")
-        def _run(mock_imports, _ctx_patch):
-            class _AuthMgr:
-                def __init__(self, items):
-                    self.items = items
-
-                def filter(self, **kwargs):  # noqa: ARG002
-                    return _DummyQuery(self.items)
-
+        def _run(mock_imports):
             mock_imports.return_value = (
                 None,
                 SimpleNamespace(Type=_AuthType, objects=_AuthMgr([])),
@@ -223,20 +249,19 @@ class MfaServiceUnitTests(TestCase):
         _run()
 
     def test_regenerate_recovery_codes_replaces_existing(self):
+        existing = SimpleNamespace(type=_AuthType.RECOVERY_CODES, delete=lambda: None)
+
+        class _AuthMgr:
+            def filter(self, **kwargs):
+                if kwargs.get("type__in"):
+                    return _DummyQuery([SimpleNamespace(type=_AuthType.TOTP)])
+                if kwargs.get("type") == _AuthType.RECOVERY_CODES:
+                    return _DummyQuery([existing])
+                return _DummyQuery([])
+
         @patch("accounts.services.mfa.context.request_context", _ctx)
         @patch("accounts.services.mfa._mfa_imports")
-        def _run(mock_imports, _ctx_patch):
-            class _AuthMgr:
-                def __init__(self):
-                    self.deleted = False
-
-                def filter(self, **kwargs):
-                    if kwargs.get("type__in"):
-                        return _DummyQuery([SimpleNamespace(type=_AuthType.TOTP)])
-                    if kwargs.get("type") == _AuthType.RECOVERY_CODES:
-                        return _DummyQuery([SimpleNamespace(type=_AuthType.RECOVERY_CODES)])
-                    return _DummyQuery([])
-
+        def _run(mock_imports):
             mock_imports.return_value = (
                 None,
                 SimpleNamespace(Type=_AuthType, objects=_AuthMgr()),

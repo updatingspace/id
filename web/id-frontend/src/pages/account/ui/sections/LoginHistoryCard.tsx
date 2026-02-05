@@ -1,7 +1,8 @@
 import React from 'react';
+import type { LoginHistoryRow } from '../../model/types';
 
 type Props = {
-  events: any[]; // [{ created_at, status, ip_address }]
+  events: LoginHistoryRow[];
 };
 
 export const LoginHistoryCard: React.FC<Props> = ({ events }) => {
@@ -11,7 +12,7 @@ export const LoginHistoryCard: React.FC<Props> = ({ events }) => {
     <div className="card">
       <h3>История входов</h3>
       <div className="list">
-        {events.map((item: any, idx: number) => (
+        {events.map((item, idx: number) => (
           <div key={`${item.created_at}-${idx}`} className="list-row">
             <div>
               <strong>{item.status === 'success' ? 'Успешный вход' : 'Ошибка входа'}</strong>

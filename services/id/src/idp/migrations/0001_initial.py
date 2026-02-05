@@ -55,7 +55,12 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="OidcAuthorizationRequest",
             fields=[
-                ("request_id", models.CharField(editable=False, max_length=64, primary_key=True, serialize=False)),
+                (
+                    "request_id",
+                    models.CharField(
+                        editable=False, max_length=64, primary_key=True, serialize=False
+                    ),
+                ),
                 ("redirect_uri", models.TextField()),
                 ("scope", models.TextField()),
                 ("state", models.CharField(blank=True, max_length=256)),
@@ -67,11 +72,16 @@ class Migration(migrations.Migration):
                 ("expires_at", models.DateTimeField()),
                 (
                     "client",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="idp.oidcclient"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="idp.oidcclient"
+                    ),
                 ),
                 (
                     "user",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
                 ),
             ],
             options={
@@ -82,7 +92,10 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="OidcAuthorizationCode",
             fields=[
-                ("code", models.CharField(max_length=128, primary_key=True, serialize=False)),
+                (
+                    "code",
+                    models.CharField(max_length=128, primary_key=True, serialize=False),
+                ),
                 ("redirect_uri", models.TextField()),
                 ("scope", models.TextField()),
                 ("nonce", models.CharField(blank=True, max_length=256)),
@@ -93,11 +106,16 @@ class Migration(migrations.Migration):
                 ("used_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "client",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="idp.oidcclient"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="idp.oidcclient"
+                    ),
                 ),
                 (
                     "user",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
                 ),
             ],
             options={
@@ -123,11 +141,16 @@ class Migration(migrations.Migration):
                 ("last_used_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "client",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="idp.oidcclient"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="idp.oidcclient"
+                    ),
                 ),
                 (
                     "user",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
                 ),
             ],
             options={
@@ -157,11 +180,16 @@ class Migration(migrations.Migration):
                 ("revoked_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "client",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="idp.oidcclient"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="idp.oidcclient"
+                    ),
                 ),
                 (
                     "user",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
                 ),
             ],
             options={
@@ -175,7 +203,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="oidcauthorizationrequest",
-            index=models.Index(fields=["client", "expires_at"], name="oidc_req_client_idx"),
+            index=models.Index(
+                fields=["client", "expires_at"], name="oidc_req_client_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="oidcauthorizationrequest",
@@ -183,15 +213,21 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="oidcauthorizationcode",
-            index=models.Index(fields=["client", "expires_at"], name="oidc_code_client_idx"),
+            index=models.Index(
+                fields=["client", "expires_at"], name="oidc_code_client_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="oidcauthorizationcode",
-            index=models.Index(fields=["user", "expires_at"], name="oidc_code_user_idx"),
+            index=models.Index(
+                fields=["user", "expires_at"], name="oidc_code_user_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="oidcconsent",
-            index=models.Index(fields=["user", "updated_at"], name="oidc_consent_user_idx"),
+            index=models.Index(
+                fields=["user", "updated_at"], name="oidc_consent_user_idx"
+            ),
         ),
         migrations.AddConstraint(
             model_name="oidcconsent",
@@ -211,7 +247,8 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="oidctoken",
-            index=models.Index(fields=["user", "client"], name="oidc_token_user_client_idx"),
+            index=models.Index(
+                fields=["user", "client"], name="oidc_token_user_client_idx"
+            ),
         ),
     ]
-

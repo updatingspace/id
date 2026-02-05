@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import type { ConsentRow, Preferences, TimezoneRow } from '../../model/types';
 
 type Props = {
   t: (k: string) => string;
-  preferences: any;
-  timezones: Array<{ name: string; display_name: string; offset: string }>;
-  consents: any[];
-  onSave: (payload: any) => Promise<void>;
+  preferences?: Preferences;
+  timezones: TimezoneRow[];
+  consents: ConsentRow[];
+  onSave: (payload: Preferences) => Promise<void>;
   onRevokeMarketing: () => Promise<void>;
 };
 
@@ -17,13 +18,13 @@ export const PrivacySection: React.FC<Props> = ({
   onSave,
   onRevokeMarketing,
 }) => {
-  const [prefs, setPrefs] = useState<any>(preferences);
+  const [prefs, setPrefs] = useState<Preferences>(preferences ?? {});
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => setPrefs(preferences), [preferences]);
+  useEffect(() => setPrefs(preferences ?? {}), [preferences]);
 
   const setScopePolicy = (scope: string, policy: 'allow' | 'ask' | 'deny') => {
-    setPrefs((prev: any) => ({
+    setPrefs((prev) => ({
       ...prev,
       privacy_scope_defaults: {
         ...(prev?.privacy_scope_defaults || {}),
@@ -59,7 +60,7 @@ export const PrivacySection: React.FC<Props> = ({
             <span>{t('preferences.language')}</span>
             <select
               value={prefs?.language || 'ru'}
-              onChange={(e) => setPrefs({ ...prefs, language: e.target.value })}
+              onChange={(e) => setPrefs({ ...prefs, language: e.target.value as 'ru' | 'en' })}
             >
               <option value="ru">Русский</option>
               <option value="en">English</option>
@@ -122,7 +123,7 @@ export const PrivacySection: React.FC<Props> = ({
       <div className="card">
         <h3>Согласия</h3>
         <div className="list">
-          {consents.map((consent: any) => (
+          {consents.map((consent) => (
             <div key={`${consent.kind}-${consent.granted_at}`} className="list-row">
               <div>
                 <strong>{consent.kind}</strong>

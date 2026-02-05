@@ -107,13 +107,14 @@ def seed(request, payload: DevSeedIn = REQUIRED_BODY):
     _require_dev_mode()
 
     from django.contrib.auth import get_user_model
+
     DjangoUser = get_user_model()
 
     ctx = require_context(request)
     tenant = ensure_tenant(ctx.tenant_id, ctx.tenant_slug)
 
     email = str(payload.email).lower().strip()
-    
+
     # Create updspaceid.User (multi-tenant identity)
     user, _ = User.objects.get_or_create(
         email=email,
@@ -183,17 +184,20 @@ def dev_login(request, payload: DevLoginIn = REQUIRED_BODY):
 
     from django.contrib.auth import get_user_model
     from django.contrib.sessions.backends.db import SessionStore
-    from allauth.headless.tokens.sessions import SessionTokenStrategy
+    from allauth.headless.tokens.strategies.sessions import SessionTokenStrategy
     from core.models import UserSessionMeta
 
     DjangoUser = get_user_model()
     email = str(payload.email).lower().strip()
-    
+
     # Check updspaceid.User exists
     try:
         usid_user = User.objects.get(email=email, status=UserStatus.ACTIVE)
     except User.DoesNotExist:
-        raise HttpError(404, error_payload("NOT_FOUND", f"User {email} not found. Run /dev/seed first."))
+        raise HttpError(
+            404,
+            error_payload("NOT_FOUND", f"User {email} not found. Run /dev/seed first."),
+        )
 
     # Get or create Django auth.User (for allauth sessions)
     dj_user, created = DjangoUser.objects.get_or_create(
@@ -211,7 +215,7 @@ def dev_login(request, payload: DevLoginIn = REQUIRED_BODY):
     session["_auth_user_backend"] = "django.contrib.auth.backends.ModelBackend"
     session["_auth_user_hash"] = ""
     session.save()
-    
+
     # Create UserSessionMeta for allauth headless session token
     existing_meta = UserSessionMeta.objects.filter(
         user=dj_user,
@@ -223,7 +227,7 @@ def dev_login(request, payload: DevLoginIn = REQUIRED_BODY):
             session_key=session.session_key,
             session_token=None,
         )
-    
+
     # Create session token using allauth strategy
     request.session = session
     request.user = dj_user

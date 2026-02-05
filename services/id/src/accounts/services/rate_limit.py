@@ -29,7 +29,7 @@ class RateLimitService:
     LOGIN_WINDOW_SEC = 5 * 60
     REGISTER_LIMIT = 3
     REGISTER_WINDOW_SEC = 10 * 60
-    
+
     # OIDC endpoint limits (configurable via settings)
     OIDC_TOKEN_LIMIT = getattr(settings, "RATE_LIMIT_OIDC_TOKEN", 60)
     OIDC_TOKEN_WINDOW_SEC = 60
@@ -219,17 +219,18 @@ def rate_limit_oidc(
 ) -> Callable:
     """
     Decorator to apply rate limiting to OIDC endpoints.
-    
+
     Usage:
         @rate_limit_oidc("token", lambda req, payload: {"client_id": payload.client_id})
         def token_endpoint(request, payload):
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(request, *args, **kwargs):
             ip = get_client_ip(request)
-            
+
             # Get additional identifiers from the callable
             extra_ids = {}
             if get_identifiers:
@@ -237,7 +238,7 @@ def rate_limit_oidc(
                     extra_ids = get_identifiers(request, *args, **kwargs) or {}
                 except Exception:
                     pass
-            
+
             # Select appropriate rate limit method
             if scope == "token":
                 decision = RateLimitService.oidc_token_attempt(
@@ -254,14 +255,17 @@ def rate_limit_oidc(
             else:
                 # Generic fallback
                 decision = RateLimitService._register_attempt(
-                    scope, [f"ip:{ip}"] if ip else ["unknown"],
-                    limit=60, window_sec=60,
+                    scope,
+                    [f"ip:{ip}"] if ip else ["unknown"],
+                    limit=60,
+                    window_sec=60,
                 )
-            
+
             if decision.blocked:
                 from core.monitoring import track_rate_limit
+
                 track_rate_limit(scope, "ip" if ip else "unknown")
-                
+
                 raise HttpError(
                     429,
                     {
@@ -270,7 +274,9 @@ def rate_limit_oidc(
                         "retry_after": decision.retry_after,
                     },
                 )
-            
+
             return func(request, *args, **kwargs)
+
         return wrapper
+
     return decorator

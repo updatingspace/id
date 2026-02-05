@@ -96,4 +96,3 @@ class ActivityService:
                     exc_info=True,
                 )
         return event
-

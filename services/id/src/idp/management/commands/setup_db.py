@@ -49,9 +49,13 @@ class Command(BaseCommand):
             if not exists:
                 self.stdout.write(f"Creating cache table: {table_name}")
                 call_command("createcachetable", table_name)
-                self.stdout.write(self.style.SUCCESS(f"✓ Created cache table: {table_name}"))
+                self.stdout.write(
+                    self.style.SUCCESS(f"✓ Created cache table: {table_name}")
+                )
             else:
-                self.stdout.write(self.style.SUCCESS(f"✓ Cache table already exists: {table_name}"))
+                self.stdout.write(
+                    self.style.SUCCESS(f"✓ Cache table already exists: {table_name}")
+                )
 
         # Ensure django_site entry exists
         site, created = Site.objects.update_or_create(

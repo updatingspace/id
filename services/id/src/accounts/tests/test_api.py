@@ -520,7 +520,9 @@ class AccountsApiTests(TestCase):
 
     def test_logout_and_session_cleanup(self):
         token = self.login_and_get_token()
-        resp_logout = self.client.post("/api/v1/auth/logout", HTTP_X_SESSION_TOKEN=token)
+        resp_logout = self.client.post(
+            "/api/v1/auth/logout", HTTP_X_SESSION_TOKEN=token
+        )
         self.assertEqual(resp_logout.status_code, 200)
         self.assertIsNone(self.client.session.get("_auth_user_id"))
 
@@ -532,12 +534,15 @@ class AccountsApiTests(TestCase):
     def test_oauth_provider_helpers(self):
         token = self.login_and_get_token()
 
-        with patch(
-            "accounts.services.oauth.OAuthService.configured_provider_ids",
-            return_value={"dummy"},
-        ), patch(
-            "accounts.services.oauth.registry.as_choices",
-            return_value=[("dummy", "Dummy")],
+        with (
+            patch(
+                "accounts.services.oauth.OAuthService.configured_provider_ids",
+                return_value={"dummy"},
+            ),
+            patch(
+                "accounts.services.oauth.registry.as_choices",
+                return_value=[("dummy", "Dummy")],
+            ),
         ):
             resp_list = self.client.get(
                 "/api/v1/auth/oauth/providers", HTTP_X_SESSION_TOKEN=token
@@ -551,14 +556,16 @@ class AccountsApiTests(TestCase):
         )
         self.assertEqual(resp_unknown.status_code, 404)
 
-        with patch(
-            "accounts.services.oauth.OAuthService.configured_provider_ids",
-            return_value={"dummy"},
-        ), patch(
-            "accounts.services.oauth.registry.as_choices",
-            return_value=[("dummy", "Dummy")],
-        ), patch(
-            "accounts.services.oauth.reverse", return_value="/dummy/login/"
+        with (
+            patch(
+                "accounts.services.oauth.OAuthService.configured_provider_ids",
+                return_value={"dummy"},
+            ),
+            patch(
+                "accounts.services.oauth.registry.as_choices",
+                return_value=[("dummy", "Dummy")],
+            ),
+            patch("accounts.services.oauth.reverse", return_value="/dummy/login/"),
         ):
             resp_link = self.client.get(
                 "/api/v1/auth/oauth/link/dummy", HTTP_X_SESSION_TOKEN=token
@@ -740,12 +747,13 @@ class AccountsApiTests(TestCase):
             last_used_at=None,
         )
 
-        with patch(
-            "accounts.services.passkeys.PasskeyService.complete_registration",
-            return_value=(dummy_auth, DummyRc()),
-        ) as complete_mock, patch(
-            "allauth.mfa.recovery_codes.internal.auth.RecoveryCodes"
-        ) as rc_mock:
+        with (
+            patch(
+                "accounts.services.passkeys.PasskeyService.complete_registration",
+                return_value=(dummy_auth, DummyRc()),
+            ) as complete_mock,
+            patch("allauth.mfa.recovery_codes.internal.auth.RecoveryCodes") as rc_mock,
+        ):
             rc_mock.return_value.get_unused_codes.return_value = [
                 "111111",
                 "222222",
@@ -781,18 +789,25 @@ class AccountsApiTests(TestCase):
 
     def test_headless_passkey_login_complete_issues_session_token(self):
         user = self._create_user(username="passkey", email="pk@example.com")
-        with patch(
-            "accounts.api.router_headless.PasskeyService.complete_login",
-            return_value=(user, None),
-        ), patch(
-            "accounts.api.router_headless.HeadlessService.issue_session_token",
-            return_value="headless-token",
-        ), patch(
-            "accounts.api.router_headless.AuthService.issue_pair_for_session",
-            return_value=SimpleNamespace(access="access-token", refresh="refresh-token"),
-        ), patch(
-            "accounts.api.router_headless.AuthService.profile",
-            return_value={"email": "pk@example.com"},
+        with (
+            patch(
+                "accounts.api.router_headless.PasskeyService.complete_login",
+                return_value=(user, None),
+            ),
+            patch(
+                "accounts.api.router_headless.HeadlessService.issue_session_token",
+                return_value="headless-token",
+            ),
+            patch(
+                "accounts.api.router_headless.AuthService.issue_pair_for_session",
+                return_value=SimpleNamespace(
+                    access="access-token", refresh="refresh-token"
+                ),
+            ),
+            patch(
+                "accounts.api.router_headless.AuthService.profile",
+                return_value={"email": "pk@example.com"},
+            ),
         ):
             resp = post_json(
                 self.client,

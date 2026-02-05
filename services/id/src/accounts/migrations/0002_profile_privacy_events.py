@@ -55,7 +55,10 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
-                ("requested_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "requested_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("executed_at", models.DateTimeField(blank=True, null=True)),
                 ("reason", models.CharField(blank=True, max_length=256)),
                 (
@@ -127,7 +130,10 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
-                ("requested_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "requested_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("completed_at", models.DateTimeField(blank=True, null=True)),
                 ("format", models.CharField(default="json", max_length=16)),
                 ("error", models.CharField(blank=True, max_length=256)),
@@ -160,7 +166,10 @@ class Migration(migrations.Migration):
                 (
                     "status",
                     models.CharField(
-                        choices=[("success", "Успешный вход"), ("failure", "Ошибка входа")],
+                        choices=[
+                            ("success", "Успешный вход"),
+                            ("failure", "Ошибка входа"),
+                        ],
                         max_length=16,
                     ),
                 ),
@@ -302,39 +311,57 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="accountevent",
-            index=models.Index(fields=["action", "created_at"], name="acct_event_action_idx"),
+            index=models.Index(
+                fields=["action", "created_at"], name="acct_event_action_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="accountevent",
-            index=models.Index(fields=["user", "created_at"], name="acct_event_user_idx"),
+            index=models.Index(
+                fields=["user", "created_at"], name="acct_event_user_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="dataexportrequest",
-            index=models.Index(fields=["user", "requested_at"], name="acct_export_user_idx"),
+            index=models.Index(
+                fields=["user", "requested_at"], name="acct_export_user_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="dataexportrequest",
-            index=models.Index(fields=["status", "requested_at"], name="acct_export_status_idx"),
+            index=models.Index(
+                fields=["status", "requested_at"], name="acct_export_status_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="loginevent",
-            index=models.Index(fields=["user", "created_at"], name="acct_login_user_idx"),
+            index=models.Index(
+                fields=["user", "created_at"], name="acct_login_user_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="loginevent",
-            index=models.Index(fields=["status", "created_at"], name="acct_login_status_idx"),
+            index=models.Index(
+                fields=["status", "created_at"], name="acct_login_status_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="userconsent",
-            index=models.Index(fields=["user", "kind"], name="acct_consent_user_kind_idx"),
+            index=models.Index(
+                fields=["user", "kind"], name="acct_consent_user_kind_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="userconsent",
-            index=models.Index(fields=["kind", "granted_at"], name="acct_consent_kind_idx"),
+            index=models.Index(
+                fields=["kind", "granted_at"], name="acct_consent_kind_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="userdevice",
-            index=models.Index(fields=["user", "last_seen"], name="acct_device_user_last_idx"),
+            index=models.Index(
+                fields=["user", "last_seen"], name="acct_device_user_last_idx"
+            ),
         ),
         migrations.AddConstraint(
             model_name="userdevice",

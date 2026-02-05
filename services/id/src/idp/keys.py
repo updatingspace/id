@@ -52,7 +52,13 @@ def _parse_key_entries(raw: str | dict | Iterable[dict]) -> list[KeyPair]:
             parsed = json.loads(raw)
         except ValueError:
             return []
-        entries = parsed if isinstance(parsed, list) else [parsed] if isinstance(parsed, dict) else []
+        entries = (
+            parsed
+            if isinstance(parsed, list)
+            else [parsed]
+            if isinstance(parsed, dict)
+            else []
+        )
     elif isinstance(raw, dict):
         entries = [raw]
     elif isinstance(raw, Iterable):

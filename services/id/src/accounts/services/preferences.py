@@ -86,9 +86,7 @@ class PreferencesService:
             elif not marketing_opt_in and prefs.marketing_opt_in:
                 prefs.marketing_opt_in = False
                 prefs.marketing_opt_out_at = now
-                updated_fields.extend(
-                    ["marketing_opt_in", "marketing_opt_out_at"]
-                )
+                updated_fields.extend(["marketing_opt_in", "marketing_opt_out_at"])
         if privacy_scope_defaults is not None:
             cleaned: dict[str, str] = {}
             for key, value in privacy_scope_defaults.items():

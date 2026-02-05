@@ -253,8 +253,12 @@ class OutboxEvent(models.Model):
     class Meta:
         db_table = "usid_outbox"
         indexes = [
-            models.Index(fields=["event_type", "created_at"], name="usid_outbox_type_created_idx"),
-            models.Index(fields=["tenant", "created_at"], name="usid_outbox_tenant_created_idx"),
+            models.Index(
+                fields=["event_type", "created_at"], name="usid_outbox_type_created_idx"
+            ),
+            models.Index(
+                fields=["tenant", "created_at"], name="usid_outbox_tenant_created_idx"
+            ),
             models.Index(fields=["processed_at"], name="usid_outbox_processed_idx"),
         ]
 
