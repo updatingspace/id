@@ -1,0 +1,40 @@
+[project]
+name = "updspaceid"
+version = "0.1.0"
+description = "Identity Service"
+requires-python = ">=3.10"
+dependencies = [
+    "django>=5.2",
+    "django-ninja>=1.0",
+    "django-allauth[socialaccount]",
+    "django-cors-headers",
+    "djangorestframework",
+    "email-validator",
+    "fido2",
+    "qrcode[pil]",
+    "psycopg[binary]",
+    "dj-database-url",
+    "gunicorn",
+    "factory-boy",  # often used in tests
+    "pillow", # for image fields
+    "argon2-cffi",
+    "pyjwt",
+    "djangorestframework-simplejwt",
+    "cryptography",
+    "redis",  # for Django cache backend
+    "pytz",  # for timezone management
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "ruff",
+    "pytest-django",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/app", "src/id"]

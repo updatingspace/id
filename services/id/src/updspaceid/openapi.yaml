@@ -1,0 +1,440 @@
+openapi: 3.1.0
+info:
+  title: UpdSpaceID
+  version: 1.0.0
+  description: |
+    UpdSpaceID is a multi-tenant identity provider.
+
+    Notes:
+    - All requests MUST include `X-Request-Id`.
+    - Tenant context MUST be provided by BFF via `X-Tenant-Id` and `X-Tenant-Slug`.
+    - All errors use a unified envelope: `{ "error": { ... } }`.
+servers:
+  - url: https://id.updspace.com
+    description: Production
+  - url: http://localhost:8001
+    description: Local dev
+
+components:
+  securitySchemes:
+    BffSession:
+      type: apiKey
+      in: cookie
+      name: updspace_session
+  parameters:
+    XRequestId:
+      name: X-Request-Id
+      in: header
+      required: true
+      schema: { type: string }
+    XTenantId:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+    XTenantSlug:
+      name: X-Tenant-Slug
+      in: header
+      required: true
+      schema: { type: string }
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+            request_id: { type: string }
+
+    ApplicationCreateIn:
+      type: object
+      required: [tenant_slug, payload_json]
+      properties:
+        tenant_slug: { type: string }
+        payload_json: { type: object, additionalProperties: true }
+
+    ApplicationOut:
+      type: object
+      required: [id, tenant_slug, payload_json, status, created_at]
+      properties:
+        id: { type: integer }
+        tenant_slug: { type: string }
+        payload_json: { type: object, additionalProperties: true }
+        status: { type: string, enum: [pending, approved, rejected] }
+        created_at: { type: string, format: date-time }
+
+    ActivateIn:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+
+    MagicLinkRequestIn:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    MagicLinkConsumeIn:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+
+    SessionIssueOut:
+      type: object
+      required: [ok, user_id, session_token]
+      properties:
+        ok: { type: boolean, const: true }
+        user_id: { type: string, format: uuid }
+        session_token: { type: string }
+
+    OAuthStartOut:
+      type: object
+      required: [authorization_url, state, nonce]
+      properties:
+        authorization_url: { type: string }
+        state: { type: string }
+        nonce: { type: string }
+
+    OAuthCallbackIn:
+      type: object
+      required: [state]
+      properties:
+        state: { type: string }
+        code: { type: string }
+        claimed_id:
+          type: string
+          description: Steam OpenID claimed_id, e.g. https://steamcommunity.com/openid/id/{steamid64}
+
+    MeOut:
+      type: object
+      required: [user, memberships]
+      properties:
+        user:
+          type: object
+          additionalProperties: true
+        memberships:
+          type: array
+          items:
+            type: object
+            required: [tenant_id, tenant_slug, status, base_role]
+            properties:
+              tenant_id: { type: string, format: uuid }
+              tenant_slug: { type: string }
+              status: { type: string, enum: [active, disabled] }
+              base_role: { type: string }
+
+    MigrationImportIn:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    MigrationImportOut:
+      type: object
+      required: [imported]
+      properties:
+        imported: { type: integer }
+
+    ClaimTokenOut:
+      type: object
+      required: [activation_token, activation_expires_at]
+      properties:
+        activation_token: { type: string }
+        activation_expires_at: { type: string, format: date-time }
+
+paths:
+  /api/v1/applications:
+    post:
+      operationId: applications_create
+      parameters: [{$ref: '#/components/parameters/XRequestId'}, {$ref: '#/components/parameters/XTenantId'}, {$ref: '#/components/parameters/XTenantSlug'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplicationCreateIn' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApplicationOut' }
+        '400': { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+    get:
+      operationId: applications_list
+      security: [{BffSession: []}]
+      parameters:
+        - {$ref: '#/components/parameters/XRequestId'}
+        - {$ref: '#/components/parameters/XTenantId'}
+        - {$ref: '#/components/parameters/XTenantSlug'}
+        - name: status
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+        '401': { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /api/v1/applications/{id}/approve:
+    post:
+      operationId: applications_approve
+      security: [{BffSession: []}]
+      parameters:
+        - {$ref: '#/components/parameters/XRequestId'}
+        - {$ref: '#/components/parameters/XTenantId'}
+        - {$ref: '#/components/parameters/XTenantSlug'}
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+        '401': { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /api/v1/applications/{id}/reject:
+    post:
+      operationId: applications_reject
+      security: [{BffSession: []}]
+      parameters:
+        - {$ref: '#/components/parameters/XRequestId'}
+        - {$ref: '#/components/parameters/XTenantId'}
+        - {$ref: '#/components/parameters/XTenantSlug'}
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: OK
+
+  /api/v1/auth/activate:
+    post:
+      operationId: auth_activate
+      parameters: [{$ref: '#/components/parameters/XRequestId'}, {$ref: '#/components/parameters/XTenantId'}, {$ref: '#/components/parameters/XTenantSlug'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivateIn' }
+      responses:
+        '200':
+          description: OK
+        '409':
+          description: TOKEN_USED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/v1/auth/magic-link/request:
+    post:
+      operationId: auth_magic_link_request
+      parameters: [{$ref: '#/components/parameters/XRequestId'}, {$ref: '#/components/parameters/XTenantId'}, {$ref: '#/components/parameters/XTenantSlug'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MagicLinkRequestIn' }
+      responses:
+        '200':
+          description: OK
+        '429':
+          description: RATE_LIMITED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/v1/auth/magic-link/consume:
+    post:
+      operationId: auth_magic_link_consume
+      parameters: [{$ref: '#/components/parameters/XRequestId'}, {$ref: '#/components/parameters/XTenantId'}, {$ref: '#/components/parameters/XTenantSlug'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MagicLinkConsumeIn' }
+      responses:
+        '200':
+          description: Issues server-side session for BFF
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionIssueOut' }
+        '403':
+          description: ACCOUNT_SUSPENDED | ACCOUNT_BANNED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/v1/auth/logout:
+    post:
+      operationId: auth_logout
+      security: [{BffSession: []}]
+      parameters: [{$ref: '#/components/parameters/XRequestId'}, {$ref: '#/components/parameters/XTenantId'}, {$ref: '#/components/parameters/XTenantSlug'}]
+      responses:
+        '200': { description: OK }
+        '401':
+          description: UNAUTHORIZED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/v1/me:
+    get:
+      operationId: me
+      security: [{BffSession: []}]
+      parameters: [{$ref: '#/components/parameters/XRequestId'}, {$ref: '#/components/parameters/XTenantId'}, {$ref: '#/components/parameters/XTenantSlug'}]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeOut' }
+        '401': { description: UNAUTHORIZED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+        '403': { description: FORBIDDEN, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /api/v1/oauth/{provider}/login/start:
+    post:
+      operationId: oauth_login_start
+      parameters:
+        - {$ref: '#/components/parameters/XRequestId'}
+        - {$ref: '#/components/parameters/XTenantId'}
+        - {$ref: '#/components/parameters/XTenantSlug'}
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [github, discord, steam] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OAuthStartOut' }
+
+  /api/v1/oauth/{provider}/login/callback:
+    post:
+      operationId: oauth_login_callback
+      parameters:
+        - {$ref: '#/components/parameters/XRequestId'}
+        - {$ref: '#/components/parameters/XTenantId'}
+        - {$ref: '#/components/parameters/XTenantSlug'}
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [github, discord, steam] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OAuthCallbackIn' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionIssueOut' }
+        '403':
+          description: ACCOUNT_NOT_LINKED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/v1/external-identities/{provider}/link/start:
+    post:
+      operationId: external_identities_link_start
+      security: [{BffSession: []}]
+      parameters:
+        - {$ref: '#/components/parameters/XRequestId'}
+        - {$ref: '#/components/parameters/XTenantId'}
+        - {$ref: '#/components/parameters/XTenantSlug'}
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [github, discord, steam] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OAuthStartOut' }
+
+  /api/v1/external-identities/{provider}/link/callback:
+    post:
+      operationId: external_identities_link_callback
+      security: [{BffSession: []}]
+      parameters:
+        - {$ref: '#/components/parameters/XRequestId'}
+        - {$ref: '#/components/parameters/XTenantId'}
+        - {$ref: '#/components/parameters/XTenantSlug'}
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [github, discord, steam] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OAuthCallbackIn' }
+      responses:
+        '200': { description: OK }
+        '403':
+          description: ACCOUNT_SUSPENDED | ACCOUNT_BANNED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409':
+          description: CALLBACK_ALREADY_USED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /api/v1/migrations/aefvote/import:
+    post:
+      operationId: migrations_aefvote_import
+      security: [{BffSession: []}]
+      parameters: [{$ref: '#/components/parameters/XRequestId'}, {$ref: '#/components/parameters/XTenantId'}, {$ref: '#/components/parameters/XTenantSlug'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MigrationImportIn' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MigrationImportOut' }
+        '403': { description: FORBIDDEN, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+
+  /api/v1/migrations/aefvote/claim-token/{user_id}:
+    post:
+      operationId: migrations_aefvote_claim_token
+      security: [{BffSession: []}]
+      parameters:
+        - {$ref: '#/components/parameters/XRequestId'}
+        - {$ref: '#/components/parameters/XTenantId'}
+        - {$ref: '#/components/parameters/XTenantSlug'}
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClaimTokenOut' }
+        '404': { description: NOT_FOUND, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }

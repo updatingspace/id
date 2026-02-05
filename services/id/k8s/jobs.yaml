@@ -1,0 +1,135 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: id-service-migrate
+  namespace: updspace-id
+  labels:
+    app: id-service
+    component: migration
+  annotations:
+    # Helm hook for pre-upgrade migrations
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app: id-service
+        component: migration
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      containers:
+        - name: migrate
+          image: ghcr.io/updatingspace/aef-vote/id-service:latest
+          imagePullPolicy: Always
+          
+          command:
+            - python
+            - src/manage.py
+            - migrate
+            - --noinput
+          
+          envFrom:
+            - configMapRef:
+                name: id-service-config
+            - secretRef:
+                name: id-service-secrets
+          
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# CronJob for periodic cleanup tasks
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: id-service-cleanup
+  namespace: updspace-id
+  labels:
+    app: id-service
+    component: cleanup
+spec:
+  schedule: "0 3 * * *"  # Run daily at 3 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app: id-service
+            component: cleanup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          
+          containers:
+            - name: cleanup
+              image: ghcr.io/updatingspace/aef-vote/id-service:latest
+              imagePullPolicy: Always
+              
+              command:
+                - python
+                - src/manage.py
+                - clearsessions
+              
+              envFrom:
+                - configMapRef:
+                    name: id-service-config
+                - secretRef:
+                    name: id-service-secrets
+              
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          
+          volumes:
+            - name: tmp
+              emptyDir: {}
