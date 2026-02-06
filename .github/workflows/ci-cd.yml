@@ -52,6 +52,12 @@ jobs:
       - name: Ruff format check
         run: ruff format --check src/
 
+      - name: Check migrations
+        env:
+          DJANGO_DEBUG: "true"
+          DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
+        run: python src/manage.py makemigrations --check --dry-run --noinput
+
       - name: Run tests with coverage profile
         env:
           DJANGO_DEBUG: "true"
