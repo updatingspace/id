@@ -34,7 +34,7 @@ spec:
       
       containers:
         - name: id-service
-          image: ghcr.io/updatingspace/aef-vote/id-service:latest
+          image: ghcr.io/updatingspace/id-service:latest
           imagePullPolicy: Always
           
           ports:
