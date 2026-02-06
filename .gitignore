@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -168,3 +168,7 @@ dist/
 .vite/
 coverage/
 *.tsbuildinfo
+
+# Keep frontend source lib directory tracked
+!web/id-frontend/src/lib/
+!web/id-frontend/src/lib/**
