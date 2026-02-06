@@ -7,6 +7,13 @@ test('login success flow redirects to next path', async ({ page }) => {
     await route.fulfill({ status: 200, json: { providers: [] } });
   });
 
+  await page.route('**/api/v1/auth/form_token?purpose=login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      json: { form_token: 'form-login-1', expires_in: 900 },
+    });
+  });
+
   await page.route('**/api/v1/auth/login', async (route) => {
     loggedIn = true;
     await route.fulfill({
@@ -38,6 +45,13 @@ test('login success flow redirects to next path', async ({ page }) => {
 test('login failure shows translated error', async ({ page }) => {
   await page.route('**/api/v1/auth/oauth/providers', async (route) => {
     await route.fulfill({ status: 200, json: { providers: [] } });
+  });
+
+  await page.route('**/api/v1/auth/form_token?purpose=login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      json: { form_token: 'form-login-2', expires_in: 900 },
+    });
   });
 
   await page.route('**/api/v1/auth/me', async (route) => {
