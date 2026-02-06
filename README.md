@@ -2,8 +2,9 @@
 
 [![CI/CD](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml)
 [![Backend Coverage Gate](https://img.shields.io/badge/backend%20coverage-line%20%E2%89%A5%2085%25%20%7C%20branch%20%E2%89%A5%2080%25-blue)](./.github/workflows/ci-cd.yml)
-[![Compliance Matrix](https://img.shields.io/badge/compliance-matrix%20artifact-green)](./services/id/docs/compliance/control-matrix.md)
-[![GDPR/152-FZ Controls](https://img.shields.io/badge/GDPR%2F152--FZ-test--traceable-success)](./services/id/docs/compliance/control-matrix.md)
+[![E2E Smoke](https://img.shields.io/badge/e2e-smoke%20artifact-green)](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml?query=branch%3Amain)
+[![Compliance Matrix](https://img.shields.io/badge/compliance-matrix%20artifact-green)](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml?query=branch%3Amain)
+[![GDPR/152-FZ Controls](https://img.shields.io/badge/GDPR%2F152--FZ-controls-success)](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml?query=branch%3Amain)
 
 Identity-сервис UpdSpace: единая аутентификация, управление сессиями и OAuth2/OIDC контур.
 
@@ -32,6 +33,7 @@ Identity-сервис UpdSpace: единая аутентификация, уп�
 Workflow: [`.github/workflows/ci-cd.yml`](./.github/workflows/ci-cd.yml)
 
 - CI (PR/push): backend lint + tests + coverage gates, frontend lint + typecheck + unit tests, smoke E2E
+- Reports (`playwright-report`, `test-results`, compliance matrix) are published as GitHub Actions artifacts per run
 - CD (push в `main`/`master`): публикация образов в GHCR
   - `ghcr.io/updatingspace/id-service`
   - `ghcr.io/updatingspace/id-frontend`

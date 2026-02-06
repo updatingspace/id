@@ -168,6 +168,8 @@ dist/
 .vite/
 coverage/
 *.tsbuildinfo
+web/id-frontend/playwright-report/
+web/id-frontend/test-results/
 
 # Keep frontend source lib directory tracked
 !web/id-frontend/src/lib/
