@@ -28,7 +28,7 @@ spec:
       
       containers:
         - name: migrate
-          image: ghcr.io/updatingspace/aef-vote/id-service:latest
+          image: ghcr.io/updatingspace/id-service:latest
           imagePullPolicy: Always
           
           command:
@@ -97,7 +97,7 @@ spec:
           
           containers:
             - name: cleanup
-              image: ghcr.io/updatingspace/aef-vote/id-service:latest
+              image: ghcr.io/updatingspace/id-service:latest
               imagePullPolicy: Always
               
               command:
