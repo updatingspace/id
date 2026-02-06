@@ -17,6 +17,7 @@ import type {
 import { getSessionToken } from './session';
 
 type ApiError = Error & { code?: string; status?: number };
+type FormTokenPurpose = 'login' | 'register';
 type OidcScope = { name: string; description: string; required: boolean; granted: boolean };
 type OidcPrepareResponse = {
   request_id: string;
@@ -24,6 +25,15 @@ type OidcPrepareResponse = {
   scopes: OidcScope[];
   consent_required: boolean;
   redirect_uri: string;
+};
+type SessionMeta = { session_token?: string };
+type HeadlessAuthResponse = {
+  ok?: boolean;
+  code?: string;
+  message?: string;
+  meta?: SessionMeta;
+  session_token?: string;
+  recovery_codes?: string[];
 };
 
 const API_BASE = import.meta.env.VITE_ID_API_BASE_URL ?? '/api/v1';
@@ -106,6 +116,8 @@ export const api = {
   getOAuthProviders: () => request<{ providers: ProviderRow[] }>(`${API_BASE}/auth/oauth/providers`).catch(() => ({ providers: [] })),
   getOAuthLoginUrl: (providerId: string, next?: string) =>
     request<OAuthLinkResponse>(withQuery(`${API_BASE}/auth/oauth/login/${providerId}`, { next })),
+  getFormToken: (purpose: FormTokenPurpose) =>
+    request<{ form_token: string; expires_in: number }>(withQuery(`${API_BASE}/auth/form_token`, { purpose })),
 
   passkeyLoginBegin: () => post<{ request_options: Record<string, unknown> }>(`${API_BASE}/auth/passkeys/login/begin`),
   passkeyLoginComplete: (credential: unknown) =>
@@ -117,11 +129,12 @@ export const api = {
   headlessLogin: (payload: {
     email: string;
     password: string;
-    totp_code?: string;
+    mfa_code?: string;
     recovery_code?: string;
-  }) => post<{ ok?: boolean; code?: string; message?: string; session_token?: string; recovery_codes?: string[] }>(`${API_BASE}/auth/login`, payload),
+    form_token: string;
+  }) => post<HeadlessAuthResponse>(`${API_BASE}/auth/login`, payload),
 
-  signup: (payload: Record<string, unknown>) => post<{ ok?: boolean; code?: string; message?: string }>(`${API_BASE}/auth/signup`, payload),
+  signup: (payload: Record<string, unknown>) => post<HeadlessAuthResponse>(`${API_BASE}/auth/signup`, payload),
   profile: async () => {
     const payload = await request<{ user: Record<string, unknown> | null }>(`${API_BASE}/auth/me`);
     if (!payload.user) {

@@ -92,6 +92,47 @@ This guide helps diagnose and resolve common issues with the UpdSpace ID Service
    })
    ```
 
+### Problem: "Неверный или просроченный токен формы"
+
+**Symptoms:**
+- Login/signup returns code `INVALID_FORM_TOKEN`
+- Message: `Неверный или просроченный токен формы`
+
+**Cause:** `/api/v1/auth/login` and `/api/v1/auth/signup` require a single-use `form_token` from `/api/v1/auth/form_token`.
+
+**Correct flow:**
+```typescript
+const tokenResp = await fetch('/api/v1/auth/form_token?purpose=login', {
+  method: 'GET',
+  credentials: 'include',
+});
+const { form_token } = await tokenResp.json();
+
+const loginResp = await fetch('/api/v1/auth/login', {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email,
+    password,
+    mfa_code,       // optional
+    recovery_code,  // optional
+    form_token,
+  }),
+});
+```
+
+**Server-side checks:**
+```bash
+# Check token rejections in logs
+rg -n "Form token rejected|Form token expired|Form token reused" /var/log/id-service*.log
+```
+
+**Important:**
+- Token TTL is 15 minutes
+- Token is single-use
+- `purpose=login` token cannot be used for `signup` and vice versa
+
 ---
 
 ## MFA Issues

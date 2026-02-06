@@ -110,14 +110,16 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     recoveryCode?: string,
   ): Promise<AuthResult> => {
     try {
+      const { form_token } = await api.getFormToken('login');
       const response = await api.headlessLogin({
         email,
         password,
-        totp_code: totpCode,
+        mfa_code: totpCode,
         recovery_code: recoveryCode,
+        form_token,
       });
 
-      const token = response.session_token;
+      const token = response.meta?.session_token || response.session_token;
       if (token) {
         setSessionToken(token);
       }
@@ -135,11 +137,28 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
 
   const signup = async (payload: SignupPayload): Promise<AuthResult> => {
     try {
-      await api.signup(payload);
-      const loginResult = await login(payload.email, payload.password);
-      if (!loginResult.ok) {
-        return loginResult;
+      const { form_token } = await api.getFormToken('register');
+      const response = await api.signup({
+        username: payload.username,
+        email: payload.email,
+        password: payload.password,
+        form_token,
+        language: payload.language,
+        timezone: payload.timezone,
+        consent_data_processing: payload.consentDataProcessing,
+        consent_marketing: payload.consentMarketing,
+        is_minor: payload.isMinor,
+        guardian_email: payload.guardianEmail,
+        guardian_consent: payload.guardianConsent,
+        birth_date: payload.birthDate,
+      });
+
+      const token = response.meta?.session_token || response.session_token;
+      if (token) {
+        setSessionToken(token);
       }
+
+      await refresh();
       return { ok: true };
     } catch (err) {
       return toAuthResult(err, 'Signup failed');
