@@ -25,6 +25,9 @@ jobs:
     defaults:
       run:
         working-directory: services/id
+    env:
+      DJANGO_SETTINGS_MODULE: app.settings
+      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
 
@@ -112,6 +115,9 @@ jobs:
     defaults:
       run:
         working-directory: services/id
+    env:
+      DJANGO_SETTINGS_MODULE: app.settings
+      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
 
@@ -152,11 +158,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/id-frontend/pnpm-lock.yaml
 
-      - name: Enable Corepack
-        run: corepack enable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.3.0
+          run_install: false
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
@@ -197,11 +203,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: web/id-frontend/pnpm-lock.yaml
 
-      - name: Enable Corepack
-        run: corepack enable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.3.0
+          run_install: false
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
