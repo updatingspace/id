@@ -226,10 +226,26 @@ class UserContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        # Set user context if authenticated
-        user = getattr(request, "user", None)
-        if user and getattr(user, "is_authenticated", False):
-            set_user_context(user_id=str(user.pk))
+        # Resolve user context defensively: request.user may trigger DB access
+        # (e.g., SessionMiddleware/AuthMiddleware) and should not break request flow.
+        try:
+            user = getattr(request, "user", None)
+        except Exception:
+            logger.warning(
+                "Failed to resolve request.user in UserContextMiddleware",
+                exc_info=True,
+            )
+            user = None
+
+        if user is not None:
+            try:
+                if getattr(user, "is_authenticated", False):
+                    set_user_context(user_id=str(getattr(user, "pk", "")))
+            except Exception:
+                logger.warning(
+                    "Failed to evaluate authenticated user in UserContextMiddleware",
+                    exc_info=True,
+                )
 
         # Extract tenant from request if available
         tenant_id = getattr(request, "tenant_id", None)

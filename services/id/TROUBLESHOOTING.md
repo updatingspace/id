@@ -133,6 +133,33 @@ rg -n "Form token rejected|Form token expired|Form token reused" /var/log/id-ser
 - Token is single-use
 - `purpose=login` token cannot be used for `signup` and vice versa
 
+### Problem: `ProgrammingError: relation "django_session" does not exist`
+
+**Symptoms:**
+- `/api/v1/auth/form_token` and/or `/api/v1/auth/login` return HTTP 500
+- Django debug page shows:
+  - `relation "django_session" does not exist`
+  - `ProgrammingError` from session backend
+
+**Cause:** database migrations were not applied in the target environment.
+
+**Fix:**
+```bash
+# Inside service container / release job
+python src/manage.py migrate --noinput
+
+# Verify sessions migration is applied
+python src/manage.py showmigrations sessions
+```
+
+**Kubernetes quick fix:**
+```bash
+kubectl exec -it deployment/id-service -n updspace-id -- python src/manage.py migrate --noinput
+kubectl exec -it deployment/id-service -n updspace-id -- python src/manage.py showmigrations sessions
+```
+
+**Expected result:** `sessions.0001_initial` marked as applied (`[X]`), auth endpoints stop returning 500.
+
 ---
 
 ## MFA Issues

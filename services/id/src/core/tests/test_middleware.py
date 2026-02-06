@@ -101,6 +101,41 @@ class UserContextMiddlewareTests(SimpleTestCase):
             middleware(request)
         set_ctx.assert_not_called()
 
+    def test_does_not_fail_when_request_user_resolution_raises(self):
+        class BrokenRequest:
+            tenant_id = "tenant-1"
+
+            @property
+            def user(self):
+                raise RuntimeError("session backend unavailable")
+
+        middleware = UserContextMiddleware(lambda _request: HttpResponse("ok"))
+        with (
+            patch("core.middleware.set_user_context") as set_ctx,
+            patch("core.middleware.logger.warning") as warn_mock,
+        ):
+            response = middleware(BrokenRequest())
+        self.assertEqual(response.status_code, 200)
+        set_ctx.assert_called_once_with(tenant_id="tenant-1")
+        warn_mock.assert_called()
+
+    def test_does_not_fail_when_user_auth_check_raises(self):
+        class BrokenUser:
+            @property
+            def is_authenticated(self):
+                raise RuntimeError("auth lazy evaluation failed")
+
+        request = SimpleNamespace(user=BrokenUser(), tenant_id="tenant-2")
+        middleware = UserContextMiddleware(lambda _request: HttpResponse("ok"))
+        with (
+            patch("core.middleware.set_user_context") as set_ctx,
+            patch("core.middleware.logger.warning") as warn_mock,
+        ):
+            response = middleware(request)
+        self.assertEqual(response.status_code, 200)
+        set_ctx.assert_called_once_with(tenant_id="tenant-2")
+        warn_mock.assert_called()
+
 
 class RequestLoggingMiddlewareTests(SimpleTestCase):
     def test_redacts_exception_message_in_log_extra(self):
