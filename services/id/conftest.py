@@ -1,8 +1,8 @@
 """Pytest configuration for ID service tests."""
 import os
 
-
-def pytest_configure(config):
-    """Configure essential environment defaults for pytest runs."""
-    os.environ.setdefault("DJANGO_SECRET_KEY", "test-secret-key")
-    os.environ.setdefault("DJANGO_DEBUG", "1")
+# Configure environment defaults at import-time so pytest-django sees them
+# before it initializes Django settings from --ds/pytest.ini.
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "app.settings")
+os.environ.setdefault("DJANGO_SECRET_KEY", "test-secret-key-min-32-characters-long")
+os.environ.setdefault("DJANGO_DEBUG", "1")
