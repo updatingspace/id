@@ -48,6 +48,7 @@ jobs:
       YC_CONTAINER_REGISTRY_ID: ${{ secrets.YC_CONTAINER_REGISTRY_ID }}
       YC_TF_BACKEND_CONFIG_B64: ${{ secrets.YC_TF_BACKEND_CONFIG_B64 }}
       YC_TF_VARS_B64: ${{ secrets.YC_TF_VARS_B64 }}
+      YC_MONIUM_API_KEY: ${{ secrets.YC_MONIUM_API_KEY }}
       YC_PUBLIC_BASE_URL: ${{ secrets.YC_PUBLIC_BASE_URL }}
       YC_SMOKE_HOST: ${{ secrets.YC_SMOKE_HOST }}
       YC_PORTAL_PUBLIC_BASE_URL: ${{ secrets.YC_PORTAL_PUBLIC_BASE_URL }}
