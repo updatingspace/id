@@ -7,24 +7,22 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 from datetime import timedelta
 from io import StringIO
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
-from ninja.errors import HttpError
-from unittest.mock import patch
 from jwt import InvalidTokenError
+from ninja.errors import HttpError
 
 from accounts.services.rate_limit import RateLimitDecision
 from idp.keys import _generate_keypair, clear_key_cache_for_tests
-from idp.management.commands.setup_portal_client import _prepare_json_value_for_save
 from idp.models import OidcAuthorizationRequest, OidcClient
 from idp.router import (
     _check_rate_limit,
@@ -150,15 +148,6 @@ class SetupPortalClientCommandTests(TestCase):
             "https://updspace.com/api/v1/session/callback", client.redirect_uris
         )
         self.assertEqual(Site.objects.get(id=1).domain, "id.updspace.com")
-
-    def test_ydb_json_values_are_file_like_for_backend_adapter(self):
-        value = ["openid", "profile"]
-
-        with patch.dict(os.environ, {"DB_DRIVER": "ydb"}):
-            prepared = _prepare_json_value_for_save(value)
-
-        self.assertIsInstance(prepared, StringIO)
-        self.assertEqual(json.load(prepared), value)
 
 
 class OidcClientModelTests(TestCase):

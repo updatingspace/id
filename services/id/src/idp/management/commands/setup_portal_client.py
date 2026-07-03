@@ -7,9 +7,7 @@ Usage:
     python manage.py setup_portal_client --portal-base-url https://updspace.com --client-id updspace-portal
 """
 
-import json
 import os
-from io import StringIO
 from urllib.parse import urlparse
 
 from django.contrib.sites.models import Site
@@ -28,8 +26,6 @@ LOCAL_REDIRECT_URIS = [
     "http://aef.localhost/callback",
     "http://localhost:5173/callback",
 ]
-
-JSON_CONFIG_KEYS = {"redirect_uris", "allowed_scopes", "grant_types", "response_types"}
 
 
 def _portal_redirect_uris(base_url: str) -> list[str]:
@@ -57,12 +53,6 @@ def _is_local_url(value: str) -> bool:
     parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
     return host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localhost")
-
-
-def _prepare_json_value_for_save(value):
-    if (os.environ.get("DB_DRIVER") or "").strip().lower() == "ydb":
-        return StringIO(json.dumps(value))
-    return value
 
 
 class Command(BaseCommand):
@@ -192,12 +182,8 @@ class Command(BaseCommand):
 
         # Update client with latest config.
         for key, value in portal_config.items():
-            if key in JSON_CONFIG_KEYS:
-                value = _prepare_json_value_for_save(value)
             setattr(client, key, value)
         client.save()
-        for key in JSON_CONFIG_KEYS:
-            setattr(client, key, portal_config[key])
 
         if created:
             self.stdout.write(
