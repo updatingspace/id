@@ -17,6 +17,17 @@ Apply order:
 5. `terraform -chdir=infra/terraform/yandex-cloud apply`
 6. Configure GitHub Actions secrets used by `.github/workflows/deploy-yandex-cloud.yml`.
 
+## Serverless VPC upgrade note
+
+`enable_serverless_vpc` defaults to `false` for new low-cost deployments to
+avoid consuming VPC quota when the backend only needs public Yandex Cloud
+services.
+
+For an existing Terraform-managed stack that already created the dedicated
+network/subnet and serverless container connectivity, set
+`enable_serverless_vpc = true` before planning this version. Otherwise Terraform
+will plan to remove the network/subnet and detach container connectivity.
+
 OpenTofu note: the Yandex provider source is intentionally pinned as
 `registry.terraform.io/yandex-cloud/yandex`, because the provider is not
 published in the OpenTofu public registry.

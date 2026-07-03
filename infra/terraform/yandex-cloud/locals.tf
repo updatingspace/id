@@ -40,6 +40,7 @@ locals {
       MEDIA_STORAGE_DRIVER   = "s3"
       OIDC_ISSUER            = local.public_base_url
       OIDC_PUBLIC_BASE_URL   = local.public_base_url
+      PORT                   = "8080"
       S3_BUCKET_NAME         = local.media_bucket_name
       S3_ENDPOINT_URL        = "https://storage.yandexcloud.net"
       S3_REGION              = var.region

@@ -19,6 +19,6 @@ RUN pip install --upgrade pip && pip install "pillow>=10.0.0" && pip install .
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
-EXPOSE 8080
+EXPOSE 8001
 
-CMD ["sh", "-c", "exec gunicorn app.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers ${WEB_CONCURRENCY:-4} --access-logfile - --error-logfile -"]
+CMD ["sh", "-c", "exec gunicorn app.wsgi:application --bind 0.0.0.0:${PORT:-8001} --workers ${WEB_CONCURRENCY:-4} --access-logfile - --error-logfile -"]
