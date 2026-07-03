@@ -1,11 +1,15 @@
 resource "yandex_vpc_network" "id" {
+  count = var.enable_serverless_vpc ? 1 : 0
+
   name = "${local.name_prefix}-network"
 }
 
 resource "yandex_vpc_subnet" "serverless" {
+  count = var.enable_serverless_vpc ? 1 : 0
+
   name           = "${local.name_prefix}-subnet"
   zone           = var.default_zone
-  network_id     = yandex_vpc_network.id.id
+  network_id     = yandex_vpc_network.id[0].id
   v4_cidr_blocks = [var.serverless_subnet_cidr]
 }
 
@@ -105,10 +109,10 @@ resource "yandex_storage_bucket_iam_binding" "gateway_frontend_viewer" {
   members = ["serviceAccount:${yandex_iam_service_account.gateway.id}"]
 }
 
-resource "yandex_container_registry_iam_binding" "runtime_image_puller" {
-  registry_id = local.container_registry_id
-  role        = "container-registry.images.puller"
-  members     = ["serviceAccount:${yandex_iam_service_account.runtime.id}"]
+resource "yandex_resourcemanager_folder_iam_member" "runtime_image_puller" {
+  folder_id = var.folder_id
+  role      = "container-registry.images.puller"
+  member    = "serviceAccount:${yandex_iam_service_account.runtime.id}"
 }
 
 resource "yandex_serverless_container" "backend" {
@@ -122,7 +126,7 @@ resource "yandex_serverless_container" "backend" {
   service_account_id = yandex_iam_service_account.runtime.id
 
   depends_on = [
-    yandex_container_registry_iam_binding.runtime_image_puller,
+    yandex_resourcemanager_folder_iam_member.runtime_image_puller,
     yandex_lockbox_secret_iam_member.runtime_payload_viewer,
     yandex_ydb_database_iam_binding.runtime_editor,
   ]
@@ -131,8 +135,11 @@ resource "yandex_serverless_container" "backend" {
     type = "http"
   }
 
-  connectivity {
-    network_id = yandex_vpc_network.id.id
+  dynamic "connectivity" {
+    for_each = var.enable_serverless_vpc ? [1] : []
+    content {
+      network_id = yandex_vpc_network.id[0].id
+    }
   }
 
   metadata_options {
