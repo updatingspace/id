@@ -148,8 +148,6 @@ jobs:
       ydb_database_b64: ${{ steps.outputs.outputs.ydb_database_b64 }}
       public_base_url_b64: ${{ steps.outputs.outputs.public_base_url_b64 }}
       frontend_bucket_name_b64: ${{ steps.outputs.outputs.frontend_bucket_name_b64 }}
-      object_storage_access_key_id_b64: ${{ steps.outputs.outputs.object_storage_access_key_id_b64 }}
-      object_storage_secret_access_key_b64: ${{ steps.outputs.outputs.object_storage_secret_access_key_b64 }}
     env:
       TF_VAR_cloud_id: ${{ secrets.YC_CLOUD_ID }}
       TF_VAR_folder_id: ${{ secrets.YC_FOLDER_ID }}
@@ -223,16 +221,10 @@ jobs:
             terraform -chdir=infra/terraform/yandex-cloud output -raw "$1" | base64 -w0
           }
 
-          object_storage_access_key_id=$(terraform -chdir=infra/terraform/yandex-cloud output -raw object_storage_access_key_id)
-          object_storage_secret_access_key=$(terraform -chdir=infra/terraform/yandex-cloud output -raw object_storage_secret_access_key)
-          echo "::add-mask::${object_storage_access_key_id}"
-          echo "::add-mask::${object_storage_secret_access_key}"
           echo "ydb_endpoint_b64=$(encode_output ydb_endpoint)" >> "$GITHUB_OUTPUT"
           echo "ydb_database_b64=$(encode_output ydb_database)" >> "$GITHUB_OUTPUT"
           echo "public_base_url_b64=$(encode_output public_base_url)" >> "$GITHUB_OUTPUT"
           echo "frontend_bucket_name_b64=$(encode_output frontend_bucket_name)" >> "$GITHUB_OUTPUT"
-          echo "object_storage_access_key_id_b64=$(printf '%s' "${object_storage_access_key_id}" | base64 -w0)" >> "$GITHUB_OUTPUT"
-          echo "object_storage_secret_access_key_b64=$(printf '%s' "${object_storage_secret_access_key}" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
   ydb-bootstrap:
     name: Bootstrap YDB schema
@@ -309,8 +301,9 @@ jobs:
     env:
       FRONTEND_DIST_DIR: dist
       TF_OUTPUT_FRONTEND_BUCKET_NAME_B64: ${{ needs.terraform-apply.outputs.frontend_bucket_name_b64 }}
-      TF_OUTPUT_OBJECT_STORAGE_ACCESS_KEY_ID_B64: ${{ needs.terraform-apply.outputs.object_storage_access_key_id_b64 }}
-      TF_OUTPUT_OBJECT_STORAGE_SECRET_ACCESS_KEY_B64: ${{ needs.terraform-apply.outputs.object_storage_secret_access_key_b64 }}
+      YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
+      YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+      YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
       YC_OBJECT_STORAGE_ENDPOINT: https://storage.yandexcloud.net
       AWS_DEFAULT_REGION: ru-central1
     steps:
@@ -319,8 +312,6 @@ jobs:
         run: |
           {
             echo "YC_BUCKET_NAME=$(printf '%s' "$TF_OUTPUT_FRONTEND_BUCKET_NAME_B64" | base64 --decode)"
-            echo "AWS_ACCESS_KEY_ID=$(printf '%s' "$TF_OUTPUT_OBJECT_STORAGE_ACCESS_KEY_ID_B64" | base64 --decode)"
-            echo "AWS_SECRET_ACCESS_KEY=$(printf '%s' "$TF_OUTPUT_OBJECT_STORAGE_SECRET_ACCESS_KEY_B64" | base64 --decode)"
           } >> "$GITHUB_ENV"
       - uses: actions/setup-node@v6
         with:
@@ -337,8 +328,45 @@ jobs:
         run: pnpm build
       - name: Install AWS CLI
         run: python -m pip install awscli
+      - name: Install YC CLI
+        run: |
+          curl -fsSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i "$RUNNER_TEMP/yc" -n
+          echo "$RUNNER_TEMP/yc/bin" >> "$GITHUB_PATH"
+      - name: Configure temporary Object Storage credentials
+        run: |
+          key_file="$RUNNER_TEMP/yc-sa-key.json"
+          access_key_file="$RUNNER_TEMP/object-storage-access-key.json"
+
+          printf '%s' "$YC_SERVICE_ACCOUNT_KEY_JSON" > "$key_file"
+          yc config profile create deploy
+          yc config set service-account-key "$key_file"
+          yc config set cloud-id "$YC_CLOUD_ID"
+          yc config set folder-id "$YC_FOLDER_ID"
+
+          yc iam access-key create \
+            --service-account-name updspace-id-automation \
+            --description "Temporary frontend publish ${GITHUB_RUN_ID}" \
+            --format json > "$access_key_file"
+
+          access_key_id=$(jq -r '.access_key.id' "$access_key_file")
+          key_id=$(jq -r '.access_key.key_id' "$access_key_file")
+          secret_key=$(jq -r '.secret' "$access_key_file")
+
+          echo "::add-mask::${key_id}"
+          echo "::add-mask::${secret_key}"
+          {
+            echo "AWS_ACCESS_KEY_ID=${key_id}"
+            echo "AWS_SECRET_ACCESS_KEY=${secret_key}"
+            echo "YC_TEMP_ACCESS_KEY_ID=${access_key_id}"
+          } >> "$GITHUB_ENV"
       - name: Publish bundle to Object Storage
         run: ../../scripts/ci/deploy-frontend-object-storage.sh
+      - name: Delete temporary Object Storage credentials
+        if: always()
+        run: |
+          if [[ -n "${YC_TEMP_ACCESS_KEY_ID:-}" ]]; then
+            yc iam access-key delete "$YC_TEMP_ACCESS_KEY_ID" || true
+          fi
 
   smoke:
     name: Smoke public gateway
