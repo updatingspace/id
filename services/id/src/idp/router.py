@@ -234,7 +234,7 @@ def jwks(request):
 
 @oidc_router.post(
     "/revoke",
-    response={200: OkOut, 400: ErrorOut},
+    response={200: OkOut, 400: ErrorOut, 401: ErrorOut, 429: ErrorOut},
     operation_id="oidc_revoke",
 )
 def revoke(request, payload: RevokeIn = REQUIRED_BODY):
@@ -243,7 +243,21 @@ def revoke(request, payload: RevokeIn = REQUIRED_BODY):
             400,
             {"code": "INVALID_REQUEST", "message": "token required"},
         )
-    OidcService.revoke_token(payload.token)
+    if hasattr(payload, "model_dump"):
+        data = payload.model_dump()
+    elif hasattr(payload, "dict"):
+        data = payload.dict()
+    else:
+        data = vars(payload)
+    request_post = getattr(request, "POST", None)
+    if request_post:
+        for key, value in request_post.items():
+            if value is not None:
+                data[key] = value
+    client_id = str(data.get("client_id") or "")
+    _check_rate_limit(request, "token", client_id=client_id)
+    client = OidcService.authenticate_client(request, data)
+    OidcService.revoke_token(payload.token, client=client)
     return Response(
         {"ok": True, "message": "revoked"},
         headers=NO_STORE_HEADERS,
