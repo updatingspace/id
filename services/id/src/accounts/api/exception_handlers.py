@@ -25,7 +25,11 @@ def _error_envelope_response(api: NinjaAPI, request, status: int, raw_detail):
         message = str(raw_detail.get("message") or "Error")
         details = sanitize_log_data(raw_detail.get("details"))
 
-    request_id = request.headers.get("X-Request-Id") or ""
+    request_id = (
+        getattr(request, "request_id", None)
+        or request.headers.get("X-Request-Id")
+        or ""
+    )
     payload = {
         "error": {
             "code": code,

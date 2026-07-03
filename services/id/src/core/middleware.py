@@ -2,8 +2,7 @@
 Production middleware for UpdSpace ID Service.
 
 Provides:
-- Correlation ID propagation
-- Request/response metrics instrumentation
+- Request ID propagation
 - Security headers
 - Logging context management
 """
@@ -19,55 +18,54 @@ from django.http import HttpRequest, HttpResponse
 
 from core.logging_config import (
     clear_context,
-    generate_correlation_id,
+    generate_request_id,
     request_path_var,
     sanitize_log_data,
-    set_correlation_id,
+    set_request_id,
     set_user_context,
 )
-from core.monitoring import (
-    HTTP_REQUEST_DURATION_SECONDS,
-    HTTP_REQUESTS_IN_FLIGHT,
-    HTTP_REQUESTS_TOTAL,
-    metrics,
-)
+from core.telemetry import annotate_current_span
 
 logger = logging.getLogger(__name__)
 
 
-class CorrelationIdMiddleware:
+class RequestIdMiddleware:
     """
-    Middleware that propagates correlation IDs across requests.
+    Middleware that propagates request IDs across requests.
 
-    - Extracts X-Correlation-ID from incoming requests
+    - Extracts X-Request-Id, then X-Correlation-ID from incoming requests
     - Generates new ID if not present
-    - Adds correlation ID to response headers
+    - Adds request ID and compatibility correlation ID to response headers
     - Sets up logging context
     """
 
-    HEADER_NAME = "X-Correlation-ID"
+    REQUEST_HEADER_NAME = "X-Request-Id"
+    CORRELATION_HEADER_NAME = "X-Correlation-ID"
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        # Extract or generate correlation ID
-        correlation_id = (
-            request.headers.get(self.HEADER_NAME) or generate_correlation_id()
+        request_id = (
+            request.headers.get(self.REQUEST_HEADER_NAME)
+            or request.headers.get(self.CORRELATION_HEADER_NAME)
+            or generate_request_id()
         )
 
         # Set in context for logging
-        set_correlation_id(correlation_id)
+        set_request_id(request_id)
         request_path_var.set(request.path)
 
         # Attach to request for downstream use
-        request.correlation_id = correlation_id  # type: ignore[attr-defined]
+        request.request_id = request_id  # type: ignore[attr-defined]
+        request.correlation_id = request_id  # type: ignore[attr-defined]
 
         try:
             response = self.get_response(request)
 
-            # Add correlation ID to response
-            response[self.HEADER_NAME] = correlation_id
+            # Add canonical request ID and compatibility correlation ID to response
+            response[self.REQUEST_HEADER_NAME] = request_id
+            response[self.CORRELATION_HEADER_NAME] = request_id
 
             return response
         finally:
@@ -75,86 +73,7 @@ class CorrelationIdMiddleware:
             clear_context()
 
 
-class MetricsMiddleware:
-    """
-    Middleware that instruments HTTP requests with Prometheus-style metrics.
-
-    Tracks:
-    - Request count by method, path, status
-    - Request duration histogram
-    - In-flight requests gauge
-    """
-
-    # Paths to exclude from detailed metrics (high cardinality)
-    EXCLUDE_PATHS = {"/health", "/metrics", "/favicon.ico"}
-
-    # Paths to normalize (replace IDs with placeholders)
-    PATH_NORMALIZERS = [
-        (r"/api/v1/users/[^/]+", "/api/v1/users/{id}"),
-        (r"/api/v1/sessions/[^/]+", "/api/v1/sessions/{id}"),
-        (r"/oauth/authorize/[^/]+", "/oauth/authorize/{id}"),
-    ]
-
-    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]):
-        self.get_response = get_response
-        self._in_flight = 0
-        import re
-
-        self._normalizers = [
-            (re.compile(pattern), replacement)
-            for pattern, replacement in self.PATH_NORMALIZERS
-        ]
-
-    def __call__(self, request: HttpRequest) -> HttpResponse:
-        path = request.path
-        method = request.method or "UNKNOWN"
-
-        # Skip metrics for excluded paths
-        if path in self.EXCLUDE_PATHS:
-            return self.get_response(request)
-
-        # Normalize path for metrics
-        normalized_path = self._normalize_path(path)
-
-        # Track in-flight requests
-        self._in_flight += 1
-        metrics.set_gauge(HTTP_REQUESTS_IN_FLIGHT, self._in_flight)
-
-        start_time = time.perf_counter()
-
-        try:
-            response = self.get_response(request)
-            status_code = response.status_code
-        except Exception:
-            status_code = 500
-            raise
-        finally:
-            # Record metrics
-            self._in_flight -= 1
-            metrics.set_gauge(HTTP_REQUESTS_IN_FLIGHT, self._in_flight)
-
-            duration = time.perf_counter() - start_time
-            labels = {
-                "method": method,
-                "path": normalized_path,
-                "status": str(status_code),
-            }
-
-            metrics.inc_counter(HTTP_REQUESTS_TOTAL, labels)
-            metrics.observe_histogram(HTTP_REQUEST_DURATION_SECONDS, duration, labels)
-
-        return response
-
-    def _normalize_path(self, path: str) -> str:
-        """Normalize path to reduce metric cardinality."""
-        for pattern, replacement in self._normalizers:
-            path = pattern.sub(replacement, path)
-
-        # Truncate very long paths
-        if len(path) > 50:
-            path = path[:47] + "..."
-
-        return path
+CorrelationIdMiddleware = RequestIdMiddleware
 
 
 class SecurityHeadersMiddleware:
@@ -284,6 +203,7 @@ class RequestLoggingMiddleware:
             {
                 "method": request.method,
                 "path": path,
+                "request_id": getattr(request, "request_id", None),
                 "user_agent": request.headers.get("User-Agent", "")[:100],
                 "content_length": request.headers.get("Content-Length", "0"),
             }
@@ -304,6 +224,7 @@ class RequestLoggingMiddleware:
                 {
                     "method": request.method,
                     "path": path,
+                    "request_id": getattr(request, "request_id", None),
                     "status_code": response.status_code,
                     "duration_ms": round(duration_ms, 2),
                     "content_length": response.get("Content-Length", "0"),
@@ -314,6 +235,13 @@ class RequestLoggingMiddleware:
                 "Request completed",
                 extra=response_extra,
             )
+            annotate_current_span(
+                request,
+                route=getattr(request, "resolver_match", None).route
+                if getattr(request, "resolver_match", None)
+                else path,
+                status_code=response.status_code,
+            )
 
             return response
 
@@ -323,6 +251,7 @@ class RequestLoggingMiddleware:
                 {
                     "method": request.method,
                     "path": path,
+                    "request_id": getattr(request, "request_id", None),
                     "duration_ms": round(duration_ms, 2),
                     "exception_type": type(e).__name__,
                     "exception_message": str(e),
@@ -333,4 +262,5 @@ class RequestLoggingMiddleware:
                 extra=error_extra,
                 exc_info=True,
             )
+            annotate_current_span(request, route=path, status_code=500)
             raise

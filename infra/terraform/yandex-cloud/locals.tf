@@ -13,6 +13,9 @@ locals {
       S3_ACCESS_KEY_ID     = yandex_iam_service_account_static_access_key.automation.access_key
       S3_SECRET_ACCESS_KEY = yandex_iam_service_account_static_access_key.automation.secret_key
     },
+    var.monium_api_key != "" ? {
+      MONIUM_API_KEY = var.monium_api_key
+    } : {},
   )
 
   allowed_hosts = join(",", compact([
@@ -26,30 +29,38 @@ locals {
 
   backend_env = merge(
     {
-      CORS_ALLOWED_ORIGINS   = local.public_base_url
-      CSRF_TRUSTED_ORIGINS   = local.public_base_url
-      DB_DRIVER              = "ydb"
-      DEFAULT_FROM_EMAIL     = "no-reply@${local.default_from_domain}"
-      DJANGO_ALLOWED_HOSTS   = local.allowed_hosts
-      DJANGO_DEBUG           = "false"
-      ID_ACTIVATION_BASE_URL = local.public_base_url
-      ID_PUBLIC_BASE_URL     = "${local.public_base_url}/api/v1"
-      LOG_FORMAT             = "json"
-      LOG_LEVEL              = "INFO"
-      MEDIA_PUBLIC_BASE_URL  = "https://storage.yandexcloud.net/${local.media_bucket_name}"
-      MEDIA_STORAGE_DRIVER   = "s3"
-      OIDC_ISSUER            = local.public_base_url
-      OIDC_PUBLIC_BASE_URL   = local.public_base_url
-      PORT                   = "8080"
-      S3_BUCKET_NAME         = local.media_bucket_name
-      S3_ENDPOINT_URL        = "https://storage.yandexcloud.net"
-      S3_REGION              = var.region
-      SECURE_SSL_REDIRECT    = "true"
-      SESSION_COOKIE_SECURE  = "true"
-      YDB_CREDENTIALS_MODE   = "metadata"
-      YDB_DATABASE           = yandex_ydb_database_serverless.id.database_path
-      YDB_ENDPOINT           = yandex_ydb_database_serverless.id.ydb_full_endpoint
-      YDB_NAME               = "default"
+      CORS_ALLOWED_ORIGINS        = local.public_base_url
+      CSRF_TRUSTED_ORIGINS        = local.public_base_url
+      DB_DRIVER                   = "ydb"
+      DEFAULT_FROM_EMAIL          = "no-reply@${local.default_from_domain}"
+      DJANGO_ALLOWED_HOSTS        = local.allowed_hosts
+      DJANGO_DEBUG                = "false"
+      ID_ACTIVATION_BASE_URL      = local.public_base_url
+      ID_PUBLIC_BASE_URL          = "${local.public_base_url}/api/v1"
+      LOG_FORMAT                  = "json"
+      LOG_LEVEL                   = "INFO"
+      MEDIA_PUBLIC_BASE_URL       = "https://storage.yandexcloud.net/${local.media_bucket_name}"
+      MEDIA_STORAGE_DRIVER        = "s3"
+      MONIUM_PROJECT              = "folder__${var.folder_id}"
+      OIDC_ISSUER                 = local.public_base_url
+      OIDC_PUBLIC_BASE_URL        = local.public_base_url
+      MONIUM_CLUSTER              = var.name_prefix
+      MONIUM_SERVICE_NAME         = "updspace-id"
+      OTEL_ENABLED                = var.monium_api_key != "" ? "true" : "false"
+      OTEL_SERVICE_NAME           = "updspace-id"
+      OTEL_EXPORTER_OTLP_ENDPOINT = "ingest.monium.yandex.cloud:443"
+      OTEL_TRACES_SAMPLER         = "parentbased_traceidratio"
+      OTEL_TRACES_SAMPLER_ARG     = "0.1"
+      PORT                        = "8080"
+      S3_BUCKET_NAME              = local.media_bucket_name
+      S3_ENDPOINT_URL             = "https://storage.yandexcloud.net"
+      S3_REGION                   = var.region
+      SECURE_SSL_REDIRECT         = "true"
+      SESSION_COOKIE_SECURE       = "true"
+      YDB_CREDENTIALS_MODE        = "metadata"
+      YDB_DATABASE                = yandex_ydb_database_serverless.id.database_path
+      YDB_ENDPOINT                = yandex_ydb_database_serverless.id.ydb_full_endpoint
+      YDB_NAME                    = "default"
     },
     var.service_environment,
   )

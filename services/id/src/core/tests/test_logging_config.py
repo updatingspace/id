@@ -16,10 +16,10 @@ from core.logging_config import (
     clear_context,
     configure_logging,
     generate_correlation_id,
+    set_request_id,
     log_auth_event,
     log_oidc_event,
     sanitize_log_data,
-    set_correlation_id,
     set_user_context,
 )
 
@@ -95,7 +95,7 @@ class LoggingRedactionTests(SimpleTestCase):
         self.assertIn(EMAIL_FIELD_MARKER, line)
 
     def test_json_formatter_includes_context_fields(self):
-        set_correlation_id("cid-1")
+        set_request_id("rid-1")
         set_user_context(user_id="user-1", tenant_id="tenant-1")
         formatter = JsonFormatter(include_hostname=False)
         record = logging.LogRecord(
@@ -108,7 +108,8 @@ class LoggingRedactionTests(SimpleTestCase):
             exc_info=None,
         )
         payload = json.loads(formatter.format(record))
-        self.assertEqual(payload["correlation_id"], "cid-1")
+        self.assertEqual(payload["request_id"], "rid-1")
+        self.assertEqual(payload["correlation_id"], "rid-1")
         self.assertEqual(payload["user_id"], "user-1")
         self.assertEqual(payload["tenant_id"], "tenant-1")
         self.assertIn("source", payload)

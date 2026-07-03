@@ -102,6 +102,7 @@ INSTALLED_APPS = [
     "django.contrib.sites",  # Required by allauth
     "corsheaders",
     "storages",
+    "django_prometheus",
     # Internal apps
     "core",
     "accounts",
@@ -120,10 +121,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     # Correlation ID and logging context (must be first)
-    "core.middleware.CorrelationIdMiddleware",
+    "core.middleware.RequestIdMiddleware",
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "core.middleware.RequestLoggingMiddleware",
-    # Metrics instrumentation
-    "core.middleware.MetricsMiddleware",
     # Security
     "django.middleware.security.SecurityMiddleware",
     "core.middleware.SecurityHeadersMiddleware",
@@ -138,6 +138,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
 CORS_ALLOWED_ORIGINS = read_env_list(
@@ -375,6 +376,19 @@ STEAM_REDIRECT_URIS = read_env_list("STEAM_REDIRECT_URIS", [])
 # ============================================================================
 LOG_LEVEL = read_env("LOG_LEVEL", "INFO")
 LOG_FORMAT = read_env("LOG_FORMAT", "json" if not DEBUG else "console")
+
+OTEL_ENABLED = read_env_flag("OTEL_ENABLED", False)
+MONIUM_PROJECT = read_env("MONIUM_PROJECT", "")
+MONIUM_CLUSTER = read_env("MONIUM_CLUSTER", "default")
+MONIUM_SERVICE_NAME = read_env("MONIUM_SERVICE_NAME", "updspace-id")
+MONIUM_API_KEY = read_env_secret("MONIUM_API_KEY", "")
+OTEL_SERVICE_NAME = read_env("OTEL_SERVICE_NAME", MONIUM_SERVICE_NAME)
+OTEL_EXPORTER_OTLP_ENDPOINT = read_env(
+    "OTEL_EXPORTER_OTLP_ENDPOINT", "ingest.monium.yandex.cloud:443"
+)
+OTEL_EXPORTER_OTLP_HEADERS = read_env("OTEL_EXPORTER_OTLP_HEADERS", "")
+OTEL_TRACES_SAMPLER = read_env("OTEL_TRACES_SAMPLER", "parentbased_traceidratio")
+OTEL_TRACES_SAMPLER_ARG = read_env("OTEL_TRACES_SAMPLER_ARG", "0.1")
 
 # Email backend configuration for production
 EMAIL_BACKEND = read_env(

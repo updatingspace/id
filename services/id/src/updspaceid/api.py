@@ -75,7 +75,11 @@ def _error_envelope_response(request, exc: HttpError):
         message = str(raw.get("message") or "Error")
         details = sanitize_log_data(raw.get("details"))
 
-    request_id = request.headers.get("X-Request-Id") or ""
+    request_id = (
+        getattr(request, "request_id", None)
+        or request.headers.get("X-Request-Id")
+        or ""
+    )
     payload = {
         "error": {
             "code": code,

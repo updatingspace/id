@@ -435,8 +435,8 @@ kubectl get hpa id-service -n updspace-id
 # View logs
 kubectl logs -f deployment/id-service -n updspace-id
 
-# View logs with correlation ID filter
-kubectl logs deployment/id-service -n updspace-id | grep "correlation_id.*abc123"
+# View logs with request ID filter
+kubectl logs deployment/id-service -n updspace-id | grep "request_id.*abc123"
 
 # Port forward for local debugging
 kubectl port-forward svc/id-service -n updspace-id 8001:80

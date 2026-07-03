@@ -16,3 +16,6 @@ lockbox_secret_entries = {
   OIDC_PRIVATE_KEY_PEM     = "replace-me"
   OIDC_PUBLIC_KEY_PEM      = "replace-me"
 }
+
+# Prefer setting this through CI secret YC_MONIUM_API_KEY.
+# monium_api_key = "replace-me"

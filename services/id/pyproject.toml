@@ -26,6 +26,12 @@ dependencies = [
     "cryptography",
     "redis",  # for Django cache backend
     "pytz",  # for timezone management
+    "prometheus-client",
+    "django-prometheus",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp",
+    "opentelemetry-instrumentation-django",
+    "opentelemetry-instrumentation-requests",
     "ydb[yc]==3.28.0",
     "ydb-dbapi==0.1.20",
 ]
