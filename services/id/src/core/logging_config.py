@@ -24,6 +24,7 @@ from typing import Any
 from django.conf import settings
 
 # Context variables for request-scoped data
+request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 user_id_var: ContextVar[str | None] = ContextVar("user_id", default=None)
 tenant_id_var: ContextVar[str | None] = ContextVar("tenant_id", default=None)
@@ -92,13 +93,29 @@ def get_correlation_id() -> str | None:
     return correlation_id_var.get()
 
 
+def get_request_id() -> str | None:
+    """Get the current request ID."""
+    return request_id_var.get()
+
+
+def set_request_id(request_id: str | None) -> None:
+    """Set the request ID for the current context."""
+    request_id_var.set(request_id)
+    correlation_id_var.set(request_id)
+
+
 def set_correlation_id(correlation_id: str | None) -> None:
     """Set the correlation ID for the current context."""
-    correlation_id_var.set(correlation_id)
+    set_request_id(correlation_id)
 
 
 def generate_correlation_id() -> str:
     """Generate a new correlation ID."""
+    return str(uuid.uuid4())
+
+
+def generate_request_id() -> str:
+    """Generate a new request ID."""
     return str(uuid.uuid4())
 
 
@@ -112,6 +129,7 @@ def set_user_context(user_id: str | None = None, tenant_id: str | None = None) -
 
 def clear_context() -> None:
     """Clear all context variables."""
+    request_id_var.set(None)
     correlation_id_var.set(None)
     user_id_var.set(None)
     tenant_id_var.set(None)
@@ -166,10 +184,11 @@ class JsonFormatter(logging.Formatter):
         if self.include_hostname:
             log_obj["hostname"] = self._get_hostname()
 
-        # Add correlation ID and context
-        correlation_id = correlation_id_var.get()
-        if correlation_id:
-            log_obj["correlation_id"] = correlation_id
+        # Add request ID and compatibility correlation ID.
+        request_id = request_id_var.get()
+        if request_id:
+            log_obj["request_id"] = request_id
+            log_obj["correlation_id"] = request_id
 
         user_id = user_id_var.get()
         if user_id:
@@ -265,9 +284,9 @@ class ConsoleFormatter(logging.Formatter):
         color = self.COLORS.get(record.levelname, "")
         reset = self.RESET if color else ""
 
-        # Build prefix with correlation ID if present
-        correlation_id = correlation_id_var.get()
-        prefix = f"[{correlation_id[:8]}]" if correlation_id else ""
+        # Build prefix with request ID if present
+        request_id = request_id_var.get()
+        prefix = f"[{request_id[:8]}]" if request_id else ""
 
         user_id = user_id_var.get()
         if user_id:

@@ -60,6 +60,15 @@ class ExceptionHandlersTests(SimpleTestCase):
         self.assertIsNone(payload["error"]["details"])
         self.assertEqual(payload["error"]["request_id"], "rid-2")
 
+    def test_error_envelope_uses_request_context_id(self):
+        request = self.factory.get("/api/v1/auth/login")
+        request.request_id = "generated-rid"
+        request._error_envelope = True
+        response = self.handler(request, HttpError(400, {"code": "BAD"}))
+
+        payload = json.loads(response.content.decode("utf-8"))
+        self.assertEqual(payload["error"]["request_id"], "generated-rid")
+
     def test_client_error_preserves_code_but_sanitizes_details(self):
         request = self.factory.get("/api/v1/auth/login", HTTP_X_REQUEST_ID="rid-3")
         response = self.handler(

@@ -3,7 +3,6 @@ Production monitoring and observability for UpdSpace ID Service.
 
 This module provides:
 - Prometheus metrics for auth, OIDC, and system operations
-- Request/response instrumentation
 - Business metrics tracking (logins, MFA enrollments, token issuance)
 """
 
@@ -13,97 +12,10 @@ import logging
 import time
 from collections.abc import Callable
 from functools import wraps
-from typing import Any
 
-from django.http import HttpRequest, HttpResponse
+from prometheus_client import Counter
 
 logger = logging.getLogger(__name__)
-
-
-class MetricsRegistry:
-    """
-    Simple in-memory metrics registry for Prometheus-style metrics.
-    In production, replace with prometheus_client library.
-    """
-
-    _instance: MetricsRegistry | None = None
-
-    def __new__(cls) -> MetricsRegistry:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._counters: dict[str, dict[tuple, int]] = {}
-            cls._instance._histograms: dict[str, dict[tuple, list[float]]] = {}
-            cls._instance._gauges: dict[str, dict[tuple, float]] = {}
-        return cls._instance
-
-    def inc_counter(
-        self, name: str, labels: dict[str, str] | None = None, value: int = 1
-    ) -> None:
-        """Increment a counter metric."""
-        if name not in self._counters:
-            self._counters[name] = {}
-        label_key = tuple(sorted((labels or {}).items()))
-        self._counters[name][label_key] = self._counters[name].get(label_key, 0) + value
-
-    def observe_histogram(
-        self, name: str, value: float, labels: dict[str, str] | None = None
-    ) -> None:
-        """Record a histogram observation."""
-        if name not in self._histograms:
-            self._histograms[name] = {}
-        label_key = tuple(sorted((labels or {}).items()))
-        if label_key not in self._histograms[name]:
-            self._histograms[name][label_key] = []
-        # Keep last 1000 observations per label set
-        observations = self._histograms[name][label_key]
-        observations.append(value)
-        if len(observations) > 1000:
-            self._histograms[name][label_key] = observations[-1000:]
-
-    def set_gauge(
-        self, name: str, value: float, labels: dict[str, str] | None = None
-    ) -> None:
-        """Set a gauge metric."""
-        if name not in self._gauges:
-            self._gauges[name] = {}
-        label_key = tuple(sorted((labels or {}).items()))
-        self._gauges[name][label_key] = value
-
-    def get_all_metrics(self) -> dict[str, Any]:
-        """Export all metrics in a format suitable for Prometheus exposition."""
-        return {
-            "counters": {
-                name: {str(labels): count for labels, count in values.items()}
-                for name, values in self._counters.items()
-            },
-            "histograms": {
-                name: {
-                    str(labels): {
-                        "count": len(obs),
-                        "sum": sum(obs),
-                        "avg": sum(obs) / len(obs) if obs else 0,
-                        "min": min(obs) if obs else 0,
-                        "max": max(obs) if obs else 0,
-                    }
-                    for labels, obs in values.items()
-                }
-                for name, values in self._histograms.items()
-            },
-            "gauges": {
-                name: {str(labels): value for labels, value in values.items()}
-                for name, values in self._gauges.items()
-            },
-        }
-
-    def reset(self) -> None:
-        """Reset all metrics (for testing)."""
-        self._counters.clear()
-        self._histograms.clear()
-        self._gauges.clear()
-
-
-# Global metrics registry
-metrics = MetricsRegistry()
 
 
 # ============================================================================
@@ -149,6 +61,106 @@ SESSION_REVOKED_TOTAL = "id_session_revoked_total"
 ERRORS_TOTAL = "id_errors_total"
 
 
+AUTH_LOGIN_ATTEMPTS = Counter(
+    AUTH_LOGIN_ATTEMPTS_TOTAL,
+    "Total login attempts.",
+    ("method",),
+)
+AUTH_LOGIN_SUCCESS = Counter(
+    AUTH_LOGIN_SUCCESS_TOTAL,
+    "Total successful logins.",
+    ("method",),
+)
+AUTH_LOGIN_FAILURE = Counter(
+    AUTH_LOGIN_FAILURE_TOTAL,
+    "Total failed logins.",
+    ("method", "reason"),
+)
+MFA_ENROLLMENT = Counter(
+    MFA_ENROLLMENT_TOTAL,
+    "Total MFA enrollment events.",
+    ("method", "success"),
+)
+MFA_VERIFICATION = Counter(
+    MFA_VERIFICATION_TOTAL,
+    "Total MFA verification events.",
+    ("method", "success"),
+)
+MFA_RECOVERY_CODE_USED = Counter(
+    MFA_RECOVERY_CODE_USED_TOTAL,
+    "Total MFA recovery code use events.",
+    ("method", "success"),
+)
+PASSKEY_REGISTRATION = Counter(
+    PASSKEY_REGISTRATION_TOTAL,
+    "Total passkey registration events.",
+    ("success",),
+)
+PASSKEY_AUTHENTICATION = Counter(
+    PASSKEY_AUTHENTICATION_TOTAL,
+    "Total passkey authentication events.",
+    ("success",),
+)
+OIDC_TOKEN_ISSUED = Counter(
+    OIDC_TOKEN_ISSUED_TOTAL,
+    "Total OIDC token issued events.",
+    ("success", "client_id", "grant_type"),
+)
+OIDC_TOKEN_REFRESH = Counter(
+    OIDC_TOKEN_REFRESH_TOTAL,
+    "Total OIDC token refresh events.",
+    ("success", "client_id", "grant_type"),
+)
+OIDC_TOKEN_REVOKED = Counter(
+    OIDC_TOKEN_REVOKED_TOTAL,
+    "Total OIDC token revoked events.",
+    ("success", "client_id", "grant_type"),
+)
+OIDC_AUTHORIZATION_APPROVED = Counter(
+    OIDC_AUTHORIZATION_APPROVED_TOTAL,
+    "Total OIDC authorization approved events.",
+    ("success", "client_id", "grant_type"),
+)
+OIDC_AUTHORIZATION_DENIED = Counter(
+    OIDC_AUTHORIZATION_DENIED_TOTAL,
+    "Total OIDC authorization denied events.",
+    ("success", "client_id", "grant_type"),
+)
+OIDC_USERINFO_REQUESTS = Counter(
+    OIDC_USERINFO_REQUESTS_TOTAL,
+    "Total OIDC userinfo request events.",
+    ("success", "client_id", "grant_type"),
+)
+RATE_LIMIT_TRIGGERED = Counter(
+    RATE_LIMIT_TRIGGERED_TOTAL,
+    "Total rate limit events.",
+    ("scope", "identifier_type"),
+)
+SESSION_CREATED = Counter(
+    SESSION_CREATED_TOTAL,
+    "Total session creation events.",
+)
+SESSION_REVOKED = Counter(
+    SESSION_REVOKED_TOTAL,
+    "Total session revocation events.",
+    ("reason",),
+)
+ERRORS = Counter(
+    ERRORS_TOTAL,
+    "Total application errors.",
+    ("code", "endpoint"),
+)
+
+_OIDC_COUNTERS = {
+    "token_issued": OIDC_TOKEN_ISSUED,
+    "token_refresh": OIDC_TOKEN_REFRESH,
+    "token_revoked": OIDC_TOKEN_REVOKED,
+    "authorization_approved": OIDC_AUTHORIZATION_APPROVED,
+    "authorization_denied": OIDC_AUTHORIZATION_DENIED,
+    "userinfo": OIDC_USERINFO_REQUESTS,
+}
+
+
 # ============================================================================
 # Instrumentation helpers
 # ============================================================================
@@ -158,13 +170,11 @@ def track_login_attempt(
     success: bool, method: str = "password", reason: str | None = None
 ) -> None:
     """Track login attempt metrics."""
-    labels = {"method": method}
-    metrics.inc_counter(AUTH_LOGIN_ATTEMPTS_TOTAL, labels)
+    AUTH_LOGIN_ATTEMPTS.labels(method=method).inc()
     if success:
-        metrics.inc_counter(AUTH_LOGIN_SUCCESS_TOTAL, labels)
+        AUTH_LOGIN_SUCCESS.labels(method=method).inc()
     else:
-        failure_labels = {**labels, "reason": reason or "unknown"}
-        metrics.inc_counter(AUTH_LOGIN_FAILURE_TOTAL, failure_labels)
+        AUTH_LOGIN_FAILURE.labels(method=method, reason=reason or "unknown").inc()
 
 
 def track_mfa_event(
@@ -173,20 +183,19 @@ def track_mfa_event(
     """Track MFA-related events."""
     labels = {"method": method, "success": str(success).lower()}
     if event_type == "enrollment":
-        metrics.inc_counter(MFA_ENROLLMENT_TOTAL, labels)
+        MFA_ENROLLMENT.labels(**labels).inc()
     elif event_type == "verification":
-        metrics.inc_counter(MFA_VERIFICATION_TOTAL, labels)
+        MFA_VERIFICATION.labels(**labels).inc()
     elif event_type == "recovery":
-        metrics.inc_counter(MFA_RECOVERY_CODE_USED_TOTAL, labels)
+        MFA_RECOVERY_CODE_USED.labels(**labels).inc()
 
 
 def track_passkey_event(event_type: str, success: bool = True) -> None:
     """Track passkey/WebAuthn events."""
-    labels = {"success": str(success).lower()}
     if event_type == "registration":
-        metrics.inc_counter(PASSKEY_REGISTRATION_TOTAL, labels)
+        PASSKEY_REGISTRATION.labels(success=str(success).lower()).inc()
     elif event_type == "authentication":
-        metrics.inc_counter(PASSKEY_AUTHENTICATION_TOTAL, labels)
+        PASSKEY_AUTHENTICATION.labels(success=str(success).lower()).inc()
 
 
 def track_oidc_event(
@@ -196,47 +205,31 @@ def track_oidc_event(
     success: bool = True,
 ) -> None:
     """Track OIDC-related events."""
-    labels: dict[str, str] = {"success": str(success).lower()}
-    if client_id:
-        labels["client_id"] = client_id[:32]  # Truncate for cardinality control
-    if grant_type:
-        labels["grant_type"] = grant_type
-
-    if event_type == "token_issued":
-        metrics.inc_counter(OIDC_TOKEN_ISSUED_TOTAL, labels)
-    elif event_type == "token_refresh":
-        metrics.inc_counter(OIDC_TOKEN_REFRESH_TOTAL, labels)
-    elif event_type == "token_revoked":
-        metrics.inc_counter(OIDC_TOKEN_REVOKED_TOTAL, labels)
-    elif event_type == "authorization_approved":
-        metrics.inc_counter(OIDC_AUTHORIZATION_APPROVED_TOTAL, labels)
-    elif event_type == "authorization_denied":
-        metrics.inc_counter(OIDC_AUTHORIZATION_DENIED_TOTAL, labels)
-    elif event_type == "userinfo":
-        metrics.inc_counter(OIDC_USERINFO_REQUESTS_TOTAL, labels)
+    counter = _OIDC_COUNTERS.get(event_type)
+    if counter:
+        counter.labels(
+            success=str(success).lower(),
+            client_id=(client_id or "")[:32],
+            grant_type=grant_type or "",
+        ).inc()
 
 
 def track_rate_limit(scope: str, identifier_type: str) -> None:
     """Track when rate limiting is triggered."""
-    labels = {"scope": scope, "identifier_type": identifier_type}
-    metrics.inc_counter(RATE_LIMIT_TRIGGERED_TOTAL, labels)
+    RATE_LIMIT_TRIGGERED.labels(scope=scope, identifier_type=identifier_type).inc()
 
 
 def track_session_event(event_type: str, reason: str | None = None) -> None:
     """Track session lifecycle events."""
     if event_type == "created":
-        metrics.inc_counter(SESSION_CREATED_TOTAL)
+        SESSION_CREATED.inc()
     elif event_type == "revoked":
-        labels = {"reason": reason or "user_requested"}
-        metrics.inc_counter(SESSION_REVOKED_TOTAL, labels)
+        SESSION_REVOKED.labels(reason=reason or "user_requested").inc()
 
 
 def track_error(error_code: str, endpoint: str | None = None) -> None:
     """Track error occurrences."""
-    labels = {"code": error_code}
-    if endpoint:
-        labels["endpoint"] = endpoint
-    metrics.inc_counter(ERRORS_TOTAL, labels)
+    ERRORS.labels(code=error_code, endpoint=endpoint or "").inc()
 
 
 # ============================================================================
@@ -273,79 +266,15 @@ def instrumented(
                 duration = time.perf_counter() - start_time
                 labels = labels_fn(*args, **kwargs) if labels_fn else {}
                 labels["success"] = str(success).lower()
-                metrics.observe_histogram(metric_name, duration, labels)
+                logger.debug(
+                    "Instrumented function completed",
+                    extra={
+                        "metric": metric_name,
+                        "duration_seconds": duration,
+                        **labels,
+                    },
+                )
 
         return wrapper
 
     return decorator
-
-
-# ============================================================================
-# Prometheus metrics endpoint view
-# ============================================================================
-
-
-def prometheus_metrics_view(request: HttpRequest) -> HttpResponse:
-    """
-    Expose metrics in Prometheus text exposition format.
-
-    Mount at /metrics in urls.py
-    """
-    all_metrics = metrics.get_all_metrics()
-
-    lines = []
-    lines.append("# HELP id_service_metrics UpdSpace ID Service metrics")
-    lines.append("# TYPE id_service_info gauge")
-    lines.append('id_service_info{version="1.0.0"} 1')
-    lines.append("")
-
-    # Export counters
-    for name, label_values in all_metrics["counters"].items():
-        lines.append(f"# HELP {name} Counter metric")
-        lines.append(f"# TYPE {name} counter")
-        for labels_str, count in label_values.items():
-            # Convert string repr of tuple back to prometheus format
-            label_part = _format_labels(labels_str)
-            lines.append(f"{name}{label_part} {count}")
-        lines.append("")
-
-    # Export histograms (simplified - just sum and count)
-    for name, label_values in all_metrics["histograms"].items():
-        lines.append(f"# HELP {name} Histogram metric")
-        lines.append(f"# TYPE {name} histogram")
-        for labels_str, stats in label_values.items():
-            label_part = _format_labels(labels_str)
-            lines.append(f"{name}_count{label_part} {stats['count']}")
-            lines.append(f"{name}_sum{label_part} {stats['sum']:.6f}")
-        lines.append("")
-
-    # Export gauges
-    for name, label_values in all_metrics["gauges"].items():
-        lines.append(f"# HELP {name} Gauge metric")
-        lines.append(f"# TYPE {name} gauge")
-        for labels_str, value in label_values.items():
-            label_part = _format_labels(labels_str)
-            lines.append(f"{name}{label_part} {value}")
-        lines.append("")
-
-    content = "\n".join(lines)
-    return HttpResponse(content, content_type="text/plain; charset=utf-8")
-
-
-def _format_labels(labels_str: str) -> str:
-    """Convert labels string representation to Prometheus format."""
-    if labels_str == "()" or not labels_str:
-        return ""
-    # Parse the tuple string and format as prometheus labels
-    # e.g., "(('method', 'password'), ('success', 'true'))" -> {method="password",success="true"}
-    try:
-        # Safe eval alternative: parse manually
-        import ast
-
-        labels_tuple = ast.literal_eval(labels_str)
-        if not labels_tuple:
-            return ""
-        parts = [f'{k}="{v}"' for k, v in labels_tuple]
-        return "{" + ",".join(parts) + "}"
-    except (ValueError, SyntaxError):
-        return ""

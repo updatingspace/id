@@ -15,12 +15,14 @@ class RequestContext:
 
 
 def require_request_id(request) -> str:
-    request_id = request.headers.get("X-Request-Id")
+    request_id = getattr(request, "request_id", None) or request.headers.get(
+        "X-Request-Id"
+    )
     if not request_id:
         raise HttpError(
             400, error_payload("MISSING_REQUEST_ID", "X-Request-Id is required")
         )
-    return request_id
+    return str(request_id)
 
 
 def require_context(request) -> RequestContext:

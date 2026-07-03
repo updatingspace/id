@@ -27,7 +27,9 @@ DEV_AUTH_MODE = _env_flag("DEV_AUTH_MODE", False)
 
 
 def require_request_id(request) -> str:
-    request_id = request.headers.get("X-Request-Id")
+    request_id = getattr(request, "request_id", None) or request.headers.get(
+        "X-Request-Id"
+    )
     if not request_id:
         if DEV_AUTH_MODE:
             return str(uuid.uuid4())

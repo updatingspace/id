@@ -18,11 +18,12 @@ from core.health import (
     health_view,
     set_service_start_time,
 )
-from core.monitoring import prometheus_metrics_view
 from core.logging_config import configure_logging, sanitize_log_data
+from core.telemetry import configure_telemetry
 
 # Initialize production logging
 configure_logging()
+configure_telemetry()
 
 # Track service startup time
 set_service_start_time()
@@ -67,7 +68,11 @@ def oidc_http_error(request, exc):
             "code": code,
             "message": message,
             "details": details,
-            "request_id": str(request.headers.get("X-Request-Id") or ""),
+            "request_id": str(
+                getattr(request, "request_id", None)
+                or request.headers.get("X-Request-Id")
+                or ""
+            ),
         }
     }
     return oidc_api.create_response(request, payload, status=status)
@@ -83,8 +88,8 @@ urlpatterns = [
     path("health", health_view),  # Detailed health status
     path("healthz", liveness_view),  # Liveness probe
     path("readyz", readiness_view),  # Readiness probe
-    # Prometheus metrics endpoint
-    path("metrics", prometheus_metrics_view),
+    # Prometheus metrics endpoint from django-prometheus
+    path("", include("django_prometheus.urls")),
     path("accounts/", include("allauth.urls")),
     re_path(
         r"^accounts/confirm-email/(?P<key>[-:\w]+)/$",

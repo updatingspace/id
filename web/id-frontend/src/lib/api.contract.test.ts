@@ -69,6 +69,20 @@ describe('api contract', () => {
     expect(headers.get('X-Session-Token')).toBe('session-1');
   });
 
+  it('sends X-Request-Id for API calls', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ language: 'en' }));
+
+    await api.getPreferences();
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = new Headers(init.headers);
+    expect(headers.get('X-Request-Id')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
   it('matches backend payload for email change and sessions bulk revoke', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

@@ -141,6 +141,13 @@ variable "lockbox_secret_entries" {
   sensitive   = true
 }
 
+variable "monium_api_key" {
+  description = "API key with yc.monium.telemetry.write scope for Monium telemetry export."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "log_retention_period" {
   description = "Cloud Logging group retention period."
   type        = string

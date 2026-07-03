@@ -55,11 +55,21 @@ const buildHeaders = (headers?: HeadersInit, body?: BodyInit | null): Headers =>
   if (body !== undefined && body !== null && !built.has('Content-Type')) {
     built.set('Content-Type', 'application/json');
   }
+  if (!built.has('X-Request-Id')) {
+    built.set('X-Request-Id', createRequestId());
+  }
   const sessionToken = getSessionToken();
   if (sessionToken && !built.has('X-Session-Token')) {
     built.set('X-Session-Token', sessionToken);
   }
   return built;
+};
+
+const createRequestId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
 const toError = async (res: Response): Promise<ApiError> => {

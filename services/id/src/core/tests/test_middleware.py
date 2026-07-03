@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,7 +10,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from core.logging_config import get_correlation_id
 from core.middleware import (
     CorrelationIdMiddleware,
-    MetricsMiddleware,
+    RequestIdMiddleware,
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
     UserContextMiddleware,
@@ -30,57 +31,42 @@ class SecurityHeadersMiddlewareTests(SimpleTestCase):
 
 
 class CorrelationIdMiddlewareTests(SimpleTestCase):
-    def test_propagates_correlation_id_and_clears_context(self):
-        middleware = CorrelationIdMiddleware(lambda request: HttpResponse("ok"))
+    def test_generates_request_id_and_clears_context(self):
+        middleware = RequestIdMiddleware(lambda request: HttpResponse("ok"))
         request = RequestFactory().get("/api/v1/auth/me")
         response = middleware(request)
 
+        uuid.UUID(response["X-Request-Id"])
         self.assertIn("X-Correlation-ID", response)
+        self.assertEqual(response["X-Correlation-ID"], response["X-Request-Id"])
         self.assertIsNone(get_correlation_id())
 
-    def test_reuses_incoming_correlation_id(self):
-        middleware = CorrelationIdMiddleware(lambda request: HttpResponse("ok"))
+    def test_reuses_incoming_request_id(self):
+        middleware = RequestIdMiddleware(lambda request: HttpResponse("ok"))
+        request = RequestFactory().get(
+            "/api/v1/auth/me",
+            HTTP_X_REQUEST_ID="rid-predefined",
+            HTTP_X_CORRELATION_ID="cid-predefined",
+        )
+        response = middleware(request)
+        self.assertEqual(response["X-Request-Id"], "rid-predefined")
+        self.assertEqual(response["X-Correlation-ID"], "rid-predefined")
+
+    def test_falls_back_to_incoming_correlation_id(self):
+        middleware = RequestIdMiddleware(lambda request: HttpResponse("ok"))
         request = RequestFactory().get(
             "/api/v1/auth/me",
             HTTP_X_CORRELATION_ID="cid-predefined",
         )
         response = middleware(request)
+        self.assertEqual(response["X-Request-Id"], "cid-predefined")
         self.assertEqual(response["X-Correlation-ID"], "cid-predefined")
 
-
-class MetricsMiddlewareTests(SimpleTestCase):
-    def test_normalizes_high_cardinality_path_segments(self):
-        middleware = MetricsMiddleware(lambda request: HttpResponse("ok"))
-        normalized = middleware._normalize_path("/api/v1/sessions/ab12cd34")
-        self.assertEqual(normalized, "/api/v1/sessions/{id}")
-
-    def test_truncates_very_long_paths(self):
-        middleware = MetricsMiddleware(lambda request: HttpResponse("ok"))
-        normalized = middleware._normalize_path("/x/" + ("a" * 120))
-        self.assertTrue(normalized.endswith("..."))
-        self.assertLessEqual(len(normalized), 50)
-
-    def test_skips_excluded_paths(self):
-        middleware = MetricsMiddleware(lambda request: HttpResponse("ok"))
-        request = RequestFactory().get("/health")
-        with patch("core.middleware.metrics.set_gauge") as set_gauge:
-            response = middleware(request)
-        self.assertEqual(response.status_code, 200)
-        set_gauge.assert_not_called()
-
-    def test_records_500_status_when_handler_raises(self):
-        middleware = MetricsMiddleware(
-            lambda _request: (_ for _ in ()).throw(RuntimeError("boom"))
-        )
+    def test_old_correlation_middleware_name_is_compatible(self):
+        middleware = CorrelationIdMiddleware(lambda request: HttpResponse("ok"))
         request = RequestFactory().get("/api/v1/auth/me")
-        with (
-            patch("core.middleware.metrics.inc_counter") as inc_counter,
-            patch("core.middleware.metrics.observe_histogram"),
-            self.assertRaises(RuntimeError),
-        ):
-            middleware(request)
-        labels = inc_counter.call_args.args[1]
-        self.assertEqual(labels["status"], "500")
+        response = middleware(request)
+        self.assertIn("X-Request-Id", response)
 
 
 class UserContextMiddlewareTests(SimpleTestCase):
