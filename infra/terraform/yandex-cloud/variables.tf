@@ -56,6 +56,12 @@ variable "certificate_id" {
   default     = ""
 }
 
+variable "existing_api_gateway_id" {
+  description = "Existing API Gateway ID to reuse when the provider cannot import a previously created gateway."
+  type        = string
+  default     = ""
+}
+
 variable "serverless_subnet_cidr" {
   description = "Subnet CIDR for serverless resources."
   type        = string

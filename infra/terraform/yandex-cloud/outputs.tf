@@ -1,11 +1,11 @@
 output "api_gateway_id" {
   description = "API Gateway resource ID."
-  value       = yandex_api_gateway.id.id
+  value       = local.api_gateway_id
 }
 
 output "api_gateway_invoke_domain" {
   description = "Default invoke domain assigned by Yandex API Gateway."
-  value       = yandex_api_gateway.id.domain
+  value       = local.api_gateway_domain
 }
 
 output "public_base_url" {

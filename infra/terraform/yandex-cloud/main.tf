@@ -180,7 +180,16 @@ resource "yandex_serverless_container_iam_binding" "gateway_backend_invoker" {
   members      = ["serviceAccount:${yandex_iam_service_account.gateway.id}"]
 }
 
+data "yandex_api_gateway" "existing" {
+  count = var.existing_api_gateway_id != "" ? 1 : 0
+
+  api_gateway_id = var.existing_api_gateway_id
+  folder_id      = var.folder_id
+}
+
 resource "yandex_api_gateway" "id" {
+  count = var.existing_api_gateway_id == "" ? 1 : 0
+
   name        = "${local.name_prefix}-gateway"
   description = "UpdSpace ID gateway for API/OIDC routes and frontend assets"
   spec        = local.api_gateway_spec
@@ -215,5 +224,5 @@ resource "yandex_dns_recordset" "gateway" {
   name    = "${var.public_domain}."
   type    = "CNAME"
   ttl     = 300
-  data    = [yandex_api_gateway.id.domain]
+  data    = [local.api_gateway_domain]
 }
