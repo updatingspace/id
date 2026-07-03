@@ -52,6 +52,7 @@ jobs:
       YC_SMOKE_HOST: ${{ secrets.YC_SMOKE_HOST }}
       YC_PORTAL_PUBLIC_BASE_URL: ${{ secrets.YC_PORTAL_PUBLIC_BASE_URL }}
       YC_PORTAL_OIDC_CLIENT_SECRET: ${{ secrets.YC_PORTAL_OIDC_CLIENT_SECRET }}
+      YC_TERRAFORM_AUTO_APPLY: ${{ secrets.YC_TERRAFORM_AUTO_APPLY }}
     steps:
       - name: Validate required deploy secrets
         run: |
@@ -82,6 +83,14 @@ jobs:
             {
               echo "Missing required GitHub Actions secrets for Yandex Cloud deploy:"
               printf ' - %s\n' "${missing[@]}"
+            } >&2
+            exit 1
+          fi
+
+          if [[ "${YC_TERRAFORM_AUTO_APPLY}" != 'true' ]]; then
+            {
+              echo "YC_TERRAFORM_AUTO_APPLY must be true for a production deploy."
+              echo "Otherwise Terraform apply, frontend publish, YDB bootstrap, and smoke checks are skipped."
             } >&2
             exit 1
           fi
