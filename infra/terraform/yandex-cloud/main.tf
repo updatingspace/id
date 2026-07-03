@@ -34,21 +34,9 @@ resource "yandex_iam_service_account" "ci" {
   description = "GitHub Actions deploy identity"
 }
 
-resource "yandex_resourcemanager_folder_iam_member" "runtime_editor" {
+resource "yandex_resourcemanager_folder_iam_member" "automation_storage_editor" {
   folder_id = var.folder_id
-  role      = "editor"
-  member    = "serviceAccount:${yandex_iam_service_account.runtime.id}"
-}
-
-resource "yandex_resourcemanager_folder_iam_member" "gateway_editor" {
-  folder_id = var.folder_id
-  role      = "editor"
-  member    = "serviceAccount:${yandex_iam_service_account.gateway.id}"
-}
-
-resource "yandex_resourcemanager_folder_iam_member" "automation_editor" {
-  folder_id = var.folder_id
-  role      = "editor"
+  role      = "storage.editor"
   member    = "serviceAccount:${yandex_iam_service_account.automation.id}"
 }
 
@@ -105,6 +93,24 @@ resource "yandex_ydb_database_serverless" "id" {
   location_id = var.region
 }
 
+resource "yandex_ydb_database_iam_binding" "runtime_editor" {
+  database_id = yandex_ydb_database_serverless.id.id
+  role        = "ydb.editor"
+  members     = ["serviceAccount:${yandex_iam_service_account.runtime.id}"]
+}
+
+resource "yandex_storage_bucket_iam_binding" "gateway_frontend_viewer" {
+  bucket  = yandex_storage_bucket.frontend.bucket
+  role    = "storage.viewer"
+  members = ["serviceAccount:${yandex_iam_service_account.gateway.id}"]
+}
+
+resource "yandex_container_registry_iam_binding" "runtime_image_puller" {
+  registry_id = local.container_registry_id
+  role        = "container-registry.images.puller"
+  members     = ["serviceAccount:${yandex_iam_service_account.runtime.id}"]
+}
+
 resource "yandex_serverless_container" "backend" {
   name               = "${local.name_prefix}-backend"
   description        = "UpdSpace ID backend"
@@ -114,6 +120,12 @@ resource "yandex_serverless_container" "backend" {
   concurrency        = var.backend_concurrency
   execution_timeout  = "60s"
   service_account_id = yandex_iam_service_account.runtime.id
+
+  depends_on = [
+    yandex_container_registry_iam_binding.runtime_image_puller,
+    yandex_lockbox_secret_iam_member.runtime_payload_viewer,
+    yandex_ydb_database_iam_binding.runtime_editor,
+  ]
 
   runtime {
     type = "http"
@@ -155,10 +167,21 @@ resource "yandex_serverless_container" "backend" {
   }
 }
 
+resource "yandex_serverless_container_iam_binding" "gateway_backend_invoker" {
+  container_id = yandex_serverless_container.backend.id
+  role         = "serverless.containers.invoker"
+  members      = ["serviceAccount:${yandex_iam_service_account.gateway.id}"]
+}
+
 resource "yandex_api_gateway" "id" {
   name        = "${local.name_prefix}-gateway"
   description = "UpdSpace ID gateway for API/OIDC routes and frontend assets"
   spec        = local.api_gateway_spec
+
+  depends_on = [
+    yandex_serverless_container_iam_binding.gateway_backend_invoker,
+    yandex_storage_bucket_iam_binding.gateway_frontend_viewer,
+  ]
 
   dynamic "custom_domains" {
     for_each = var.certificate_id != "" && var.public_domain != "" ? [1] : []

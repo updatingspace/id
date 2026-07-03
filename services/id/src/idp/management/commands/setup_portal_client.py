@@ -8,6 +8,7 @@ Usage:
 """
 
 import os
+from urllib.parse import urlparse
 
 from django.contrib.sites.models import Site
 from django.core.management.base import BaseCommand
@@ -46,6 +47,12 @@ def _unique(values: list[str]) -> list[str]:
             seen.add(value)
             result.append(value)
     return result
+
+
+def _is_local_url(value: str) -> bool:
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localhost")
 
 
 class Command(BaseCommand):
@@ -127,7 +134,10 @@ class Command(BaseCommand):
         env_portal_base_url = os.environ.get("PORTAL_PUBLIC_BASE_URL", "")
         if env_portal_base_url:
             portal_base_urls.append(env_portal_base_url)
-        redirect_uris = list(LOCAL_REDIRECT_URIS)
+        has_public_portal_base_url = any(
+            base_url and not _is_local_url(base_url) for base_url in portal_base_urls
+        )
+        redirect_uris = [] if has_public_portal_base_url else list(LOCAL_REDIRECT_URIS)
         for base_url in portal_base_urls:
             redirect_uris.extend(_portal_redirect_uris(base_url))
         redirect_uris.extend(options["redirect_uri"] or [])

@@ -246,6 +246,8 @@ if MEDIA_STORAGE_DRIVER == "s3":
     AWS_ACCESS_KEY_ID = read_env_secret("S3_ACCESS_KEY_ID", "")
     AWS_SECRET_ACCESS_KEY = read_env_secret("S3_SECRET_ACCESS_KEY", "")
     AWS_STORAGE_BUCKET_NAME = read_env("S3_BUCKET_NAME", "")
+    if not AWS_STORAGE_BUCKET_NAME:
+        _production_config_error("S3_BUCKET_NAME must be set when MEDIA_STORAGE_DRIVER=s3")
     AWS_S3_ENDPOINT_URL = read_env("S3_ENDPOINT_URL", "https://storage.yandexcloud.net")
     AWS_S3_REGION_NAME = read_env("S3_REGION", "ru-central1")
     AWS_S3_ADDRESSING_STYLE = (
