@@ -34,6 +34,7 @@ class Command(BaseCommand):
         cache_config = getattr(settings, "CACHES", {}).get("default", {})
         if cache_config.get("BACKEND") == "django.core.cache.backends.db.DatabaseCache":
             table_name = cache_config.get("LOCATION", "django_cache_table")
+            connection.ensure_connection()
             existing_tables = set(connection.introspection.table_names())
 
             if table_name not in existing_tables:

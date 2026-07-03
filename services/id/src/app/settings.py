@@ -197,6 +197,13 @@ if REDIS_URL:
             "LOCATION": REDIS_URL,
         }
     }
+elif DB_DRIVER == "ydb":
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "updspace-id-cache",
+        }
+    }
 else:
     # Fallback to database cache for single-worker dev setups
     CACHES = {
