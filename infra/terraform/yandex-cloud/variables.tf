@@ -63,7 +63,7 @@ variable "serverless_subnet_cidr" {
 }
 
 variable "enable_serverless_vpc" {
-  description = "Create a dedicated VPC network for the backend serverless container."
+  description = "Create a dedicated VPC network for the backend serverless container. Existing stacks that already manage this network should set this to true before planning."
   type        = bool
   default     = false
 }
