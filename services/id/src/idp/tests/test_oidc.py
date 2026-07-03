@@ -143,9 +143,7 @@ class SetupPortalClientCommandTests(TestCase):
         self.assertEqual(client.name, "AEF Portal")
         self.assertFalse(client.is_public)
         self.assertTrue(client.check_secret("shared-client-secret"))
-        self.assertIn(
-            "https://updspace.com/api/v1/auth/callback", client.redirect_uris
-        )
+        self.assertIn("https://updspace.com/api/v1/auth/callback", client.redirect_uris)
         self.assertIn(
             "https://updspace.com/api/v1/session/callback", client.redirect_uris
         )

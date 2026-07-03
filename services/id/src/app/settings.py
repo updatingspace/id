@@ -78,6 +78,7 @@ def _require_https_public_url(name: str, value: str | None) -> None:
             f"{name} must use https outside localhost when DJANGO_DEBUG=false"
         )
 
+
 # Fail fast in production if critical security settings are unsafe.
 if not DEBUG and SECRET_KEY == _secret_key_default:
     _production_config_error(
