@@ -140,7 +140,7 @@ jobs:
     env:
       TF_VAR_cloud_id: ${{ secrets.YC_CLOUD_ID }}
       TF_VAR_folder_id: ${{ secrets.YC_FOLDER_ID }}
-      TF_VAR_service_account_key_file: ${{ runner.temp }}/yc-sa-key.json
+      TF_VAR_service_account_key_file: $RUNNER_TEMP/yc-sa-key.json
       YC_TERRAFORM_AUTO_APPLY: ${{ secrets.YC_TERRAFORM_AUTO_APPLY }}
     steps:
       - uses: actions/checkout@v6
