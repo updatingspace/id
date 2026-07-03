@@ -638,11 +638,14 @@ class OidcService:
         return _claims_for_scopes(token.user, scope_list, request=request)
 
     @staticmethod
-    def revoke_token(token_str: str) -> None:
+    def revoke_token(token_str: str, *, client: OidcClient | None = None) -> None:
         if not token_str:
             return
         refresh_hash = _hash_token(token_str)
-        token = OidcToken.objects.filter(refresh_token_hash=refresh_hash).first()
+        token_qs = OidcToken.objects.filter(refresh_token_hash=refresh_hash)
+        if client is not None:
+            token_qs = token_qs.filter(client=client)
+        token = token_qs.first()
         if token:
             token.revoked_at = timezone.now()
             token.save(update_fields=["revoked_at"])
@@ -652,7 +655,10 @@ class OidcService:
         except HttpError:
             return
         jti = str(payload.get("jti") or "")
-        token = OidcToken.objects.filter(access_jti=jti).first()
+        token_qs = OidcToken.objects.filter(access_jti=jti)
+        if client is not None:
+            token_qs = token_qs.filter(client=client)
+        token = token_qs.first()
         if token and not token.revoked_at:
             token.revoked_at = timezone.now()
             token.save(update_fields=["revoked_at"])
