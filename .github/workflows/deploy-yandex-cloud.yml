@@ -183,14 +183,18 @@ jobs:
           set -e
 
           if [[ "$status" -ne 0 ]]; then
-            cat /tmp/tfstate-list.err >&2
-            exit "$status"
+            if ! grep -q "No state file was found" /tmp/tfstate-list.err; then
+              cat /tmp/tfstate-list.err >&2
+              exit "$status"
+            fi
           fi
 
-          if [[ ! -s /tmp/tfstate-list.txt ]]; then
+          if [[ "$status" -ne 0 || ! -s /tmp/tfstate-list.txt ]]; then
             {
-              echo "Terraform remote state is empty; refusing production apply."
-              echo "Import the existing Yandex Cloud resources into the configured backend before enabling YC_TERRAFORM_AUTO_APPLY=true."
+              echo "Terraform remote state is empty or missing; refusing production apply."
+              echo "The configured backend was initialized, but it does not contain managed resources."
+              echo "If production resources already exist, import them into this backend or fix YC_TF_BACKEND_CONFIG_B64 before applying."
+              echo "Applying from an empty state would try to create a second stack instead of updating the live one."
             } >&2
             exit 1
           fi
