@@ -106,19 +106,35 @@ class EmailService:
 
     @staticmethod
     def resend_confirmation(request, user: User) -> None:
-        primary = EmailAddress.objects.filter(user=user, primary=True).first()
-        target = (
-            primary
-            if (primary and not primary.verified)
-            else (
-                EmailAddress.objects.filter(user=user, verified=False)
-                .order_by("-id")
-                .first()
+        try:
+            primary = EmailAddress.objects.filter(user=user, primary=True).first()
+            target = (
+                primary
+                if (primary and not primary.verified)
+                else (
+                    EmailAddress.objects.filter(user=user, verified=False)
+                    .order_by("-id")
+                    .first()
+                )
             )
-        )
+        except Exception:
+            logger.warning(
+                "Failed to load email address for confirmation resend",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
+            target = None
         if not target:
             return
-        target.send_confirmation(request)
+        try:
+            target.send_confirmation(request)
+        except Exception:
+            logger.warning(
+                "Failed to resend email confirmation",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
+            return
         logger.info(
             "Resent email confirmation",
             extra={

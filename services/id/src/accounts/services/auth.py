@@ -25,7 +25,7 @@ from rest_framework_simplejwt.token_blacklist.models import (
     BlacklistedToken,
     OutstandingToken,
 )
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken, Token
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -63,40 +63,75 @@ class AuthService:
             raise _http_error(401, UNAUTHORIZED_PAYLOAD)
         token = request.headers.get("X-Session-Token") or ""
         dj_key = request.session.session_key or ""
+        session_key = dj_key or token
 
-        meta = (
-            UserSessionMeta.objects.filter(user=user, session_token=token).first()
-            or UserSessionMeta.objects.filter(user=user, session_key=dj_key).first()
-        )
-        if not meta:
-            meta = UserSessionMeta.objects.create(
-                user=user,
-                session_key=dj_key or token,
-                session_token=token or None,
+        try:
+            meta = (
+                UserSessionMeta.objects.filter(user=user, session_token=token).first()
+                or UserSessionMeta.objects.filter(user=user, session_key=dj_key).first()
             )
-        if dj_key and meta.session_key != dj_key:
-            meta.session_key = dj_key
-            meta.save(update_fields=["session_key"])
+            if not meta:
+                meta = UserSessionMeta.objects.create(
+                    user=user,
+                    session_key=session_key,
+                    session_token=token or None,
+                )
+            if dj_key and meta.session_key != dj_key:
+                meta.session_key = dj_key
+                meta.save(update_fields=["session_key"])
+            session_key = meta.session_key
+        except Exception:
+            logger.warning(
+                "Failed to persist session metadata for JWT pair",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
 
-        rt = RefreshToken.for_user(user)
+        rt = Token.for_user.__func__(RefreshToken, user)
         at = rt.access_token  # type: ignore[attr-defined]
-        rt["session_key"] = meta.session_key
+        rt["session_key"] = session_key
 
         expires_at = datetime.fromtimestamp(float(rt["exp"]), tz=dt_timezone.utc)
-        OutstandingToken.objects.update_or_create(
-            user=user,
-            jti=str(rt["jti"]),
-            defaults={"token": str(rt), "expires_at": expires_at},
-        )
+        try:
+            outstanding = OutstandingToken.objects.filter(
+                user=user, jti=str(rt["jti"])
+            ).first()
+            if outstanding:
+                outstanding.token = str(rt)
+                outstanding.expires_at = expires_at
+                outstanding.save(update_fields=["token", "expires_at"])
+            else:
+                OutstandingToken.objects.create(
+                    user=user,
+                    jti=str(rt["jti"]),
+                    token=str(rt),
+                    expires_at=expires_at,
+                )
+        except Exception:
+            logger.warning(
+                "Failed to persist outstanding JWT token",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
 
-        UserSessionToken.objects.get_or_create(
-            user=user, session_key=meta.session_key, refresh_jti=str(rt["jti"])
-        )
+        try:
+            if not UserSessionToken.objects.filter(
+                user=user, refresh_jti=str(rt["jti"])
+            ).first():
+                UserSessionToken.objects.create(
+                    user=user, session_key=session_key, refresh_jti=str(rt["jti"])
+                )
+        except Exception:
+            logger.warning(
+                "Failed to persist session refresh token link",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
         logger.info(
             "Issued JWT pair for session",
             extra={
                 "user_id": getattr(user, "id", None),
-                "session_key": meta.session_key,
+                "session_key": session_key,
                 "has_header_session_token": bool(token),
             },
         )
@@ -114,16 +149,65 @@ class AuthService:
     def profile(user, request=None) -> ProfileOut:
         if not user or not getattr(user, "is_authenticated", False):
             raise HttpError(401, "Not authenticated")
-        ProfileService.maybe_refresh_gravatar(user)
-        avatar = ProfileService.avatar_state(user, request=request)
+        try:
+            ProfileService.maybe_refresh_gravatar(user)
+        except Exception:
+            logger.warning(
+                "Failed to refresh profile gravatar",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
+        try:
+            avatar = ProfileService.avatar_state(user, request=request)
+        except Exception:
+            logger.warning(
+                "Failed to load profile avatar state",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
+            avatar = None
         has_2fa = _has_mfa_enabled(user)
-        profile = getattr(user, "profile", None) or ProfileService._ensure_profile(user)
-        prefs = PreferencesService.get(user)
-        providers_qs = SocialAccount.objects.filter(user=user).values_list(
-            "provider", flat=True
-        )
-        providers = list(providers_qs)
-        primary = EmailAddress.objects.filter(user=user, primary=True).first()
+        try:
+            profile = getattr(user, "profile", None) or ProfileService._ensure_profile(
+                user
+            )
+        except Exception:
+            logger.warning(
+                "Failed to load profile row",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
+            profile = None
+        try:
+            prefs = PreferencesService.get(user)
+        except Exception:
+            logger.warning(
+                "Failed to load user preferences",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
+            prefs = {}
+        try:
+            providers_qs = SocialAccount.objects.filter(user=user).values_list(
+                "provider", flat=True
+            )
+            providers = list(providers_qs)
+        except Exception:
+            logger.warning(
+                "Failed to load social providers",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
+            providers = []
+        try:
+            primary = EmailAddress.objects.filter(user=user, primary=True).first()
+        except Exception:
+            logger.warning(
+                "Failed to load primary email address",
+                extra={"user_id": getattr(user, "id", None)},
+                exc_info=True,
+            )
+            primary = None
         return ProfileOut(
             username=user.username,
             email=user.email,
@@ -142,9 +226,9 @@ class AuthService:
             ),
             language=prefs.get("language"),
             timezone=prefs.get("timezone"),
-            avatar_url=avatar.url,
-            avatar_source=avatar.source,
-            avatar_gravatar_enabled=avatar.gravatar_enabled,
+            avatar_url=getattr(avatar, "url", None),
+            avatar_source=getattr(avatar, "source", None),
+            avatar_gravatar_enabled=getattr(avatar, "gravatar_enabled", None),
             email_verified=bool(primary and primary.verified),
         )
 

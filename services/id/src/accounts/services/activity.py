@@ -52,40 +52,53 @@ class ActivityService:
         success: bool,
         reason: str = "",
         meta: dict | None = None,
-    ) -> LoginEvent:
+    ) -> LoginEvent | None:
         ip = ActivityService._client_ip(request)
         ua = ActivityService._user_agent(request)
         device_id = ActivityService._device_id(getattr(user, "id", None), ua, ip)
         now = timezone.now()
         is_new_device = False
-        if success:
-            device, created = UserDevice.objects.get_or_create(
+        try:
+            if success:
+                device = UserDevice.objects.filter(
+                    user=user, device_id=device_id
+                ).first()
+                created = device is None
+                if created:
+                    device = UserDevice.objects.create(
+                        user=user,
+                        device_id=device_id,
+                        user_agent=ua,
+                        first_seen=now,
+                        last_seen=now,
+                        last_ip=ip,
+                    )
+                else:
+                    device.user_agent = ua or device.user_agent
+                    device.last_seen = now
+                    device.last_ip = ip
+                    device.save(update_fields=["user_agent", "last_seen", "last_ip"])
+                is_new_device = bool(created)
+            event = LoginEvent.objects.create(
                 user=user,
+                status=(
+                    LoginEvent.Status.SUCCESS if success else LoginEvent.Status.FAILURE
+                ),
+                ip_address=ip or None,
+                ip_hash=_hash_value(ip or "") if ip else "",
+                user_agent=ua,
                 device_id=device_id,
-                defaults={
-                    "user_agent": ua,
-                    "first_seen": now,
-                    "last_seen": now,
-                    "last_ip": ip,
-                },
+                is_new_device=is_new_device,
+                reason=reason,
+                meta=meta or {},
             )
-            if not created:
-                device.user_agent = ua or device.user_agent
-                device.last_seen = now
-                device.last_ip = ip
-                device.save(update_fields=["user_agent", "last_seen", "last_ip"])
-            is_new_device = bool(created)
-        event = LoginEvent.objects.create(
-            user=user,
-            status=LoginEvent.Status.SUCCESS if success else LoginEvent.Status.FAILURE,
-            ip_address=ip or None,
-            ip_hash=_hash_value(ip or "") if ip else "",
-            user_agent=ua,
-            device_id=device_id,
-            is_new_device=is_new_device,
-            reason=reason,
-            meta=meta or {},
-        )
+        except Exception:
+            logger.warning(
+                "Failed to persist login activity",
+                extra={"user_id": getattr(user, "id", None), "success": success},
+                exc_info=True,
+            )
+            return None
         if success and is_new_device:
             try:
                 EmailService.send_new_device_alert(user, ip=ip, user_agent=ua)

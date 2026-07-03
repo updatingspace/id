@@ -1,9 +1,8 @@
-from allauth.headless.contrib.ninja.security import x_session_token_auth
 from ninja import Body, Router
 from ninja.errors import HttpError
 from ninja.responses import Response
 
-from accounts.api.security import authenticate_optional
+from accounts.api.security import authenticate_optional, session_token_auth
 from accounts.services.auth import AuthService
 from accounts.transport.schemas import (
     ChangePasswordIn,
@@ -32,7 +31,7 @@ def _require_user(request):
 
 @auth_router.post(
     "/jwt/from_session",
-    auth=[x_session_token_auth],
+    auth=[session_token_auth],
     response={200: TokenPairOut, 401: ErrorOut},
     summary="Issue JWT pair bound to current session",
     operation_id="auth_jwt_from_session",
@@ -48,7 +47,7 @@ def jwt_from_session(request):
 
 @auth_router.post(
     "/logout",
-    auth=[x_session_token_auth],
+    auth=[session_token_auth],
     response={200: OkOut},
     summary="Logout current session",
     operation_id="auth_logout",
@@ -79,7 +78,7 @@ def me(request):
 
 @auth_router.post(
     "/change_password",
-    auth=[x_session_token_auth],
+    auth=[session_token_auth],
     response={200: OkOut, 400: ErrorOut, 401: ErrorOut},
     summary="Change password (requires current password)",
     operation_id="auth_change_password",

@@ -133,6 +133,37 @@ class AccountsApiTests(TestCase):
         self.assertEqual(user["avatar_source"], "none")
         self.assertTrue(user["avatar_gravatar_enabled"])
 
+    def test_headless_signup_survives_confirmation_email_failure(self):
+        form_token = self._form_token(self.client, "register")
+        payload = {
+            "username": "signup",
+            "email": "signup@example.com",
+            "password": "StrongPass123!",
+            "form_token": form_token,
+            "language": "ru",
+            "timezone": "Europe/Moscow",
+            "consent_data_processing": True,
+            "consent_marketing": True,
+            "is_minor": False,
+            "guardian_consent": False,
+            "birth_date": "2004-10-30",
+        }
+
+        with patch.object(
+            EmailAddress,
+            "send_confirmation",
+            side_effect=ConnectionRefusedError("smtp unavailable"),
+        ):
+            resp = post_json(self.client, "/api/v1/auth/signup", payload)
+
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(resp.headers.get("X-Session-Token"))
+        body = resp.json()
+        self.assertEqual(body["user"]["email"], "signup@example.com")
+        self.assertTrue(body["access_token"])
+        self.assertTrue(body["refresh_token"])
+        self.assertTrue(User.objects.filter(email="signup@example.com").exists())
+
     def test_headless_login_rejects_invalid_credentials(self):
         form_token = self._form_token(self.client, "login")
         resp = post_json(

@@ -1,4 +1,3 @@
-from allauth.headless.contrib.ninja.security import x_session_token_auth
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
@@ -6,6 +5,7 @@ from ninja import Body, File, Router
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 
+from accounts.api.security import session_token_auth
 from accounts.services.deletion import AccountDeletionService
 from accounts.services.emailing import EmailService
 from accounts.services.export import ExportService
@@ -56,7 +56,7 @@ from accounts.transport.schemas import (
 from idp.models import OidcConsent, OidcToken
 
 User = get_user_model()
-account_router = Router(tags=["Account"], auth=[x_session_token_auth])
+account_router = Router(tags=["Account"], auth=[session_token_auth])
 REQUIRED_BODY = Body(...)
 REQUIRED_FILE = File(...)
 

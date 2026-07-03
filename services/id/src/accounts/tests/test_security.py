@@ -30,6 +30,30 @@ class SessionTokenAuthTests(SimpleTestCase):
                 auth(request)
             auth_mock.assert_called_once_with("bad")
 
+    def test_returns_cookie_user_without_token(self):
+        auth = SessionTokenAuth()
+        user = SimpleNamespace(is_authenticated=True)
+        request = SimpleNamespace(headers={}, user=user, auth=None)
+
+        result = auth(request)
+
+        self.assertIs(result, user)
+        self.assertIs(request.auth, user)
+
+    def test_returns_cookie_user_when_header_token_is_invalid(self):
+        auth = SessionTokenAuth()
+        user = SimpleNamespace(is_authenticated=True)
+        request = SimpleNamespace(headers={"X-Session-Token": "bad"}, user=user)
+
+        with patch(
+            "accounts.api.security.authenticate_by_x_session_token",
+            return_value=None,
+        ):
+            result = auth(request)
+
+        self.assertIs(result, user)
+        self.assertIs(request.auth, user)
+
     def test_attaches_user_and_records_authentication(self):
         user = SimpleNamespace(is_authenticated=True)
         session = {}
@@ -124,6 +148,15 @@ class AuthenticateOptionalTests(SimpleTestCase):
         self.assertIsNone(request.user)
         self.assertIsNone(request.auth)
 
+    def test_returns_cookie_user_without_token(self):
+        user = SimpleNamespace(is_authenticated=True)
+        request = SimpleNamespace(headers={}, user=user, auth=None)
+
+        result = authenticate_optional(request)
+
+        self.assertIs(result, user)
+        self.assertIs(request.auth, user)
+
     def test_raises_when_token_is_invalid(self):
         request = SimpleNamespace(headers={"X-Session-Token": "bad"})
         with patch(
@@ -134,6 +167,19 @@ class AuthenticateOptionalTests(SimpleTestCase):
                 authenticate_optional(request)
         self.assertEqual(exc.exception.status_code, 401)
         self.assertEqual(exc.exception.message["code"], "INVALID_OR_EXPIRED_TOKEN")
+
+    def test_returns_cookie_user_when_header_token_is_invalid(self):
+        user = SimpleNamespace(is_authenticated=True)
+        request = SimpleNamespace(headers={"X-Session-Token": "bad"}, user=user)
+
+        with patch(
+            "accounts.api.security.authenticate_by_x_session_token",
+            return_value=None,
+        ):
+            result = authenticate_optional(request)
+
+        self.assertIs(result, user)
+        self.assertIs(request.auth, user)
 
     def test_sets_user_and_session_with_bearer_token(self):
         user = SimpleNamespace(is_authenticated=True)

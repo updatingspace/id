@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from allauth.account.forms import SignupForm
 from allauth.account.internal.flows.login import record_authentication
 from allauth.account.models import EmailAddress
-from allauth.account.utils import perform_login
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import login as dj_login
@@ -32,6 +31,23 @@ logger = logging.getLogger(__name__)
 
 def _hash_email(email: str) -> str:
     return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
+
+
+def _record_authentication_best_effort(request, user, **kwargs) -> None:
+    try:
+        record_authentication(request, user, **kwargs)
+    except Exception:
+        logger.warning(
+            "Headless login stage failed: record_authentication",
+            extra={"user_id": getattr(user, "id", None)},
+            exc_info=True,
+        )
+
+
+@dataclass(slots=True)
+class SignupResult:
+    user: object
+    session_token: str
 
 
 @dataclass(slots=True)
@@ -97,7 +113,10 @@ class HeadlessService:
                     "message": "Неверный логин или пароль",
                 },
             )
-        record_authentication(request, user, method="password", email=email.strip())
+        logger.info("Headless login stage: authenticated")
+        _record_authentication_best_effort(
+            request, user, method="password", email=email.strip()
+        )
 
         mfa_enabled = False
         mfa_used: str | None = None
@@ -140,13 +159,13 @@ class HeadlessService:
             if totp_auth and TOTP(totp_auth).validate_code(code):
                 validated = True
                 mfa_used = "totp"
-                record_authentication(
+                _record_authentication_best_effort(
                     request, user, method="mfa", type="totp", passwordless=False
                 )
             elif rc_auth and RecoveryCodes(rc_auth).validate_code(code):
                 validated = True
                 mfa_used = "recovery_code"
-                record_authentication(
+                _record_authentication_best_effort(
                     request, user, method="mfa", type="recovery_codes"
                 )
             if not validated:
@@ -174,6 +193,9 @@ class HeadlessService:
             user,
             backend=user.backend if hasattr(user, "backend") else None,
         )
+        logger.info("Headless login stage: django_session_created")
+        _ensure_primary_email_address(user)
+        logger.info("Headless login stage: primary_email_checked")
         recovery_codes = None
         if mfa_used == "recovery_code":
             try:
@@ -190,6 +212,7 @@ class HeadlessService:
             success=True,
             meta={"mfa_enabled": mfa_enabled, "mfa_method": mfa_used or ""},
         )
+        logger.info("Headless login stage: activity_recorded")
         logger.info(
             "Headless login succeeded",
             extra={
@@ -199,8 +222,11 @@ class HeadlessService:
             },
         )
         _sync_updspace_identity(request, user)
+        logger.info("Headless login stage: identity_sync_checked")
+        session_token = HeadlessService.issue_session_token(request)
+        logger.info("Headless login stage: session_token_issued")
         return {
-            "session_token": HeadlessService.issue_session_token(request),
+            "session_token": session_token,
             "recovery_codes": recovery_codes,
         }
 
@@ -219,7 +245,7 @@ class HeadlessService:
         guardian_email: str | None = None,
         guardian_consent: bool = False,
         birth_date=None,
-    ) -> str:
+    ) -> SignupResult:
         from django.contrib.auth import get_user_model
 
         User = get_user_model()
@@ -264,7 +290,7 @@ class HeadlessService:
                     "message": "Укажите email родителя/опекуна",
                 },
             )
-        if email and User.objects.filter(email__iexact=email.strip()).exists():
+        if email and User.objects.filter(email__iexact=email.strip()).first() is not None:
             logger.info(
                 "Signup rejected: email already exists",
                 extra={
@@ -297,14 +323,32 @@ class HeadlessService:
                 },
             )
             raise HttpError(400, form.errors.as_json())
-        user = form.save(request)
+        user = User.objects.create_user(
+            username=username or (email or "user"),
+            email=email or "",
+            password=password,
+            last_login=timezone.now(),
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=email or "",
+            primary=True,
+            verified=False,
+        )
         record_authentication(
             request,
             user,
             method="password",
             username=(username or "").strip(),
         )
-        perform_login(request, user)
+        backend = getattr(user, "backend", None) or (
+            settings.AUTHENTICATION_BACKENDS[0]
+            if getattr(settings, "AUTHENTICATION_BACKENDS", None)
+            else None
+        )
+        dj_login(request, user, backend=backend)
+        request.user = user
+        _send_signup_confirmation(request, user)
         try:
             ProfileService.maybe_refresh_gravatar(user, force=True)
         except Exception:
@@ -354,7 +398,52 @@ class HeadlessService:
             },
         )
         _sync_updspace_identity(request, user)
-        return HeadlessService.issue_session_token(request)
+        return SignupResult(
+            user=user,
+            session_token=HeadlessService.issue_session_token(request),
+        )
+
+
+def _send_signup_confirmation(request, user) -> None:
+    try:
+        address = EmailAddress.objects.filter(user=user, primary=True).first()
+        if address is None:
+            address = EmailAddress.objects.filter(user=user).first()
+        if address is None:
+            logger.warning(
+                "Skipping signup confirmation email: email address missing",
+                extra={"user_id": getattr(user, "id", None)},
+            )
+            return
+        address.send_confirmation(request, signup=True)
+    except Exception:
+        logger.warning(
+            "Failed to send signup confirmation email",
+            extra={"user_id": getattr(user, "id", None)},
+            exc_info=True,
+        )
+
+
+def _ensure_primary_email_address(user) -> None:
+    email = (getattr(user, "email", "") or "").strip()
+    if not email:
+        return
+    try:
+        existing = EmailAddress.objects.filter(user=user, email=email).first()
+        if existing:
+            return
+        EmailAddress.objects.create(
+            user=user,
+            email=email,
+            primary=True,
+            verified=False,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to ensure primary email address",
+            extra={"user_id": getattr(user, "id", None)},
+            exc_info=True,
+        )
 
 
 def _sync_updspace_identity(request, user) -> None:
@@ -380,7 +469,9 @@ def _sync_updspace_identity(request, user) -> None:
     ).strip()
     if not display_name:
         display_name = getattr(user, "username", "") or email.split("@")[0]
-    is_verified = EmailAddress.objects.filter(user=user, verified=True).exists()
+    is_verified = (
+        EmailAddress.objects.filter(user=user, verified=True).first() is not None
+    )
     is_admin = bool(
         getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
     )

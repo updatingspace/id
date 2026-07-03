@@ -20,6 +20,7 @@ from PIL import Image
 
 from accounts.models import UserProfile
 from accounts.services import user_has_telegram_link
+from accounts.services.activity import ActivityService
 from accounts.services.auth import AuthService
 from accounts.services.emailing import EmailService
 from accounts.services.profile import ProfileService
@@ -152,6 +153,26 @@ class EmailServiceTests(TestCase):
         called_addr, called_request = send_mock.call_args[0][0:2]
         self.assertEqual(called_addr.pk, second.pk)
         self.assertIs(called_request, request)
+
+    def test_resend_confirmation_survives_lookup_failure(self):
+        request = self.factory.post("/fake")
+
+        with patch(
+            "accounts.services.emailing.EmailAddress.objects.filter",
+            side_effect=RuntimeError("ydb lookup failed"),
+        ):
+            EmailService.resend_confirmation(request, self.user)
+
+    def test_resend_confirmation_survives_send_failure(self):
+        request = self.factory.post("/fake")
+
+        with patch.object(
+            EmailAddress,
+            "send_confirmation",
+            autospec=True,
+            side_effect=RuntimeError("smtp failed"),
+        ):
+            EmailService.resend_confirmation(request, self.user)
 
 
 class ProfileServiceTests(TestCase):
@@ -296,6 +317,41 @@ class AuthServiceTests(TestCase):
 
         meta.refresh_from_db()
         self.assertEqual(meta.session_key, request.session.session_key)
+
+    def test_issue_pair_survives_session_metadata_failure(self):
+        request = self._request_with_session(token="header-token")
+
+        with patch(
+            "accounts.services.auth.UserSessionMeta.objects.filter",
+            side_effect=RuntimeError("ydb metadata write failed"),
+        ):
+            pair = AuthService.issue_pair_for_session(request, request.user)
+
+        self.assertIn("access", pair.model_dump())
+        self.assertIn("refresh", pair.model_dump())
+
+
+class ActivityServiceTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(
+            username="activity", email="activity@example.com", password="123Strong!"
+        )
+
+    def test_record_login_survives_activity_persistence_failure(self):
+        request = self.factory.post("/")
+
+        with patch(
+            "accounts.services.activity.UserDevice.objects.filter",
+            side_effect=RuntimeError("ydb activity write failed"),
+        ):
+            event = ActivityService.record_login(
+                request,
+                user=self.user,
+                success=True,
+            )
+
+        self.assertIsNone(event)
 
 
 class SessionServiceTests(TestCase):

@@ -1,3 +1,5 @@
+import logging
+
 from ninja import Body, Router
 from ninja.errors import HttpError
 from ninja.responses import Response
@@ -20,6 +22,7 @@ from accounts.transport.schemas import (
 
 headless_router = Router(tags=["Auth"])
 REQUIRED_BODY = Body(...)
+logger = logging.getLogger(__name__)
 
 
 def _client_ip(request) -> str | None:
@@ -72,6 +75,7 @@ def login(request, payload: LoginIn = REQUIRED_BODY):
         mfa_code=getattr(payload, "mfa_code", None),
         recovery_code=getattr(payload, "recovery_code", None),
     )
+    logger.info("Headless login route stage: service_login_returned")
     st = result.get("session_token") or ""
     recovery_codes = result.get("recovery_codes")
     identifiers = []
@@ -80,12 +84,16 @@ def login(request, payload: LoginIn = REQUIRED_BODY):
     if payload.email:
         identifiers.append(f"email:{payload.email.strip().lower()}")
     RateLimitService.reset("login", identifiers)
+    logger.info("Headless login route stage: rate_limit_reset")
     user_profile = None
     try:
         user_profile = AuthService.profile(request.user, request=request)
     except Exception:
         user_profile = None
+        logger.warning("Headless login route stage failed: profile")
+    logger.info("Headless login route stage: profile_checked")
     token_pair = AuthService.issue_pair_for_session(request, request.user)
+    logger.info("Headless login route stage: jwt_pair_issued")
     body = {
         "meta": {"session_token": st},
         "user": user_profile,
@@ -142,7 +150,7 @@ def signup(request, payload: SignupIn = REQUIRED_BODY):
                 },
             )
 
-    st = HeadlessService.signup(
+    result = HeadlessService.signup(
         request,
         payload.username,
         payload.email,
@@ -156,6 +164,8 @@ def signup(request, payload: SignupIn = REQUIRED_BODY):
         guardian_consent=bool(payload.guardian_consent),
         birth_date=birth_date,
     )
+    st = result.session_token
+    user = result.user
     identifiers = []
     if client_ip:
         identifiers.append(f"ip:{client_ip}")
@@ -163,11 +173,11 @@ def signup(request, payload: SignupIn = REQUIRED_BODY):
         identifiers.append(f"email:{payload.email.strip().lower()}")
     RateLimitService.reset("register", identifiers)
 
-    token_pair = AuthService.issue_pair_for_session(request, request.user)
+    token_pair = AuthService.issue_pair_for_session(request, user)
     return Response(
         {
             "meta": {"session_token": st},
-            "user": AuthService.profile(request.user, request=request),
+            "user": AuthService.profile(user, request=request),
             "access_token": token_pair.access,
             "refresh_token": token_pair.refresh,
         },

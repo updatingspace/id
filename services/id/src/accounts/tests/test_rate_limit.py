@@ -12,6 +12,7 @@ from accounts.services.rate_limit import (
     get_client_ip,
     rate_limit_oidc,
 )
+from accounts.services.form_token import FormTokenPurpose, FormTokenService
 
 
 class RateLimitServiceTests(TestCase):
@@ -197,3 +198,27 @@ class RateLimitServiceTests(TestCase):
         )
         self.assertEqual(userinfo_handler(request_userinfo), "userinfo-ok")
         self.assertEqual(authorize_handler(request_authorize), "authorize-ok")
+
+
+class FormTokenServiceTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_signed_token_survives_cache_miss_between_instances(self):
+        issued = FormTokenService.issue(purpose=FormTokenPurpose.REGISTER)
+
+        cache.clear()
+
+        FormTokenService.consume(issued.token, purpose=FormTokenPurpose.REGISTER)
+
+    def test_signed_token_rejects_wrong_purpose_on_cache_miss(self):
+        issued = FormTokenService.issue(purpose=FormTokenPurpose.REGISTER)
+        cache.clear()
+
+        with self.assertRaises(HttpError) as exc:
+            FormTokenService.consume(issued.token, purpose=FormTokenPurpose.LOGIN)
+
+        self.assertEqual(exc.exception.status_code, 400)

@@ -302,6 +302,7 @@ SIMPLE_JWT = {
 }
 
 SESSION_COOKIE_SECURE = read_env_flag("SESSION_COOKIE_SECURE", True)
+SESSION_ENGINE = read_env("SESSION_ENGINE", "django.contrib.sessions.backends.db")
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = read_env("SESSION_COOKIE_SAMESITE", "Strict")
 CSRF_COOKIE_SECURE = read_env_flag("CSRF_COOKIE_SECURE", True)

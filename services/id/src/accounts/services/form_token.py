@@ -6,12 +6,14 @@ import time
 from dataclasses import dataclass
 
 from django.core.cache import cache
+from django.core import signing
 from ninja.errors import HttpError
 
 logger = logging.getLogger(__name__)
 
 TOKEN_TTL_SEC = 15 * 60
 PREFIX = "formtoken"
+SIGNING_SALT = "accounts.form_token"
 INVALID_FORM_TOKEN_PAYLOAD = {
     "code": "INVALID_FORM_TOKEN",
     "message": "Неверный или просроченный токен формы",
@@ -54,7 +56,13 @@ class FormTokenService:
     ) -> IssuedFormToken:
         if not FormTokenPurpose.is_allowed(purpose):
             raise ValueError(f"Unsupported form token purpose: {purpose}")
-        token = secrets.token_urlsafe(32)
+        token = signing.dumps(
+            {
+                "purpose": purpose,
+                "nonce": secrets.token_urlsafe(32),
+            },
+            salt=SIGNING_SALT,
+        )
         now = int(time.time())
         expires_at = now + TOKEN_TTL_SEC
         cache.set(
@@ -88,7 +96,10 @@ class FormTokenService:
         if not token:
             raise _invalid_token_error()
         stored = cache.get(FormTokenService._key(token))
-        if not stored or stored.get("purpose") != purpose:
+        if not stored:
+            FormTokenService._consume_signed(token, purpose=purpose, client_ip=client_ip)
+            return
+        if stored.get("purpose") != purpose:
             logger.info(
                 "Form token rejected",
                 extra={
@@ -120,5 +131,46 @@ class FormTokenService:
         )
         logger.debug(
             "Form token consumed",
+            extra={"purpose": purpose, "client_ip": client_ip},
+        )
+
+    @staticmethod
+    def _consume_signed(token: str, *, purpose: str, client_ip: str | None = None) -> None:
+        try:
+            payload = signing.loads(
+                token,
+                salt=SIGNING_SALT,
+                max_age=TOKEN_TTL_SEC,
+            )
+        except signing.SignatureExpired:
+            logger.info(
+                "Signed form token expired",
+                extra={"purpose": purpose, "client_ip": client_ip},
+            )
+            raise _invalid_token_error()
+        except signing.BadSignature:
+            logger.info(
+                "Signed form token rejected",
+                extra={
+                    "reason": "bad_signature",
+                    "purpose": purpose,
+                    "client_ip": client_ip,
+                },
+            )
+            raise _invalid_token_error()
+
+        if not isinstance(payload, dict) or payload.get("purpose") != purpose:
+            logger.info(
+                "Signed form token rejected",
+                extra={
+                    "reason": "mismatched_purpose",
+                    "purpose": purpose,
+                    "client_ip": client_ip,
+                },
+            )
+            raise _invalid_token_error()
+
+        logger.debug(
+            "Signed form token consumed",
             extra={"purpose": purpose, "client_ip": client_ip},
         )
