@@ -74,7 +74,7 @@ paths:
         service_account_id: ${gateway_service_account_id}
 
   /{file+}:
-    x-yc-apigateway-any-method:
+    get:
       parameters:
         - name: file
           in: path
