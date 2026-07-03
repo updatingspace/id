@@ -1249,3 +1249,30 @@ class OidcRouterBehaviorTests(TestCase):
         self.assertEqual(revoke_response.status_code, 200)
         self.assertEqual(revoke_response["Cache-Control"], "no-store")
         revoke_mock.assert_called_once_with("rt-1", client=auth_mock.return_value)
+
+        class LegacyPayload:
+            token = "rt-2"
+
+            def dict(self):
+                return {
+                    "token": self.token,
+                    "client_id": "payload-client",
+                    "client_secret": "payload-secret",
+                }
+
+        form_request = SimpleNamespace(
+            headers={},
+            META={},
+            POST={"client_id": "posted-client", "client_secret": None},
+        )
+        with (
+            patch("idp.router._check_rate_limit"),
+            patch("idp.router.OidcService.authenticate_client") as auth_mock,
+            patch("idp.router.OidcService.revoke_token") as revoke_mock,
+        ):
+            revoke_response = revoke(form_request, LegacyPayload())
+        self.assertEqual(revoke_response.status_code, 200)
+        auth_mock.assert_called_once()
+        self.assertEqual(auth_mock.call_args.args[1]["client_id"], "posted-client")
+        self.assertEqual(auth_mock.call_args.args[1]["client_secret"], "payload-secret")
+        revoke_mock.assert_called_once_with("rt-2", client=auth_mock.return_value)
