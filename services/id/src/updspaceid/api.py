@@ -226,7 +226,10 @@ def applications_approve(request, application_id: int):
     ctx = require_context(request)
     tenant = ensure_tenant(ctx.tenant_id, ctx.tenant_slug)
     try:
-        application = Application.objects.get(id=application_id)
+        application = Application.objects.get(
+            id=application_id,
+            tenant_slug=ctx.tenant_slug,
+        )
     except Application.DoesNotExist as exc:
         raise HttpError(
             404, error_payload("NOT_FOUND", "Application not found")
@@ -271,8 +274,12 @@ def applications_approve(request, application_id: int):
 @_with_error_envelope
 def applications_reject(request, application_id: int):
     admin = _require_admin(request)
+    ctx = require_context(request)
     try:
-        application = Application.objects.get(id=application_id)
+        application = Application.objects.get(
+            id=application_id,
+            tenant_slug=ctx.tenant_slug,
+        )
     except Application.DoesNotExist as exc:
         raise HttpError(
             404, error_payload("NOT_FOUND", "Application not found")

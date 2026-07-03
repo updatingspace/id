@@ -10,9 +10,10 @@ from unittest.mock import patch
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from updspaceid.enums import MembershipStatus, UserStatus
+from updspaceid.enums import ApplicationStatus, MembershipStatus, UserStatus
 from updspaceid.models import (
     ActivationToken,
+    Application,
     MagicLinkToken,
     Tenant,
     TenantMembership,
@@ -182,6 +183,96 @@ class UpdSpaceIdFlowsTests(TestCase):
         )
 
         self.assertEqual(resp.status_code, 200)
+
+    @override_settings(BFF_INTERNAL_HMAC_SECRET="test-hmac")
+    def test_applications_approve_is_scoped_to_request_tenant(self):
+        other_tenant = Tenant.objects.create(slug="other")
+        admin = User.objects.create(
+            email="admin-scope@example.com",
+            status=UserStatus.ACTIVE,
+            email_verified=True,
+            system_admin=True,
+        )
+        TenantMembership.objects.create(
+            user=admin,
+            tenant=self.tenant,
+            status=MembershipStatus.ACTIVE,
+            base_role="admin",
+        )
+        application = Application.objects.create(
+            tenant_slug=other_tenant.slug,
+            payload_json={"email": "candidate@example.com"},
+        )
+
+        request_id = "req-app-approve-scope"
+        ts = str(int(time.time()))
+        path = f"/api/v1/applications/{application.id}/approve"
+        body = b""
+        msg = "\n".join(
+            ["POST", path, hashlib.sha256(body).hexdigest(), request_id, ts]
+        ).encode("utf-8")
+        sig = hmac.new(b"test-hmac", msg, digestmod=hashlib.sha256).hexdigest()
+
+        resp = self.client.post(
+            path,
+            data=body,
+            content_type="application/json",
+            HTTP_X_REQUEST_ID=request_id,
+            HTTP_X_TENANT_ID=str(self.tenant.id),
+            HTTP_X_TENANT_SLUG=self.tenant.slug,
+            HTTP_X_USER_ID=str(admin.user_id),
+            HTTP_X_UPDSPACE_TIMESTAMP=ts,
+            HTTP_X_UPDSPACE_SIGNATURE=sig,
+        )
+
+        self.assertEqual(resp.status_code, 404)
+        application.refresh_from_db()
+        self.assertEqual(application.status, ApplicationStatus.PENDING)
+
+    @override_settings(BFF_INTERNAL_HMAC_SECRET="test-hmac")
+    def test_applications_reject_is_scoped_to_request_tenant(self):
+        other_tenant = Tenant.objects.create(slug="other-reject")
+        admin = User.objects.create(
+            email="admin-reject-scope@example.com",
+            status=UserStatus.ACTIVE,
+            email_verified=True,
+            system_admin=True,
+        )
+        TenantMembership.objects.create(
+            user=admin,
+            tenant=self.tenant,
+            status=MembershipStatus.ACTIVE,
+            base_role="admin",
+        )
+        application = Application.objects.create(
+            tenant_slug=other_tenant.slug,
+            payload_json={"email": "candidate-reject@example.com"},
+        )
+
+        request_id = "req-app-reject-scope"
+        ts = str(int(time.time()))
+        path = f"/api/v1/applications/{application.id}/reject"
+        body = b""
+        msg = "\n".join(
+            ["POST", path, hashlib.sha256(body).hexdigest(), request_id, ts]
+        ).encode("utf-8")
+        sig = hmac.new(b"test-hmac", msg, digestmod=hashlib.sha256).hexdigest()
+
+        resp = self.client.post(
+            path,
+            data=body,
+            content_type="application/json",
+            HTTP_X_REQUEST_ID=request_id,
+            HTTP_X_TENANT_ID=str(self.tenant.id),
+            HTTP_X_TENANT_SLUG=self.tenant.slug,
+            HTTP_X_USER_ID=str(admin.user_id),
+            HTTP_X_UPDSPACE_TIMESTAMP=ts,
+            HTTP_X_UPDSPACE_SIGNATURE=sig,
+        )
+
+        self.assertEqual(resp.status_code, 404)
+        application.refresh_from_db()
+        self.assertEqual(application.status, ApplicationStatus.PENDING)
 
     @override_settings(
         BFF_INTERNAL_HMAC_SECRET="test-hmac", GRAVATAR_AUTOLOAD_ENABLED=False

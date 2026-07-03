@@ -53,3 +53,5 @@ class UserInfoOut(Schema):
 
 class RevokeIn(Schema):
     token: str
+    client_id: str | None = None
+    client_secret: str | None = None

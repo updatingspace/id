@@ -1,6 +1,8 @@
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 import dj_database_url
 
@@ -44,25 +46,47 @@ def read_env_secret(name: str, default: str | None = None) -> str | None:
     return raw
 
 
-# Security: SECRET_KEY handling
-# In production (DEBUG=False), SECRET_KEY MUST be explicitly set via environment
 _secret_key_default = "id-service-secret-CHANGE-ME-IN-PRODUCTION"
 SECRET_KEY = read_env("DJANGO_SECRET_KEY", _secret_key_default)
 
 DEBUG = read_env_flag("DJANGO_DEBUG", False)
 
-# Fail fast in production if SECRET_KEY is not configured
-if not DEBUG and SECRET_KEY == _secret_key_default:
-    import sys
-
+def _production_config_error(message: str) -> None:
     print(
-        "SECURITY ERROR: DJANGO_SECRET_KEY must be set in production. "
-        "Generate a secure key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'",
+        f"SECURITY ERROR: {message}",
         file=sys.stderr,
     )
     sys.exit(1)
 
+
+def _is_local_url(value: str) -> bool:
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localhost")
+
+
+def _require_https_public_url(name: str, value: str | None) -> None:
+    if not value:
+        return
+    parsed = urlparse(value)
+    if parsed.scheme != "https" and not _is_local_url(value):
+        _production_config_error(
+            f"{name} must use https outside localhost when DJANGO_DEBUG=false"
+        )
+
+
+# Fail fast in production if critical security settings are unsafe.
+if not DEBUG and SECRET_KEY == _secret_key_default:
+    _production_config_error(
+        "DJANGO_SECRET_KEY must be set in production. "
+        "Generate a secure key with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
+    )
+
 ALLOWED_HOSTS = read_env_list("DJANGO_ALLOWED_HOSTS", ["*"])
+if not DEBUG and ("*" in ALLOWED_HOSTS or not ALLOWED_HOSTS):
+    _production_config_error(
+        "DJANGO_ALLOWED_HOSTS must list explicit hostnames in production"
+    )
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -246,6 +270,11 @@ OIDC_ISSUER = (read_env("OIDC_ISSUER", "https://id.localhost") or "").rstrip("/"
 OIDC_PUBLIC_BASE_URL = (
     read_env("OIDC_PUBLIC_BASE_URL", OIDC_ISSUER) or OIDC_ISSUER
 ).rstrip("/")
+if not DEBUG:
+    _require_https_public_url("ID_PUBLIC_BASE_URL", ID_PUBLIC_BASE_URL)
+    _require_https_public_url("ID_ACTIVATION_BASE_URL", ID_ACTIVATION_BASE_URL)
+    _require_https_public_url("OIDC_ISSUER", OIDC_ISSUER)
+    _require_https_public_url("OIDC_PUBLIC_BASE_URL", OIDC_PUBLIC_BASE_URL)
 OIDC_REFRESH_TOKEN_SALT = read_env("OIDC_REFRESH_TOKEN_SALT", SECRET_KEY)
 OIDC_AUTHORIZATION_ENDPOINT = read_env(
     "OIDC_AUTHORIZATION_ENDPOINT",
