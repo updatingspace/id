@@ -34,36 +34,35 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: services/id/pyproject.toml
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install uv
+          uv sync --extra dev --frozen
 
       - name: Dependency audit (Python)
         continue-on-error: true
-        run: pip-audit --format=json --output=pip-audit.json
+        run: uv run --extra dev pip-audit --format=json --output=pip-audit.json
 
       - name: Ruff check
-        run: ruff check src/
+        run: uv run --extra dev ruff check src/
 
       - name: Ruff format check
-        run: ruff format --check src/
+        run: uv run --extra dev ruff format --check src/
 
       - name: Check migrations
         env:
           DJANGO_DEBUG: "true"
           DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
-        run: python src/manage.py makemigrations --check --dry-run --noinput
+        run: uv run --extra dev python src/manage.py makemigrations --check --dry-run --noinput
 
       - name: Run tests with coverage profile
         env:
           DJANGO_DEBUG: "true"
           DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
         run: |
-          pytest -q --junitxml=pytest-sqlite.xml \
+          uv run --extra dev pytest -q --junitxml=pytest-sqlite.xml \
             --cov=accounts.api.exception_handlers \
             --cov=accounts.api.security \
             --cov=accounts.services.rate_limit \
@@ -78,7 +77,7 @@ jobs:
             --cov-branch \
             --cov-report=xml \
             --cov-report=term
-          python3 scripts/check_coverage.py \
+          uv run --extra dev python scripts/check_coverage.py \
             --xml coverage.xml \
             --min-line 0.85 \
             --min-branch 0.80 \
@@ -130,20 +129,19 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: services/id/pyproject.toml
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install uv
+          uv sync --extra dev --frozen
 
       - name: Run tests on Postgres
         env:
           DJANGO_DEBUG: "true"
           DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
           DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/id_test"
-        run: pytest -q --junitxml=pytest-postgres.xml
+        run: uv run --extra dev pytest -q --junitxml=pytest-postgres.xml
 
       - name: Upload backend Postgres artifacts
         if: always()

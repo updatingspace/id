@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { ConsentRow, Preferences, TimezoneRow } from '../../model/types';
 
 type Props = {
@@ -18,16 +18,15 @@ export const PrivacySection: React.FC<Props> = ({
   onSave,
   onRevokeMarketing,
 }) => {
-  const [prefs, setPrefs] = useState<Preferences>(preferences ?? {});
+  const [draftPrefs, setDraftPrefs] = useState<Preferences | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => setPrefs(preferences ?? {}), [preferences]);
+  const prefs = draftPrefs ?? preferences ?? {};
 
   const setScopePolicy = (scope: string, policy: 'allow' | 'ask' | 'deny') => {
-    setPrefs((prev) => ({
-      ...prev,
+    setDraftPrefs((prev) => ({
+      ...(prev ?? preferences ?? {}),
       privacy_scope_defaults: {
-        ...(prev?.privacy_scope_defaults || {}),
+        ...((prev ?? preferences)?.privacy_scope_defaults || {}),
         [scope]: policy,
       },
     }));
@@ -36,7 +35,6 @@ export const PrivacySection: React.FC<Props> = ({
   const scopes = useMemo(() => ['profile_basic', 'profile_extended', 'email', 'phone'] as const, []);
 
   const save = async () => {
-    if (!prefs) return;
     setBusy(true);
     try {
       await onSave({
@@ -60,7 +58,12 @@ export const PrivacySection: React.FC<Props> = ({
             <span>{t('preferences.language')}</span>
             <select
               value={prefs?.language || 'ru'}
-              onChange={(e) => setPrefs({ ...prefs, language: e.target.value as 'ru' | 'en' })}
+              onChange={(e) =>
+                setDraftPrefs({
+                  ...prefs,
+                  language: e.target.value as 'ru' | 'en',
+                })
+              }
             >
               <option value="ru">Русский</option>
               <option value="en">English</option>
@@ -71,7 +74,7 @@ export const PrivacySection: React.FC<Props> = ({
             <span>{t('preferences.timezone')}</span>
             <select
               value={prefs?.timezone || ''}
-              onChange={(e) => setPrefs({ ...prefs, timezone: e.target.value })}
+              onChange={(e) => setDraftPrefs({ ...prefs, timezone: e.target.value })}
             >
               <option value="">{t('preferences.timezone.notSelected')}</option>
               {timezones.map((tz) => (
@@ -86,7 +89,7 @@ export const PrivacySection: React.FC<Props> = ({
             <input
               type="checkbox"
               checked={!!prefs?.marketing_opt_in}
-              onChange={(e) => setPrefs({ ...prefs, marketing_opt_in: e.target.checked })}
+              onChange={(e) => setDraftPrefs({ ...prefs, marketing_opt_in: e.target.checked })}
             />
             <span>{t('preferences.marketing')}</span>
           </label>

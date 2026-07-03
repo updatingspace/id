@@ -67,14 +67,16 @@ def _is_local_url(value: str) -> bool:
 
 
 def _require_https_public_url(name: str, value: str | None) -> None:
-    if not value:
+    if value is None:
         return
-    parsed = urlparse(value)
-    if parsed.scheme != "https" and not _is_local_url(value):
+    normalized = str(value).strip()
+    if not normalized:
+        _production_config_error(f"{name} must be set when DJANGO_DEBUG=false")
+    parsed = urlparse(normalized)
+    if parsed.scheme != "https" and not _is_local_url(normalized):
         _production_config_error(
             f"{name} must use https outside localhost when DJANGO_DEBUG=false"
         )
-
 
 # Fail fast in production if critical security settings are unsafe.
 if not DEBUG and SECRET_KEY == _secret_key_default:

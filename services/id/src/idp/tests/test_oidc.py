@@ -411,13 +411,59 @@ class OidcTokenLifecycleTests(TestCase):
         tokens = self._issue_tokens()
         resp = self.client_http.post(
             "/oauth/revoke",
-            data=json.dumps({"token": tokens["refresh_token"]}),
+            data=json.dumps(
+                {
+                    "token": tokens["refresh_token"],
+                    "client_id": self.oidc_client.client_id,
+                    "client_secret": "test-secret",
+                }
+            ),
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
         refresh_resp = self._refresh(tokens["refresh_token"])
         self.assertEqual(refresh_resp.status_code, 400)
         self.assertEqual(self._error_code(refresh_resp), "INVALID_REFRESH_TOKEN")
+
+    def test_revoke_requires_client_authentication(self):
+        tokens = self._issue_tokens()
+        resp = self.client_http.post(
+            "/oauth/revoke",
+            data=json.dumps({"token": tokens["refresh_token"]}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 401)
+        refresh_resp = self._refresh(tokens["refresh_token"])
+        self.assertEqual(refresh_resp.status_code, 200)
+
+    def test_revoke_is_bound_to_authenticated_client(self):
+        tokens = self._issue_tokens()
+        other_client = OidcClient.objects.create(
+            name="Other Lifecycle App",
+            redirect_uris=["http://localhost/other-callback"],
+            allowed_scopes=["openid", "email"],
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            is_public=False,
+            is_first_party=True,
+        )
+        other_client.set_secret("other-secret")
+        other_client.save()
+
+        resp = self.client_http.post(
+            "/oauth/revoke",
+            data=json.dumps(
+                {
+                    "token": tokens["refresh_token"],
+                    "client_id": other_client.client_id,
+                    "client_secret": "other-secret",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        refresh_resp = self._refresh(tokens["refresh_token"])
+        self.assertEqual(refresh_resp.status_code, 200)
 
     def test_userinfo_accepts_tokens_signed_with_retired_key(self):
         primary = _generate_keypair()
@@ -1218,8 +1264,43 @@ class OidcRouterBehaviorTests(TestCase):
         self.assertEqual(jwks_response, {"keys": []})
         jwks_mock.assert_called_once()
 
-        with patch("idp.router.OidcService.revoke_token") as revoke_mock:
-            revoke_response = revoke(SimpleNamespace(), SimpleNamespace(token="rt-1"))
+        revoke_request = SimpleNamespace(headers={}, META={})
+        revoke_payload = SimpleNamespace(
+            token="rt-1", client_id="client-1", client_secret="secret-1"
+        )
+        with (
+            patch("idp.router._check_rate_limit"),
+            patch("idp.router.OidcService.authenticate_client") as auth_mock,
+            patch("idp.router.OidcService.revoke_token") as revoke_mock,
+        ):
+            revoke_response = revoke(revoke_request, revoke_payload)
         self.assertEqual(revoke_response.status_code, 200)
         self.assertEqual(revoke_response["Cache-Control"], "no-store")
-        revoke_mock.assert_called_once_with("rt-1")
+        revoke_mock.assert_called_once_with("rt-1", client=auth_mock.return_value)
+
+        class LegacyPayload:
+            token = "rt-2"
+
+            def dict(self):
+                return {
+                    "token": self.token,
+                    "client_id": "payload-client",
+                    "client_secret": "payload-secret",
+                }
+
+        form_request = SimpleNamespace(
+            headers={},
+            META={},
+            POST={"client_id": "posted-client", "client_secret": None},
+        )
+        with (
+            patch("idp.router._check_rate_limit"),
+            patch("idp.router.OidcService.authenticate_client") as auth_mock,
+            patch("idp.router.OidcService.revoke_token") as revoke_mock,
+        ):
+            revoke_response = revoke(form_request, LegacyPayload())
+        self.assertEqual(revoke_response.status_code, 200)
+        auth_mock.assert_called_once()
+        self.assertEqual(auth_mock.call_args.args[1]["client_id"], "posted-client")
+        self.assertEqual(auth_mock.call_args.args[1]["client_secret"], "payload-secret")
+        revoke_mock.assert_called_once_with("rt-2", client=auth_mock.return_value)
