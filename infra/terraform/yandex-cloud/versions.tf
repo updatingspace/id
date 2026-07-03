@@ -1,6 +1,8 @@
 terraform {
   required_version = ">= 1.6.0"
 
+  backend "s3" {}
+
   required_providers {
     yandex = {
       source  = "registry.terraform.io/yandex-cloud/yandex"

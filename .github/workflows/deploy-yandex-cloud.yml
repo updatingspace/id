@@ -46,6 +46,7 @@ jobs:
       YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
       YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
       YC_CONTAINER_REGISTRY_ID: ${{ secrets.YC_CONTAINER_REGISTRY_ID }}
+      YC_TF_BACKEND_CONFIG_B64: ${{ secrets.YC_TF_BACKEND_CONFIG_B64 }}
       YC_TF_VARS_B64: ${{ secrets.YC_TF_VARS_B64 }}
       YC_PUBLIC_BASE_URL: ${{ secrets.YC_PUBLIC_BASE_URL }}
       YC_SMOKE_HOST: ${{ secrets.YC_SMOKE_HOST }}
@@ -65,6 +66,7 @@ jobs:
             YC_CLOUD_ID \
             YC_FOLDER_ID \
             YC_CONTAINER_REGISTRY_ID \
+            YC_TF_BACKEND_CONFIG_B64 \
             YC_TF_VARS_B64 \
             YC_PUBLIC_BASE_URL \
             YC_SMOKE_HOST \
@@ -131,12 +133,12 @@ jobs:
       - validate-deploy-secrets
     outputs:
       applied: ${{ steps.status.outputs.applied }}
-      ydb_endpoint: ${{ steps.outputs.outputs.ydb_endpoint }}
-      ydb_database: ${{ steps.outputs.outputs.ydb_database }}
-      public_base_url: ${{ steps.outputs.outputs.public_base_url }}
-      frontend_bucket_name: ${{ steps.outputs.outputs.frontend_bucket_name }}
-      object_storage_access_key_id: ${{ steps.outputs.outputs.object_storage_access_key_id }}
-      object_storage_secret_access_key: ${{ steps.outputs.outputs.object_storage_secret_access_key }}
+      ydb_endpoint_b64: ${{ steps.outputs.outputs.ydb_endpoint_b64 }}
+      ydb_database_b64: ${{ steps.outputs.outputs.ydb_database_b64 }}
+      public_base_url_b64: ${{ steps.outputs.outputs.public_base_url_b64 }}
+      frontend_bucket_name_b64: ${{ steps.outputs.outputs.frontend_bucket_name_b64 }}
+      object_storage_access_key_id_b64: ${{ steps.outputs.outputs.object_storage_access_key_id_b64 }}
+      object_storage_secret_access_key_b64: ${{ steps.outputs.outputs.object_storage_secret_access_key_b64 }}
     env:
       TF_VAR_cloud_id: ${{ secrets.YC_CLOUD_ID }}
       TF_VAR_folder_id: ${{ secrets.YC_FOLDER_ID }}
@@ -151,6 +153,9 @@ jobs:
       - name: Restore Terraform variables
         run: |
           printf '%s' '${{ secrets.YC_TF_VARS_B64 }}' | base64 --decode > infra/terraform/yandex-cloud/runtime.auto.tfvars
+      - name: Restore Terraform backend config
+        run: |
+          printf '%s' '${{ secrets.YC_TF_BACKEND_CONFIG_B64 }}' | base64 --decode > infra/terraform/yandex-cloud/backend.hcl
       - name: Pin current image tag
         run: |
           cat > infra/terraform/yandex-cloud/image-tag.auto.tfvars.json <<JSON
@@ -159,7 +164,27 @@ jobs:
           }
           JSON
       - name: Terraform init
-        run: terraform -chdir=infra/terraform/yandex-cloud init
+        run: terraform -chdir=infra/terraform/yandex-cloud init -backend-config=backend.hcl
+      - name: Refuse empty-state production apply
+        if: env.YC_TERRAFORM_AUTO_APPLY == 'true'
+        run: |
+          set +e
+          terraform -chdir=infra/terraform/yandex-cloud state list >/tmp/tfstate-list.txt 2>/tmp/tfstate-list.err
+          status=$?
+          set -e
+
+          if [[ "$status" -ne 0 ]]; then
+            cat /tmp/tfstate-list.err >&2
+            exit "$status"
+          fi
+
+          if [[ ! -s /tmp/tfstate-list.txt ]]; then
+            {
+              echo "Terraform remote state is empty; refusing production apply."
+              echo "Import the existing Yandex Cloud resources into the configured backend before enabling YC_TERRAFORM_AUTO_APPLY=true."
+            } >&2
+            exit 1
+          fi
       - name: Terraform plan
         run: terraform -chdir=infra/terraform/yandex-cloud plan -out=tfplan
       - name: Terraform apply
@@ -169,31 +194,35 @@ jobs:
         id: status
         run: |
           if [[ "${YC_TERRAFORM_AUTO_APPLY}" == 'true' ]]; then
-            echo 'applied=true' >> "$GITHUB_OUTPUT"
+            echo 'applied=yes' >> "$GITHUB_OUTPUT"
           else
-            echo 'applied=false' >> "$GITHUB_OUTPUT"
+            echo 'applied=no' >> "$GITHUB_OUTPUT"
           fi
       - name: Capture Terraform outputs
         id: outputs
-        if: steps.status.outputs.applied == 'true'
+        if: steps.status.outputs.applied == 'yes'
         run: |
-          echo "ydb_endpoint=$(terraform -chdir=infra/terraform/yandex-cloud output -raw ydb_endpoint)" >> "$GITHUB_OUTPUT"
-          echo "ydb_database=$(terraform -chdir=infra/terraform/yandex-cloud output -raw ydb_database)" >> "$GITHUB_OUTPUT"
-          echo "public_base_url=$(terraform -chdir=infra/terraform/yandex-cloud output -raw public_base_url)" >> "$GITHUB_OUTPUT"
-          echo "frontend_bucket_name=$(terraform -chdir=infra/terraform/yandex-cloud output -raw frontend_bucket_name)" >> "$GITHUB_OUTPUT"
+          encode_output() {
+            terraform -chdir=infra/terraform/yandex-cloud output -raw "$1" | base64 -w0
+          }
+
           object_storage_access_key_id=$(terraform -chdir=infra/terraform/yandex-cloud output -raw object_storage_access_key_id)
           object_storage_secret_access_key=$(terraform -chdir=infra/terraform/yandex-cloud output -raw object_storage_secret_access_key)
           echo "::add-mask::${object_storage_access_key_id}"
           echo "::add-mask::${object_storage_secret_access_key}"
-          echo "object_storage_access_key_id=${object_storage_access_key_id}" >> "$GITHUB_OUTPUT"
-          echo "object_storage_secret_access_key=${object_storage_secret_access_key}" >> "$GITHUB_OUTPUT"
+          echo "ydb_endpoint_b64=$(encode_output ydb_endpoint)" >> "$GITHUB_OUTPUT"
+          echo "ydb_database_b64=$(encode_output ydb_database)" >> "$GITHUB_OUTPUT"
+          echo "public_base_url_b64=$(encode_output public_base_url)" >> "$GITHUB_OUTPUT"
+          echo "frontend_bucket_name_b64=$(encode_output frontend_bucket_name)" >> "$GITHUB_OUTPUT"
+          echo "object_storage_access_key_id_b64=$(printf '%s' "${object_storage_access_key_id}" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          echo "object_storage_secret_access_key_b64=$(printf '%s' "${object_storage_secret_access_key}" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
   ydb-bootstrap:
     name: Bootstrap YDB schema
     runs-on: ubuntu-latest
     needs:
       - terraform-apply
-    if: needs.terraform-apply.outputs.applied == 'true'
+    if: needs.terraform-apply.outputs.applied == 'yes'
     defaults:
       run:
         working-directory: services/id
@@ -203,24 +232,32 @@ jobs:
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: id.updspace.com,.yandexcloud.net,localhost,127.0.0.1
       DJANGO_SECRET_KEY: migrate-secret-min-32-characters-long
-      ID_ACTIVATION_BASE_URL: ${{ needs.terraform-apply.outputs.public_base_url }}
-      ID_PUBLIC_BASE_URL: ${{ needs.terraform-apply.outputs.public_base_url }}/api/v1
+      TF_OUTPUT_YDB_ENDPOINT_B64: ${{ needs.terraform-apply.outputs.ydb_endpoint_b64 }}
+      TF_OUTPUT_YDB_DATABASE_B64: ${{ needs.terraform-apply.outputs.ydb_database_b64 }}
+      TF_OUTPUT_PUBLIC_BASE_URL_B64: ${{ needs.terraform-apply.outputs.public_base_url_b64 }}
       ID_TOKEN_HASH_SECRET: migrate-token-hash-secret
-      OIDC_ISSUER: ${{ needs.terraform-apply.outputs.public_base_url }}
-      OIDC_PUBLIC_BASE_URL: ${{ needs.terraform-apply.outputs.public_base_url }}
       OIDC_REFRESH_TOKEN_SALT: migrate-refresh-salt
       BFF_INTERNAL_HMAC_SECRET: ${{ secrets.YC_BFF_INTERNAL_HMAC_SECRET }}
       PORTAL_OIDC_CLIENT_ID: updspace-portal
       PORTAL_OIDC_CLIENT_SECRET: ${{ secrets.YC_PORTAL_OIDC_CLIENT_SECRET }}
       PORTAL_PUBLIC_BASE_URL: ${{ secrets.YC_PORTAL_PUBLIC_BASE_URL }}
       DB_DRIVER: ydb
-      YDB_ENDPOINT: ${{ needs.terraform-apply.outputs.ydb_endpoint }}
-      YDB_DATABASE: ${{ needs.terraform-apply.outputs.ydb_database }}
       YDB_NAME: default
       YDB_CREDENTIALS_MODE: sa_json
       YDB_SERVICE_ACCOUNT_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
     steps:
       - uses: actions/checkout@v6
+      - name: Decode Terraform outputs
+        run: |
+          public_base_url=$(printf '%s' "$TF_OUTPUT_PUBLIC_BASE_URL_B64" | base64 --decode)
+          {
+            echo "YDB_ENDPOINT=$(printf '%s' "$TF_OUTPUT_YDB_ENDPOINT_B64" | base64 --decode)"
+            echo "YDB_DATABASE=$(printf '%s' "$TF_OUTPUT_YDB_DATABASE_B64" | base64 --decode)"
+            echo "ID_ACTIVATION_BASE_URL=${public_base_url}"
+            echo "ID_PUBLIC_BASE_URL=${public_base_url}/api/v1"
+            echo "OIDC_ISSUER=${public_base_url}"
+            echo "OIDC_PUBLIC_BASE_URL=${public_base_url}"
+          } >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -248,19 +285,26 @@ jobs:
     needs:
       - terraform-apply
       - generate-build-id
-    if: needs.terraform-apply.outputs.applied == 'true'
+    if: needs.terraform-apply.outputs.applied == 'yes'
     defaults:
       run:
         working-directory: web/id-frontend
     env:
       FRONTEND_DIST_DIR: dist
-      YC_BUCKET_NAME: ${{ needs.terraform-apply.outputs.frontend_bucket_name }}
+      TF_OUTPUT_FRONTEND_BUCKET_NAME_B64: ${{ needs.terraform-apply.outputs.frontend_bucket_name_b64 }}
+      TF_OUTPUT_OBJECT_STORAGE_ACCESS_KEY_ID_B64: ${{ needs.terraform-apply.outputs.object_storage_access_key_id_b64 }}
+      TF_OUTPUT_OBJECT_STORAGE_SECRET_ACCESS_KEY_B64: ${{ needs.terraform-apply.outputs.object_storage_secret_access_key_b64 }}
       YC_OBJECT_STORAGE_ENDPOINT: https://storage.yandexcloud.net
-      AWS_ACCESS_KEY_ID: ${{ needs.terraform-apply.outputs.object_storage_access_key_id }}
-      AWS_SECRET_ACCESS_KEY: ${{ needs.terraform-apply.outputs.object_storage_secret_access_key }}
       AWS_DEFAULT_REGION: ru-central1
     steps:
       - uses: actions/checkout@v6
+      - name: Decode Terraform outputs
+        run: |
+          {
+            echo "YC_BUCKET_NAME=$(printf '%s' "$TF_OUTPUT_FRONTEND_BUCKET_NAME_B64" | base64 --decode)"
+            echo "AWS_ACCESS_KEY_ID=$(printf '%s' "$TF_OUTPUT_OBJECT_STORAGE_ACCESS_KEY_ID_B64" | base64 --decode)"
+            echo "AWS_SECRET_ACCESS_KEY=$(printf '%s' "$TF_OUTPUT_OBJECT_STORAGE_SECRET_ACCESS_KEY_B64" | base64 --decode)"
+          } >> "$GITHUB_ENV"
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
