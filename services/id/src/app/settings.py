@@ -197,6 +197,13 @@ if REDIS_URL:
             "LOCATION": REDIS_URL,
         }
     }
+elif DB_DRIVER == "ydb":
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+            "LOCATION": read_env("YDB_CACHE_DIR", "/tmp/updspace-id-cache"),
+        }
+    }
 else:
     # Fallback to database cache for single-worker dev setups
     CACHES = {

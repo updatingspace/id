@@ -140,7 +140,6 @@ jobs:
     env:
       TF_VAR_cloud_id: ${{ secrets.YC_CLOUD_ID }}
       TF_VAR_folder_id: ${{ secrets.YC_FOLDER_ID }}
-      TF_VAR_service_account_key_file: ${{ runner.temp }}/yc-sa-key.json
       YC_TERRAFORM_AUTO_APPLY: ${{ secrets.YC_TERRAFORM_AUTO_APPLY }}
     steps:
       - uses: actions/checkout@v6
@@ -148,6 +147,7 @@ jobs:
       - name: Write YC service account key
         run: |
           printf '%s' '${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}' > "$RUNNER_TEMP/yc-sa-key.json"
+          echo "TF_VAR_service_account_key_file=$RUNNER_TEMP/yc-sa-key.json" >> "$GITHUB_ENV"
       - name: Restore Terraform variables
         run: |
           printf '%s' '${{ secrets.YC_TF_VARS_B64 }}' | base64 --decode > infra/terraform/yandex-cloud/runtime.auto.tfvars

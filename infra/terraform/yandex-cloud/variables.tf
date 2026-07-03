@@ -62,6 +62,12 @@ variable "serverless_subnet_cidr" {
   default     = "10.20.0.0/24"
 }
 
+variable "enable_serverless_vpc" {
+  description = "Create a dedicated VPC network for the backend serverless container. Existing stacks that already manage this network should set this to true before planning."
+  type        = bool
+  default     = false
+}
+
 variable "ydb_database_name" {
   description = "Serverless YDB database name."
   type        = string

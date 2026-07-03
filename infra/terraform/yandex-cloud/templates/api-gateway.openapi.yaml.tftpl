@@ -3,15 +3,6 @@ info:
   title: updspace-id-gateway
   version: 1.0.0
 
-x-yc-apigateway:
-  variables:
-    frontend_bucket:
-      default: replace-me-frontend-bucket
-    backend_container_id:
-      default: replace-me-backend-container
-    gateway_service_account_id:
-      default: replace-me-gateway-sa
-
 paths:
   /api/v1/{proxy+}:
     x-yc-apigateway-any-method:
@@ -83,7 +74,7 @@ paths:
         service_account_id: ${gateway_service_account_id}
 
   /{file+}:
-    x-yc-apigateway-any-method:
+    get:
       parameters:
         - name: file
           in: path
