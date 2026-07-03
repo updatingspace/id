@@ -81,6 +81,12 @@ network/subnet and serverless container connectivity, set
 `enable_serverless_vpc = true` before planning this version. Otherwise Terraform
 will plan to remove the network/subnet and detach container connectivity.
 
+If an API Gateway was created before this state was bootstrapped, set
+`existing_api_gateway_id` (or `TF_VAR_existing_api_gateway_id` in CI) to reuse it
+as a data source. The current Yandex provider does not support importing
+`yandex_api_gateway`, so this compatibility mode prevents duplicate gateway
+creation while the rest of the stack remains Terraform-managed.
+
 OpenTofu note: the Yandex provider source is intentionally pinned as
 `registry.terraform.io/yandex-cloud/yandex`, because the provider is not
 published in the OpenTofu public registry.

@@ -70,4 +70,7 @@ locals {
     frontend_bucket            = local.frontend_bucket_name
     gateway_service_account_id = yandex_iam_service_account.gateway.id
   })
+
+  api_gateway_id     = var.existing_api_gateway_id != "" ? data.yandex_api_gateway.existing[0].id : yandex_api_gateway.id[0].id
+  api_gateway_domain = var.existing_api_gateway_id != "" ? data.yandex_api_gateway.existing[0].domain : yandex_api_gateway.id[0].domain
 }
