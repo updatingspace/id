@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 from django.contrib.auth import get_user_model
+from django.contrib.sites.models import Site
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
@@ -122,6 +123,33 @@ class SetupPortalClientCommandTests(TestCase):
             has_callback,
             f"Expected /api/v1/auth/callback in {client.redirect_uris}",
         )
+
+    def test_can_configure_production_portal_client(self):
+        out = StringIO()
+        call_command(
+            "setup_portal_client",
+            "--client-id",
+            "updspace-portal",
+            "--secret",
+            "shared-client-secret",
+            "--site-domain",
+            "id.updspace.com",
+            "--portal-base-url",
+            "https://updspace.com",
+            stdout=out,
+        )
+
+        client = OidcClient.objects.get(client_id="updspace-portal")
+        self.assertEqual(client.name, "AEF Portal")
+        self.assertFalse(client.is_public)
+        self.assertTrue(client.check_secret("shared-client-secret"))
+        self.assertIn(
+            "https://updspace.com/api/v1/auth/callback", client.redirect_uris
+        )
+        self.assertIn(
+            "https://updspace.com/api/v1/session/callback", client.redirect_uris
+        )
+        self.assertEqual(Site.objects.get(id=1).domain, "id.updspace.com")
 
 
 class OidcClientModelTests(TestCase):

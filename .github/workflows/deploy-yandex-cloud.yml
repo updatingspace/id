@@ -1,0 +1,295 @@
+name: Deploy Yandex Cloud
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - master
+  push:
+    branches:
+      - main
+      - master
+
+concurrency:
+  group: deploy-yc-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22.12.0"
+  BACKEND_IMAGE: updatingspace-id-backend
+
+jobs:
+  generate-build-id:
+    name: Generate BUILD_ID
+    runs-on: ubuntu-latest
+    outputs:
+      build_id: ${{ steps.build_id.outputs.BUILD_ID }}
+    steps:
+      - name: Generate BUILD_ID
+        id: build_id
+        run: |
+          BUILD_DATE=$(date -u +%Y.%m.%d)
+          SHORT_SHA="${GITHUB_SHA::7}"
+          BUILD_ID="${BUILD_DATE}-${GITHUB_RUN_NUMBER}-${SHORT_SHA}"
+          echo "BUILD_ID=${BUILD_ID}" >> "$GITHUB_OUTPUT"
+
+  validate-deploy-secrets:
+    name: Validate deploy secrets
+    runs-on: ubuntu-latest
+    env:
+      YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
+      YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+      YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+      YC_CONTAINER_REGISTRY_ID: ${{ secrets.YC_CONTAINER_REGISTRY_ID }}
+      YC_TF_VARS_B64: ${{ secrets.YC_TF_VARS_B64 }}
+      YC_PUBLIC_BASE_URL: ${{ secrets.YC_PUBLIC_BASE_URL }}
+      YC_SMOKE_HOST: ${{ secrets.YC_SMOKE_HOST }}
+      YC_PORTAL_PUBLIC_BASE_URL: ${{ secrets.YC_PORTAL_PUBLIC_BASE_URL }}
+      YC_PORTAL_OIDC_CLIENT_SECRET: ${{ secrets.YC_PORTAL_OIDC_CLIENT_SECRET }}
+    steps:
+      - name: Validate required deploy secrets
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == 'pull_request' ]]; then
+            echo "PR validation path skips production deploy secrets."
+            exit 0
+          fi
+
+          missing=()
+          for name in \
+            YC_SERVICE_ACCOUNT_KEY_JSON \
+            YC_CLOUD_ID \
+            YC_FOLDER_ID \
+            YC_CONTAINER_REGISTRY_ID \
+            YC_TF_VARS_B64 \
+            YC_PUBLIC_BASE_URL \
+            YC_SMOKE_HOST \
+            YC_PORTAL_PUBLIC_BASE_URL \
+            YC_PORTAL_OIDC_CLIENT_SECRET
+          do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            {
+              echo "Missing required GitHub Actions secrets for Yandex Cloud deploy:"
+              printf ' - %s\n' "${missing[@]}"
+            } >&2
+            exit 1
+          fi
+
+  build-push-backend:
+    name: Build backend image
+    runs-on: ubuntu-latest
+    needs:
+      - generate-build-id
+      - validate-deploy-secrets
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (PR validation)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: services/id
+          push: false
+          tags: id-ci/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: cr.yandex
+          username: json_key
+          password: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
+      - name: Build and push image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: services/id
+          push: true
+          tags: |
+            cr.yandex/${{ secrets.YC_CONTAINER_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+            cr.yandex/${{ secrets.YC_CONTAINER_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:${{ needs.generate-build-id.outputs.build_id }}
+            cr.yandex/${{ secrets.YC_CONTAINER_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  terraform-apply:
+    name: Terraform plan/apply
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    needs:
+      - build-push-backend
+      - generate-build-id
+      - validate-deploy-secrets
+    outputs:
+      applied: ${{ steps.status.outputs.applied }}
+      ydb_endpoint: ${{ steps.outputs.outputs.ydb_endpoint }}
+      ydb_database: ${{ steps.outputs.outputs.ydb_database }}
+      public_base_url: ${{ steps.outputs.outputs.public_base_url }}
+      frontend_bucket_name: ${{ steps.outputs.outputs.frontend_bucket_name }}
+      object_storage_access_key_id: ${{ steps.outputs.outputs.object_storage_access_key_id }}
+      object_storage_secret_access_key: ${{ steps.outputs.outputs.object_storage_secret_access_key }}
+    env:
+      TF_VAR_cloud_id: ${{ secrets.YC_CLOUD_ID }}
+      TF_VAR_folder_id: ${{ secrets.YC_FOLDER_ID }}
+      TF_VAR_service_account_key_file: ${{ runner.temp }}/yc-sa-key.json
+      YC_TERRAFORM_AUTO_APPLY: ${{ secrets.YC_TERRAFORM_AUTO_APPLY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v3
+      - name: Write YC service account key
+        run: |
+          printf '%s' '${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}' > "$RUNNER_TEMP/yc-sa-key.json"
+      - name: Restore Terraform variables
+        run: |
+          printf '%s' '${{ secrets.YC_TF_VARS_B64 }}' | base64 --decode > infra/terraform/yandex-cloud/runtime.auto.tfvars
+      - name: Pin current image tag
+        run: |
+          cat > infra/terraform/yandex-cloud/image-tag.auto.tfvars.json <<JSON
+          {
+            "container_image_tag": "${{ needs.generate-build-id.outputs.build_id }}"
+          }
+          JSON
+      - name: Terraform init
+        run: terraform -chdir=infra/terraform/yandex-cloud init
+      - name: Terraform plan
+        run: terraform -chdir=infra/terraform/yandex-cloud plan -out=tfplan
+      - name: Terraform apply
+        if: env.YC_TERRAFORM_AUTO_APPLY == 'true'
+        run: terraform -chdir=infra/terraform/yandex-cloud apply -auto-approve tfplan
+      - name: Export apply status
+        id: status
+        run: |
+          if [[ "${YC_TERRAFORM_AUTO_APPLY}" == 'true' ]]; then
+            echo 'applied=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'applied=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Capture Terraform outputs
+        id: outputs
+        if: steps.status.outputs.applied == 'true'
+        run: |
+          echo "ydb_endpoint=$(terraform -chdir=infra/terraform/yandex-cloud output -raw ydb_endpoint)" >> "$GITHUB_OUTPUT"
+          echo "ydb_database=$(terraform -chdir=infra/terraform/yandex-cloud output -raw ydb_database)" >> "$GITHUB_OUTPUT"
+          echo "public_base_url=$(terraform -chdir=infra/terraform/yandex-cloud output -raw public_base_url)" >> "$GITHUB_OUTPUT"
+          echo "frontend_bucket_name=$(terraform -chdir=infra/terraform/yandex-cloud output -raw frontend_bucket_name)" >> "$GITHUB_OUTPUT"
+          object_storage_access_key_id=$(terraform -chdir=infra/terraform/yandex-cloud output -raw object_storage_access_key_id)
+          object_storage_secret_access_key=$(terraform -chdir=infra/terraform/yandex-cloud output -raw object_storage_secret_access_key)
+          echo "::add-mask::${object_storage_access_key_id}"
+          echo "::add-mask::${object_storage_secret_access_key}"
+          echo "object_storage_access_key_id=${object_storage_access_key_id}" >> "$GITHUB_OUTPUT"
+          echo "object_storage_secret_access_key=${object_storage_secret_access_key}" >> "$GITHUB_OUTPUT"
+
+  ydb-bootstrap:
+    name: Bootstrap YDB schema
+    runs-on: ubuntu-latest
+    needs:
+      - terraform-apply
+    if: needs.terraform-apply.outputs.applied == 'true'
+    defaults:
+      run:
+        working-directory: services/id
+    env:
+      DJANGO_SETTINGS_MODULE: app.settings
+      PYTHONPATH: src
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: id.updspace.com,.yandexcloud.net,localhost,127.0.0.1
+      DJANGO_SECRET_KEY: migrate-secret-min-32-characters-long
+      ID_ACTIVATION_BASE_URL: ${{ needs.terraform-apply.outputs.public_base_url }}
+      ID_PUBLIC_BASE_URL: ${{ needs.terraform-apply.outputs.public_base_url }}/api/v1
+      ID_TOKEN_HASH_SECRET: migrate-token-hash-secret
+      OIDC_ISSUER: ${{ needs.terraform-apply.outputs.public_base_url }}
+      OIDC_PUBLIC_BASE_URL: ${{ needs.terraform-apply.outputs.public_base_url }}
+      OIDC_REFRESH_TOKEN_SALT: migrate-refresh-salt
+      BFF_INTERNAL_HMAC_SECRET: ${{ secrets.YC_BFF_INTERNAL_HMAC_SECRET }}
+      PORTAL_OIDC_CLIENT_ID: updspace-portal
+      PORTAL_OIDC_CLIENT_SECRET: ${{ secrets.YC_PORTAL_OIDC_CLIENT_SECRET }}
+      PORTAL_PUBLIC_BASE_URL: ${{ secrets.YC_PORTAL_PUBLIC_BASE_URL }}
+      DB_DRIVER: ydb
+      YDB_ENDPOINT: ${{ needs.terraform-apply.outputs.ydb_endpoint }}
+      YDB_DATABASE: ${{ needs.terraform-apply.outputs.ydb_database }}
+      YDB_NAME: default
+      YDB_CREDENTIALS_MODE: sa_json
+      YDB_SERVICE_ACCOUNT_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/id/pyproject.toml
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e .
+      - name: Run migrate_ydb
+        run: python src/manage.py migrate_ydb
+      - name: Run setup_db
+        run: python src/manage.py setup_db --skip-migrate
+      - name: Configure Portal OIDC client
+        run: |
+          python src/manage.py setup_portal_client \
+            --client-id "$PORTAL_OIDC_CLIENT_ID" \
+            --secret "$PORTAL_OIDC_CLIENT_SECRET" \
+            --site-domain id.updspace.com \
+            --portal-base-url "$PORTAL_PUBLIC_BASE_URL"
+
+  frontend-publish:
+    name: Publish frontend bundle
+    runs-on: ubuntu-latest
+    needs:
+      - terraform-apply
+      - generate-build-id
+    if: needs.terraform-apply.outputs.applied == 'true'
+    defaults:
+      run:
+        working-directory: web/id-frontend
+    env:
+      FRONTEND_DIST_DIR: dist
+      YC_BUCKET_NAME: ${{ needs.terraform-apply.outputs.frontend_bucket_name }}
+      YC_OBJECT_STORAGE_ENDPOINT: https://storage.yandexcloud.net
+      AWS_ACCESS_KEY_ID: ${{ needs.terraform-apply.outputs.object_storage_access_key_id }}
+      AWS_SECRET_ACCESS_KEY: ${{ needs.terraform-apply.outputs.object_storage_secret_access_key }}
+      AWS_DEFAULT_REGION: ru-central1
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10.3.0
+          run_install: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build frontend
+        env:
+          VITE_BUILD_ID: ${{ needs.generate-build-id.outputs.build_id }}
+        run: pnpm build
+      - name: Install AWS CLI
+        run: python -m pip install awscli
+      - name: Publish bundle to Object Storage
+        run: ../../scripts/ci/deploy-frontend-object-storage.sh
+
+  smoke:
+    name: Smoke public gateway
+    runs-on: ubuntu-latest
+    needs:
+      - frontend-publish
+      - ydb-bootstrap
+    if: needs.ydb-bootstrap.result == 'success'
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run public smoke checks
+        env:
+          SMOKE_BASE_URL: ${{ secrets.YC_PUBLIC_BASE_URL }}
+          SMOKE_HOST_HEADER: ${{ secrets.YC_SMOKE_HOST }}
+        run: ./scripts/ci/smoke-yc-gateway.sh

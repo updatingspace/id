@@ -10,6 +10,7 @@ from django.contrib.sites.models import Site
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db import connection
+from django.db.utils import DatabaseError
 
 
 class Command(BaseCommand):
@@ -33,25 +34,19 @@ class Command(BaseCommand):
         cache_config = getattr(settings, "CACHES", {}).get("default", {})
         if cache_config.get("BACKEND") == "django.core.cache.backends.db.DatabaseCache":
             table_name = cache_config.get("LOCATION", "django_cache_table")
-            # Check if table exists
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT EXISTS (
-                        SELECT FROM information_schema.tables 
-                        WHERE table_name = %s
-                    );
-                    """,
-                    [table_name],
-                )
-                exists = cursor.fetchone()[0]
+            existing_tables = set(connection.introspection.table_names())
 
-            if not exists:
+            if table_name not in existing_tables:
                 self.stdout.write(f"Creating cache table: {table_name}")
-                call_command("createcachetable", table_name)
-                self.stdout.write(
-                    self.style.SUCCESS(f"✓ Created cache table: {table_name}")
-                )
+                try:
+                    call_command("createcachetable", table_name)
+                except DatabaseError:
+                    if table_name not in set(connection.introspection.table_names()):
+                        raise
+                else:
+                    self.stdout.write(
+                        self.style.SUCCESS(f"✓ Created cache table: {table_name}")
+                    )
             else:
                 self.stdout.write(
                     self.style.SUCCESS(f"✓ Cache table already exists: {table_name}")

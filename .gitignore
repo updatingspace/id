@@ -174,3 +174,8 @@ web/id-frontend/test-results/
 # Keep frontend source lib directory tracked
 !web/id-frontend/src/lib/
 !web/id-frontend/src/lib/**
+
+# Terraform/OpenTofu local working directories
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfplan

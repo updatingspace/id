@@ -8,12 +8,15 @@ dependencies = [
     "django-ninja>=1.4.3,<2.0",
     "django-allauth[socialaccount]",
     "django-cors-headers",
+    "django-storages",
+    "django-ydb-backend==0.0.1b1",
     "djangorestframework",
     "email-validator",
     "fido2",
     "qrcode[pil]",
     "psycopg[binary]",
     "dj-database-url",
+    "boto3",
     "gunicorn",
     "factory-boy",  # often used in tests
     "pillow", # for image fields
@@ -23,6 +26,8 @@ dependencies = [
     "cryptography",
     "redis",  # for Django cache backend
     "pytz",  # for timezone management
+    "ydb[yc]==3.28.0",
+    "ydb-dbapi==0.1.20",
 ]
 
 [project.optional-dependencies]
@@ -40,4 +45,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/app", "src/id"]
+packages = ["src/accounts", "src/app", "src/core", "src/idp", "src/updspaceid"]

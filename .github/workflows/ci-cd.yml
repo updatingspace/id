@@ -152,6 +152,84 @@ jobs:
           name: backend-postgres-reports
           path: services/id/pytest-postgres.xml
 
+  ydb-schema-check:
+    name: YDB schema dry-run
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/id
+    env:
+      DJANGO_SETTINGS_MODULE: app.settings
+      PYTHONPATH: src
+      DJANGO_DEBUG: "true"
+      DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
+      DJANGO_ALLOWED_HOSTS: "testserver,localhost,127.0.0.1,.yandexcloud.net"
+      ID_TOKEN_HASH_SECRET: "ci-token-hash-secret"
+      OIDC_REFRESH_TOKEN_SALT: "ci-refresh-token-salt"
+      DB_DRIVER: ydb
+      YDB_ENDPOINT: grpc://localhost:2136
+      YDB_DATABASE: /local
+      YDB_NAME: default
+      YDB_CREDENTIALS_MODE: token
+      YDB_TOKEN: local-ydb-token
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/id/pyproject.toml
+
+      - name: Start YDB local
+        run: |
+          docker run -d --rm \
+            --name ydb-local \
+            --hostname 127.0.0.1 \
+            -p 2136:2136 \
+            -p 8765:8765 \
+            ydbplatform/local-ydb:latest
+          ../../scripts/ci/wait-for-ydb-local.sh
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e ".[dev]"
+
+      - name: Run migrate_ydb dry-run
+        run: python src/manage.py migrate_ydb --dry-run
+
+  terraform-check:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    env:
+      TF_VAR_cloud_id: dummy-cloud
+      TF_VAR_folder_id: dummy-folder
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive infra/terraform/yandex-cloud
+
+      - name: Terraform init
+        run: terraform -chdir=infra/terraform/yandex-cloud init -backend=false
+
+      - name: Terraform validate
+        run: terraform -chdir=infra/terraform/yandex-cloud validate
+
+  opentofu-check:
+    name: OpenTofu validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: opentofu/setup-opentofu@v1
+
+      - name: OpenTofu local check
+        run: scripts/ci/check-yc-terraform-local.sh
+
   frontend-ci:
     name: Frontend lint/typecheck/unit
     runs-on: ubuntu-latest
@@ -240,6 +318,9 @@ jobs:
     needs:
       - backend-sqlite
       - backend-postgres
+      - ydb-schema-check
+      - terraform-check
+      - opentofu-check
       - frontend-ci
       - e2e-smoke
     steps:
@@ -270,6 +351,9 @@ jobs:
     needs:
       - backend-sqlite
       - backend-postgres
+      - ydb-schema-check
+      - terraform-check
+      - opentofu-check
       - compliance-matrix
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     permissions:

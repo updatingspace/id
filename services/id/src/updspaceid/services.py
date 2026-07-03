@@ -59,6 +59,13 @@ def _context_matches(stored: str, current: str) -> bool:
     return hmac.compare_digest(stored, current)
 
 
+def _claim_once(model, *, lookup: dict, used_at) -> bool:
+    return (
+        model.objects.filter(**lookup, used_at__isnull=True).update(used_at=used_at)
+        == 1
+    )
+
+
 def issue_activation_token(
     *,
     user: User,
@@ -271,17 +278,13 @@ def reject_application(
 def activate_account(token: str, *, tenant: Tenant) -> User:
     token_hash = _hash_token(token)
     try:
-        activation = (
-            ActivationToken.objects.select_for_update()
-            .select_related("user", "tenant")
-            .get(token=token_hash)
+        activation = ActivationToken.objects.select_related("user", "tenant").get(
+            token=token_hash
         )
     except ActivationToken.DoesNotExist:
         try:
-            activation = (
-                ActivationToken.objects.select_for_update()
-                .select_related("user", "tenant")
-                .get(token=token)
+            activation = ActivationToken.objects.select_related("user", "tenant").get(
+                token=token
             )
         except ActivationToken.DoesNotExist as exc:
             raise HttpError(
@@ -310,12 +313,18 @@ def activate_account(token: str, *, tenant: Tenant) -> User:
             error_payload("ACCOUNT_NOT_ELIGIBLE", "Account is not eligible"),
         )
 
+    used_at = timezone.now()
+    if not _claim_once(
+        ActivationToken,
+        lookup={"token": activation.token},
+        used_at=used_at,
+    ):
+        raise HttpError(409, error_payload("TOKEN_USED", "Token already used"))
+
     user.status = UserStatus.ACTIVE
     user.email_verified = True
     user.save(update_fields=["status", "email_verified"])
 
-    activation.used_at = timezone.now()
-    activation.save(update_fields=["used_at"])
     record_audit(
         action="account.activated",
         actor_user=user,
@@ -380,18 +389,10 @@ def consume_magic_link(
 ) -> tuple[User, IdSession]:
     token_hash = _hash_token(token)
     try:
-        mlt = (
-            MagicLinkToken.objects.select_for_update()
-            .select_related("user")
-            .get(token=token_hash)
-        )
+        mlt = MagicLinkToken.objects.select_related("user").get(token=token_hash)
     except MagicLinkToken.DoesNotExist:
         try:
-            mlt = (
-                MagicLinkToken.objects.select_for_update()
-                .select_related("user")
-                .get(token=token)
-            )
+            mlt = MagicLinkToken.objects.select_related("user").get(token=token)
         except MagicLinkToken.DoesNotExist as exc:
             raise HttpError(
                 404,
@@ -420,8 +421,13 @@ def consume_magic_link(
             error_payload("EMAIL_NOT_VERIFIED", "Email is not verified"),
         )
 
-    mlt.used_at = timezone.now()
-    mlt.save(update_fields=["used_at"])
+    used_at = timezone.now()
+    if not _claim_once(
+        MagicLinkToken,
+        lookup={"token": mlt.token},
+        used_at=used_at,
+    ):
+        raise HttpError(409, error_payload("TOKEN_USED", "Token already used"))
 
     session = IdSession.objects.create(
         user=user,
@@ -487,7 +493,7 @@ def oauth_consume_state(
     tenant: Tenant,
 ) -> OAuthState:
     try:
-        st = OAuthState.objects.select_for_update().get(state=state_value)
+        st = OAuthState.objects.get(state=state_value)
     except OAuthState.DoesNotExist as exc:
         raise HttpError(
             404,
@@ -518,8 +524,16 @@ def oauth_consume_state(
     if st.expires_at <= timezone.now():
         raise HttpError(410, error_payload("STATE_EXPIRED", "state expired"))
 
-    st.used_at = timezone.now()
-    st.save(update_fields=["used_at"])
+    used_at = timezone.now()
+    if not _claim_once(
+        OAuthState,
+        lookup={"state": st.state},
+        used_at=used_at,
+    ):
+        raise HttpError(
+            409,
+            error_payload("CALLBACK_ALREADY_USED", "callback already used"),
+        )
     return st
 
 

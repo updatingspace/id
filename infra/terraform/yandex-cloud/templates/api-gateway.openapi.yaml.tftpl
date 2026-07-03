@@ -1,0 +1,111 @@
+openapi: 3.0.0
+info:
+  title: updspace-id-gateway
+  version: 1.0.0
+
+x-yc-apigateway:
+  variables:
+    frontend_bucket:
+      default: replace-me-frontend-bucket
+    backend_container_id:
+      default: replace-me-backend-container
+    gateway_service_account_id:
+      default: replace-me-gateway-sa
+
+paths:
+  /api/v1/{proxy+}:
+    x-yc-apigateway-any-method:
+      parameters:
+        - name: proxy
+          in: path
+          required: false
+          explode: false
+          style: simple
+          schema:
+            type: string
+            default: "-"
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${backend_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /oauth/{proxy+}:
+    x-yc-apigateway-any-method:
+      parameters:
+        - name: proxy
+          in: path
+          required: false
+          explode: false
+          style: simple
+          schema:
+            type: string
+            default: "-"
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${backend_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /.well-known/{proxy+}:
+    x-yc-apigateway-any-method:
+      parameters:
+        - name: proxy
+          in: path
+          required: false
+          explode: false
+          style: simple
+          schema:
+            type: string
+            default: "-"
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${backend_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /health:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${backend_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /healthz:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${backend_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /readyz:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${backend_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /{file+}:
+    x-yc-apigateway-any-method:
+      parameters:
+        - name: file
+          in: path
+          required: false
+          explode: false
+          style: simple
+          schema:
+            type: string
+            default: "-"
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: ${frontend_bucket}
+        object: "{file}"
+        service_account_id: ${gateway_service_account_id}
+        error_object:
+          object: index.html
+          statusCode: 200
+
+  /:
+    get:
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: ${frontend_bucket}
+        object: index.html
+        service_account_id: ${gateway_service_account_id}

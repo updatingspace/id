@@ -1,15 +1,51 @@
 """
-Management command to create/update the Portal OIDC client for local development.
+Management command to create/update the Portal OIDC client.
 
 Usage:
     python manage.py setup_portal_client
     python manage.py setup_portal_client --show-secret
+    python manage.py setup_portal_client --portal-base-url https://updspace.com --client-id updspace-portal
 """
+
+import os
 
 from django.contrib.sites.models import Site
 from django.core.management.base import BaseCommand
 
 from idp.models import OidcClient
+
+LOCAL_REDIRECT_URIS = [
+    # New OIDC callback endpoints
+    "http://aef.localhost/api/v1/auth/callback",
+    "http://localhost:5173/api/v1/auth/callback",
+    # Legacy session callback (magic link)
+    "http://aef.localhost/api/v1/session/callback",
+    "http://localhost:5173/api/v1/session/callback",
+    # Direct callback (if needed)
+    "http://aef.localhost/callback",
+    "http://localhost:5173/callback",
+]
+
+
+def _portal_redirect_uris(base_url: str) -> list[str]:
+    base = base_url.rstrip("/")
+    if not base:
+        return []
+    return [
+        f"{base}/api/v1/auth/callback",
+        f"{base}/api/v1/session/callback",
+        f"{base}/callback",
+    ]
+
+
+def _unique(values: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
 
 
 class Command(BaseCommand):
@@ -32,14 +68,52 @@ class Command(BaseCommand):
             default=None,
             help="Set a specific client secret (useful for dev environment)",
         )
+        parser.add_argument(
+            "--client-id",
+            type=str,
+            default=os.environ.get("PORTAL_OIDC_CLIENT_ID", "portal-dev-client"),
+            help="Portal OIDC client_id",
+        )
+        parser.add_argument(
+            "--client-name",
+            type=str,
+            default=os.environ.get("PORTAL_OIDC_CLIENT_NAME", "AEF Portal"),
+            help="Portal OIDC client display name",
+        )
+        parser.add_argument(
+            "--portal-base-url",
+            type=str,
+            action="append",
+            default=None,
+            help="Portal public base URL used to derive callback redirect URIs",
+        )
+        parser.add_argument(
+            "--redirect-uri",
+            type=str,
+            action="append",
+            default=None,
+            help="Additional explicit redirect URI. Can be passed more than once.",
+        )
+        parser.add_argument(
+            "--site-domain",
+            type=str,
+            default=os.environ.get("DJANGO_SITE_DOMAIN", "id.localhost"),
+            help="django_site domain for the ID service",
+        )
+        parser.add_argument(
+            "--site-name",
+            type=str,
+            default=os.environ.get("DJANGO_SITE_NAME", "UpdSpace ID"),
+            help="django_site display name",
+        )
 
     def handle(self, *args, **options):
         # Ensure django_site entry exists
         site, site_created = Site.objects.update_or_create(
             id=1,
             defaults={
-                "domain": "id.localhost",
-                "name": "UpdSpace ID",
+                "domain": options["site_domain"],
+                "name": options["site_name"],
             },
         )
         if site_created:
@@ -48,21 +122,20 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("✓ django_site entry already exists"))
 
         # Portal OIDC client configuration
-        portal_client_id = "portal-dev-client"
+        portal_client_id = options["client_id"]
+        portal_base_urls = options["portal_base_url"] or []
+        env_portal_base_url = os.environ.get("PORTAL_PUBLIC_BASE_URL", "")
+        if env_portal_base_url:
+            portal_base_urls.append(env_portal_base_url)
+        redirect_uris = list(LOCAL_REDIRECT_URIS)
+        for base_url in portal_base_urls:
+            redirect_uris.extend(_portal_redirect_uris(base_url))
+        redirect_uris.extend(options["redirect_uri"] or [])
+
         portal_config = {
-            "name": "AEF Portal",
-            "description": "Main portal application for AEF voting system",
-            "redirect_uris": [
-                # New OIDC callback endpoints
-                "http://aef.localhost/api/v1/auth/callback",
-                "http://localhost:5173/api/v1/auth/callback",
-                # Legacy session callback (magic link)
-                "http://aef.localhost/api/v1/session/callback",
-                "http://localhost:5173/api/v1/session/callback",
-                # Direct callback (if needed)
-                "http://aef.localhost/callback",
-                "http://localhost:5173/callback",
-            ],
+            "name": options["client_name"],
+            "description": "Main portal application for UpdSpace",
+            "redirect_uris": _unique(redirect_uris),
             "allowed_scopes": [
                 "openid",
                 "profile",

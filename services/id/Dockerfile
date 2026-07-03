@@ -13,9 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .
-RUN pip install --upgrade pip && pip install "pillow>=10.0.0" && pip install .
-
 COPY src/ src/
+RUN pip install --upgrade pip && pip install "pillow>=10.0.0" && pip install .
 
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
