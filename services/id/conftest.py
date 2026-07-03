@@ -1,4 +1,5 @@
 """Pytest configuration for ID service tests."""
+
 import os
 
 # Configure environment defaults at import-time so pytest-django sees them

@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-import dj_database_url
+from .cloud_runtime import build_database_settings, build_ydb_migration_modules
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -78,6 +78,7 @@ def _require_https_public_url(name: str, value: str | None) -> None:
             f"{name} must use https outside localhost when DJANGO_DEBUG=false"
         )
 
+
 # Fail fast in production if critical security settings are unsafe.
 if not DEBUG and SECRET_KEY == _secret_key_default:
     _production_config_error(
@@ -100,6 +101,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.sites",  # Required by allauth
     "corsheaders",
+    "storages",
     # Internal apps
     "core",
     "accounts",
@@ -166,18 +168,25 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "app.wsgi.application"
-DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL:
-    DATABASES = {
-        "default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)
-    }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
+DB_DRIVER, DATABASES = build_database_settings(base_dir=BASE_DIR, read_env=read_env)
+if DB_DRIVER == "ydb":
+    MIGRATION_MODULES = build_ydb_migration_modules(
+        "account",
+        "accounts",
+        "admin",
+        "allauth",
+        "auth",
+        "contenttypes",
+        "core",
+        "idp",
+        "mfa",
+        "sessions",
+        "sites",
+        "socialaccount",
+        "token_blacklist",
+        "updspaceid",
+        "usersessions",
+    )
 
 # Cache configuration (required for FormTokenService)
 REDIS_URL = read_env("REDIS_URL")
@@ -232,6 +241,41 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 MEDIA_URL = read_env("MEDIA_URL", "/media/")
 MEDIA_ROOT = Path(read_env("MEDIA_ROOT", str(BASE_DIR / "media")))
+MEDIA_STORAGE_DRIVER = (read_env("MEDIA_STORAGE_DRIVER", "local") or "local").lower()
+if MEDIA_STORAGE_DRIVER == "s3":
+    AWS_ACCESS_KEY_ID = read_env_secret("S3_ACCESS_KEY_ID", "")
+    AWS_SECRET_ACCESS_KEY = read_env_secret("S3_SECRET_ACCESS_KEY", "")
+    AWS_STORAGE_BUCKET_NAME = read_env("S3_BUCKET_NAME", "")
+    if not AWS_STORAGE_BUCKET_NAME:
+        _production_config_error(
+            "S3_BUCKET_NAME must be set when MEDIA_STORAGE_DRIVER=s3"
+        )
+    AWS_S3_ENDPOINT_URL = read_env("S3_ENDPOINT_URL", "https://storage.yandexcloud.net")
+    AWS_S3_REGION_NAME = read_env("S3_REGION", "ru-central1")
+    AWS_S3_ADDRESSING_STYLE = (
+        "path" if read_env_flag("S3_FORCE_PATH_STYLE", False) else "virtual"
+    )
+    AWS_DEFAULT_ACL = None
+    AWS_QUERYSTRING_AUTH = read_env_flag("S3_QUERYSTRING_AUTH", False)
+    AWS_S3_OBJECT_PARAMETERS = {
+        "CacheControl": read_env("S3_CACHE_CONTROL", "max-age=86400")
+    }
+    MEDIA_PUBLIC_BASE_URL = read_env("MEDIA_PUBLIC_BASE_URL")
+    MEDIA_URL = (
+        MEDIA_PUBLIC_BASE_URL.rstrip("/") + "/"
+        if MEDIA_PUBLIC_BASE_URL
+        else f"{AWS_S3_ENDPOINT_URL.rstrip('/')}/{AWS_STORAGE_BUCKET_NAME}/"
+    )
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+elif MEDIA_STORAGE_DRIVER != "local":
+    _production_config_error("MEDIA_STORAGE_DRIVER must be one of: local, s3")
 
 SITE_ID = 1
 

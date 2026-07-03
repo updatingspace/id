@@ -96,7 +96,7 @@ def check_database() -> ComponentHealth:
     start = time.perf_counter()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
+            cursor.execute("SELECT 1 AS value")
             cursor.fetchone()
         latency_ms = (time.perf_counter() - start) * 1000
 

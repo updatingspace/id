@@ -84,7 +84,7 @@ class SessionService:
 
         key_for_meta = dj_key or token
         with transaction.atomic():
-            meta, created = UserSessionMeta.objects.select_for_update().get_or_create(
+            meta, created = UserSessionMeta.objects.get_or_create(
                 user=user,
                 session_key=key_for_meta,
                 defaults={

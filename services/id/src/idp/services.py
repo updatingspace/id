@@ -491,8 +491,13 @@ class OidcService:
                     400, {"code": "INVALID_PKCE", "message": "pkce check failed"}
                 )
 
-        code_obj.used_at = timezone.now()
-        code_obj.save(update_fields=["used_at"])
+        used_at = timezone.now()
+        claimed = OidcAuthorizationCode.objects.filter(
+            code=code_obj.code,
+            used_at__isnull=True,
+        ).update(used_at=used_at)
+        if claimed != 1:
+            raise HttpError(400, {"code": "CODE_EXPIRED", "message": "code expired"})
         return OidcService._issue_tokens(
             user=code_obj.user,
             client=client,

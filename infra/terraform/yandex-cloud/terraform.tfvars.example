@@ -1,0 +1,18 @@
+cloud_id  = "replace-me"
+folder_id = "replace-me"
+
+public_domain = "id.updspace.com"
+public_zone   = "updspace.com"
+
+# container_registry_id = "crp..." # Use an existing registry for first CI bootstrap.
+# certificate_id   = "fpq..."
+# manage_dns_zone  = false
+
+lockbox_secret_entries = {
+  DJANGO_SECRET_KEY        = "replace-me"
+  ID_TOKEN_HASH_SECRET     = "replace-me"
+  OIDC_REFRESH_TOKEN_SALT  = "replace-me"
+  BFF_INTERNAL_HMAC_SECRET = "replace-me"
+  OIDC_PRIVATE_KEY_PEM     = "replace-me"
+  OIDC_PUBLIC_KEY_PEM      = "replace-me"
+}
