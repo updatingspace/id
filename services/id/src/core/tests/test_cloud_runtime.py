@@ -47,6 +47,23 @@ def test_build_database_settings_accepts_service_account_json(tmp_path):
     assert default["CREDENTIALS"] == {"service_account_json": {"id": "service-account"}}
 
 
+def test_build_database_settings_uses_metadata_credentials_by_default_for_ydb(tmp_path):
+    db_driver, databases = build_database_settings(
+        base_dir=tmp_path,
+        read_env=_reader(
+            {
+                "DB_DRIVER": "ydb",
+                "YDB_ENDPOINT": "grpcs://ydb.serverless.yandexcloud.net:2135",
+                "YDB_DATABASE": "/ru-central1/example/database",
+            }
+        ),
+    )
+
+    default = databases["default"]
+    assert db_driver == "ydb"
+    assert default["CREDENTIALS"].__class__.__name__ == "MetadataUrlCredentials"
+
+
 def test_build_database_settings_rejects_unknown_driver(tmp_path):
     with pytest.raises(ImproperlyConfigured):
         build_database_settings(
