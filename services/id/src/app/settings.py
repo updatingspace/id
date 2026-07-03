@@ -51,6 +51,7 @@ SECRET_KEY = read_env("DJANGO_SECRET_KEY", _secret_key_default)
 
 DEBUG = read_env_flag("DJANGO_DEBUG", False)
 
+
 def _production_config_error(message: str) -> None:
     print(
         f"SECURITY ERROR: {message}",
