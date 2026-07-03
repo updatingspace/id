@@ -7,6 +7,7 @@ from typing import Callable
 from urllib.parse import urlparse
 
 import dj_database_url
+import ydb
 from django.core.exceptions import ImproperlyConfigured
 from django.db.utils import NotSupportedError
 
@@ -165,6 +166,8 @@ def build_database_settings(
             raise ImproperlyConfigured(
                 "YDB_SERVICE_ACCOUNT_JSON must contain valid JSON"
             ) from exc
+    elif credentials_mode == "metadata":
+        database_settings["CREDENTIALS"] = ydb.iam.MetadataUrlCredentials()
     elif credentials_mode != "metadata":
         raise ImproperlyConfigured(
             "YDB_CREDENTIALS_MODE must be one of: metadata, token, sa_json"

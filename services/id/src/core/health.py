@@ -198,10 +198,10 @@ def check_oidc_keys() -> ComponentHealth:
                 details={"configured": False},
             )
 
-        # Try to load and validate keys
-        from idp.keys import KeyManager
+        # Try to load and validate keys using the same implementation as JWKS.
+        from idp.services import OidcService
 
-        jwks = KeyManager.jwks()
+        jwks = OidcService.jwks()
 
         if not jwks.get("keys"):
             return ComponentHealth(

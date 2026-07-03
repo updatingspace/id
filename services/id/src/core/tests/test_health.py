@@ -95,7 +95,7 @@ class TestCacheCheck:
 class TestOidcKeysCheck:
     """Tests for OIDC keys health check."""
 
-    @patch("django.conf.settings")
+    @patch("core.health.settings")
     def test_development_keys_warning(self, mock_settings):
         """Warns when key material is not configured."""
         mock_settings.OIDC_PRIVATE_KEY_PEM = None
@@ -105,6 +105,19 @@ class TestOidcKeysCheck:
 
         assert result.name == "oidc_keys"
         assert result.status == HealthStatus.DEGRADED
+
+    @patch("core.health.settings")
+    @patch("idp.services.OidcService.jwks")
+    def test_configured_keys_use_oidc_service_jwks(self, mock_jwks, mock_settings):
+        """Validates configured keys through the production JWKS implementation."""
+        mock_settings.OIDC_PRIVATE_KEY_PEM = "private"
+        mock_settings.OIDC_KEY_PAIRS = None
+        mock_jwks.return_value = {"keys": [{"kid": "key-1"}]}
+
+        result = check_oidc_keys()
+
+        assert result.status == HealthStatus.HEALTHY
+        assert result.details == {"key_count": 1}
 
 
 @pytest.mark.django_db
