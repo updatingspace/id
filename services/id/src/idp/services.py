@@ -442,6 +442,10 @@ class OidcService:
                 raise HttpError(
                     400, {"code": "INVALID_CLIENT", "message": "invalid basic auth"}
                 )
+        if not str(client_id).strip():
+            raise HttpError(
+                401, {"code": "INVALID_CLIENT", "message": "invalid client"}
+            )
         client = OidcClient.objects.filter(client_id=client_id).first()
         if not client or not client.check_secret(client_secret):
             raise HttpError(
