@@ -8,7 +8,6 @@ from allauth.account.forms import SignupForm
 from allauth.account.internal.flows.login import record_authentication
 from allauth.account.models import EmailAddress
 from django.conf import settings
-from django.contrib.auth import authenticate
 from django.contrib.auth import login as dj_login
 from django.db import transaction
 from django.utils import timezone
@@ -75,37 +74,34 @@ class HeadlessService:
         from django.contrib.auth import get_user_model
 
         User = get_user_model()
-        user_obj = User.objects.filter(email__iexact=email.strip()).first()
+        user_candidates = list(
+            User.objects.filter(email__iexact=email.strip()).order_by(
+                "-is_active", "-id"
+            )[:10]
+        )
+        user_obj = next(
+            (
+                candidate
+                for candidate in user_candidates
+                if candidate.check_password(password)
+            ),
+            None,
+        )
         if not user_obj:
             logger.warning(
-                "Headless login failed: user not found",
-                extra={"email_hash": _hash_email(email)},
-            )
-            raise HttpError(
-                401,
-                {
-                    "code": "INVALID_CREDENTIALS",
-                    "message": "Неверный логин или пароль",
-                },
-            )
-        user = authenticate(
-            request,
-            username=getattr(user_obj, "username", ""),
-            password=password,
-        )
-        if not user:
-            logger.warning(
-                "Headless login failed: invalid password",
+                "Headless login failed: invalid credentials",
                 extra={
-                    "user_id": getattr(user_obj, "id", None),
+                    "email_hash": _hash_email(email),
+                    "candidate_count": len(user_candidates),
                 },
             )
-            ActivityService.record_login(
-                request,
-                user=user_obj,
-                success=False,
-                reason="invalid_password",
-            )
+            if user_candidates:
+                ActivityService.record_login(
+                    request,
+                    user=user_candidates[0],
+                    success=False,
+                    reason="invalid_password",
+                )
             raise HttpError(
                 401,
                 {
@@ -113,6 +109,12 @@ class HeadlessService:
                     "message": "Неверный логин или пароль",
                 },
             )
+        user = user_obj
+        user.backend = (
+            settings.AUTHENTICATION_BACKENDS[0]
+            if getattr(settings, "AUTHENTICATION_BACKENDS", None)
+            else "django.contrib.auth.backends.ModelBackend"
+        )
         logger.info("Headless login stage: authenticated")
         _record_authentication_best_effort(
             request, user, method="password", email=email.strip()
@@ -290,7 +292,10 @@ class HeadlessService:
                     "message": "Укажите email родителя/опекуна",
                 },
             )
-        if email and User.objects.filter(email__iexact=email.strip()).first() is not None:
+        if (
+            email
+            and User.objects.filter(email__iexact=email.strip()).first() is not None
+        ):
             logger.info(
                 "Signup rejected: email already exists",
                 extra={

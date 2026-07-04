@@ -133,6 +133,21 @@ class AccountsApiTests(TestCase):
         self.assertEqual(user["avatar_source"], "none")
         self.assertTrue(user["avatar_gravatar_enabled"])
 
+    def test_headless_login_survives_duplicate_email_rows(self):
+        self._create_user(
+            username="duplicate",
+            email=self.user.email,
+            password="DifferentPass123!",
+        )
+
+        token = self.login_and_get_token()
+
+        resp_ok = self.client.get("/api/v1/auth/me", HTTP_X_SESSION_TOKEN=token)
+        self.assertEqual(resp_ok.status_code, 200)
+        user = resp_ok.json()["user"]
+        self.assertIsNotNone(user)
+        self.assertEqual(user["username"], self.user.username)
+
     def test_headless_signup_survives_confirmation_email_failure(self):
         form_token = self._form_token(self.client, "register")
         payload = {
