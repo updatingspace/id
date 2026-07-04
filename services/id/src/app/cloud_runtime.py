@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -148,10 +151,39 @@ def _patch_ydb_write_compiler_relation_types() -> None:
             )
         return ydb.ListType(struct_type)
 
+    def _infer_ydb_param_type(value):
+        if isinstance(value, bool):
+            return ydb_compiler._ydb_types["BooleanField"], value
+        if isinstance(value, datetime):
+            return ydb_compiler._ydb_types["DateTimeField"], int(value.timestamp())
+        if isinstance(value, date):
+            return ydb_compiler._ydb_types["DateField"], value
+        if isinstance(value, uuid.UUID):
+            return ydb_compiler._ydb_types["UUIDField"], value
+        if isinstance(value, int):
+            return ydb.PrimitiveType.Int64, value
+        if isinstance(value, float):
+            return ydb_compiler._ydb_types["DoubleField"], value
+        if isinstance(value, Decimal):
+            return ydb_compiler._ydb_types["DecimalField"], value
+        if isinstance(value, bytes):
+            return ydb_compiler._ydb_types["BinaryField"], value
+        return ydb_compiler._ydb_types["TextField"], value
+
+    def _patched_generate_params_for_update(
+        placeholder_rows, columns, field_types, params
+    ):
+        modified_params = {}
+        for placeholder, value in zip(placeholder_rows, params, strict=False):
+            ydb_type, prepared = _infer_ydb_param_type(value)
+            modified_params[placeholder] = (prepared, ydb_type)
+        return modified_params
+
     ydb_compiler.BaseSQLWriteCompiler._prepare_sql_statement = (
         _patched_prepare_sql_statement
     )
     ydb_compiler._get_data_type = _patched_get_data_type
+    ydb_compiler._generate_params_for_update = _patched_generate_params_for_update
     ydb_compiler.BaseSQLWriteCompiler._updspace_id_relation_patch = True
 
 

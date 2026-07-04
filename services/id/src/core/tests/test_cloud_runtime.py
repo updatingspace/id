@@ -1,4 +1,6 @@
 import json
+import uuid
+from datetime import datetime, timezone
 
 import pytest
 from django.core.exceptions import ImproperlyConfigured
@@ -140,6 +142,39 @@ def test_ydb_write_compiler_uses_target_field_type_for_foreign_keys(tmp_path):
 
     assert "`user_id`: Int64" in sql
     assert "`tenant_id`: UUID" in sql
+
+
+def test_ydb_select_param_binding_infers_types_when_columns_do_not_match(tmp_path):
+    build_database_settings(
+        base_dir=tmp_path,
+        read_env=_reader(
+            {
+                "DB_DRIVER": "ydb",
+                "YDB_ENDPOINT": "grpcs://ydb.serverless.yandexcloud.net:2135",
+                "YDB_DATABASE": "/ru-central1/example/database",
+            }
+        ),
+    )
+
+    from ydb_backend.models.sql import compiler as ydb_compiler
+
+    uid = uuid.uuid4()
+    now = datetime(2026, 7, 4, 19, 16, tzinfo=timezone.utc)
+    params = ydb_compiler._generate_params_for_update(
+        ["$element_1", "$element_2", "$element_3", "$element_4"],
+        ["id"],
+        {"id": "BigAutoField"},
+        [42, uid, True, now],
+    )
+
+    assert params["$element_1"][0] == 42
+    assert str(params["$element_1"][1]) == "Int64"
+    assert params["$element_2"][0] == uid
+    assert str(params["$element_2"][1]) == "UUID"
+    assert params["$element_3"][0] is True
+    assert str(params["$element_3"][1]) == "Bool"
+    assert params["$element_4"][0] == int(now.timestamp())
+    assert str(params["$element_4"][1]) == "Datetime"
 
 
 def test_build_database_settings_rejects_unknown_driver(tmp_path):
