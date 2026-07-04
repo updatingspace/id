@@ -125,6 +125,12 @@ def _patch_ydb_write_compiler_relation_types() -> None:
             return "TextField"
         return internal_type
 
+    def _ydb_field_type(field):
+        field_type = ydb_compiler._ydb_types[_field_internal_type(field)]
+        if getattr(field, "null", False):
+            return ydb.OptionalType(field_type)
+        return field_type
+
     def _patched_prepare_sql_statement(self):
         qn = self.connection.ops.quote_name
         opts = self.query.get_meta()
@@ -150,7 +156,7 @@ def _patch_ydb_write_compiler_relation_types() -> None:
         for field in fields:
             struct_type.add_member(
                 field.column,
-                ydb_compiler._ydb_types[_field_internal_type(field)],
+                _ydb_field_type(field),
             )
         return ydb.ListType(struct_type)
 

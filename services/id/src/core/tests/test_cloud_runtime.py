@@ -225,16 +225,21 @@ def test_ydb_insert_declares_file_fields_as_utf8_text(tmp_path):
 
     class FakeImageField:
         column = "avatar"
+        null = True
 
         @staticmethod
         def get_internal_type():
             return "ImageField"
 
     data_type = ydb_compiler._get_data_type([FakeImageField()])
-    rows = ydb_compiler._get_data([FakeImageField()], [["avatars/user_1/pic.jpg"]])
+    rows = ydb_compiler._get_data(
+        [FakeImageField()],
+        [["avatars/user_1/pic.jpg"], [None]],
+    )
 
-    assert "Utf8" in str(data_type)
+    assert "avatar:Utf8?" in str(data_type)
     assert rows[0]["avatar"] == "avatars/user_1/pic.jpg"
+    assert rows[1]["avatar"] is None
 
 
 def test_build_database_settings_rejects_unknown_driver(tmp_path):
