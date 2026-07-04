@@ -64,6 +64,30 @@ def test_build_database_settings_uses_metadata_credentials_by_default_for_ydb(tm
     assert default["CREDENTIALS"].__class__.__name__ == "MetadataUrlCredentials"
 
 
+def test_build_database_settings_patches_ydb_jsonfield_adapter(tmp_path):
+    build_database_settings(
+        base_dir=tmp_path,
+        read_env=_reader(
+            {
+                "DB_DRIVER": "ydb",
+                "YDB_ENDPOINT": "grpcs://ydb.serverless.yandexcloud.net:2135",
+                "YDB_DATABASE": "/ru-central1/example/database",
+            }
+        ),
+    )
+
+    from ydb_backend.backend.operations import DatabaseOperations
+
+    operations = DatabaseOperations(connection=None)
+    assert operations.adapt_json_value(["openid", "profile"], encoder=None) == (
+        '["openid","profile"]'
+    )
+    assert operations.adapt_json_value({"scope": "openid"}, encoder=None) == (
+        '{"scope":"openid"}'
+    )
+    assert operations.adapt_json_value(None, encoder=None) is None
+
+
 def test_build_database_settings_rejects_unknown_driver(tmp_path):
     with pytest.raises(ImproperlyConfigured):
         build_database_settings(
