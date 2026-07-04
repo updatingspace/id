@@ -151,6 +151,18 @@ def _patch_ydb_write_compiler_relation_types() -> None:
             )
         return ydb.ListType(struct_type)
 
+    def _patched_get_data(fields, param_rows):
+        result = []
+        for row in param_rows:
+            struct = {}
+            for index, field in enumerate(fields):
+                value = row[index]
+                if _field_internal_type(field) == "DateTimeField" and value is not None:
+                    value = int(value.timestamp())
+                struct[field.column] = value
+            result.append(struct)
+        return result
+
     def _infer_ydb_param_type(value):
         if isinstance(value, bool):
             return ydb_compiler._ydb_types["BooleanField"], value
@@ -182,6 +194,7 @@ def _patch_ydb_write_compiler_relation_types() -> None:
     ydb_compiler.BaseSQLWriteCompiler._prepare_sql_statement = (
         _patched_prepare_sql_statement
     )
+    ydb_compiler._get_data = _patched_get_data
     ydb_compiler._get_data_type = _patched_get_data_type
     ydb_compiler._generate_params_for_update = _patched_generate_params_for_update
     ydb_compiler.BaseSQLWriteCompiler._updspace_id_relation_patch = True

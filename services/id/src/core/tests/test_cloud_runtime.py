@@ -177,6 +177,38 @@ def test_ydb_select_param_binding_infers_types_when_columns_do_not_match(tmp_pat
     assert str(params["$element_4"][1]) == "Datetime"
 
 
+def test_ydb_insert_data_keeps_nullable_datetime_none(tmp_path):
+    build_database_settings(
+        base_dir=tmp_path,
+        read_env=_reader(
+            {
+                "DB_DRIVER": "ydb",
+                "YDB_ENDPOINT": "grpcs://ydb.serverless.yandexcloud.net:2135",
+                "YDB_DATABASE": "/ru-central1/example/database",
+            }
+        ),
+    )
+
+    from ydb_backend.models.sql import compiler as ydb_compiler
+
+    class FakeDateTimeField:
+        column = "checked_at"
+
+        @staticmethod
+        def get_internal_type():
+            return "DateTimeField"
+
+    now = datetime(2026, 7, 4, 19, 24, tzinfo=timezone.utc)
+
+    rows = ydb_compiler._get_data(
+        [FakeDateTimeField()],
+        [[None], [now]],
+    )
+
+    assert rows[0]["checked_at"] is None
+    assert rows[1]["checked_at"] == int(now.timestamp())
+
+
 def test_build_database_settings_rejects_unknown_driver(tmp_path):
     with pytest.raises(ImproperlyConfigured):
         build_database_settings(
