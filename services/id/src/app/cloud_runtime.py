@@ -120,7 +120,10 @@ def _patch_ydb_write_compiler_relation_types() -> None:
         target_field = getattr(field, "target_field", None)
         if target_field is not None:
             return target_field.get_internal_type()
-        return field.get_internal_type()
+        internal_type = field.get_internal_type()
+        if internal_type in {"FileField", "ImageField"}:
+            return "TextField"
+        return internal_type
 
     def _patched_prepare_sql_statement(self):
         qn = self.connection.ops.quote_name
