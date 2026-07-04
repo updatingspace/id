@@ -1,7 +1,7 @@
-from allauth.headless.contrib.ninja.security import x_session_token_auth
 from ninja import Router
 from ninja.errors import HttpError
 
+from accounts.api.security import session_token_auth
 from accounts.services.oauth import OAuthService
 from accounts.transport.schemas import (
     ErrorOut,
@@ -12,7 +12,7 @@ from accounts.transport.schemas import (
 )
 from updspaceid.services import require_active_user
 
-router_oauth = Router(tags=["OAuth"], auth=[x_session_token_auth])
+router_oauth = Router(tags=["OAuth"], auth=[session_token_auth])
 
 
 def _ensure_active_user(user) -> None:

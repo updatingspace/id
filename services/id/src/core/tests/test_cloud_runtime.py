@@ -64,6 +64,84 @@ def test_build_database_settings_uses_metadata_credentials_by_default_for_ydb(tm
     assert default["CREDENTIALS"].__class__.__name__ == "MetadataUrlCredentials"
 
 
+def test_ydb_write_compiler_uses_target_field_type_for_foreign_keys(tmp_path):
+    build_database_settings(
+        base_dir=tmp_path,
+        read_env=_reader(
+            {
+                "DB_DRIVER": "ydb",
+                "YDB_ENDPOINT": "grpcs://ydb.serverless.yandexcloud.net:2135",
+                "YDB_DATABASE": "/ru-central1/example/database",
+            }
+        ),
+    )
+
+    from ydb_backend.models.sql import compiler as ydb_compiler
+
+    class FakeOps:
+        @staticmethod
+        def quote_name(name):
+            return f"`{name}`"
+
+    class FakeIntrospection:
+        @staticmethod
+        def get_field_type(data_type, description):
+            return {
+                "BigAutoField": "Int64",
+                "UUIDField": "UUID",
+            }[data_type]
+
+    class FakeConnection:
+        ops = FakeOps()
+        introspection = FakeIntrospection()
+
+    class FakeMeta:
+        db_table = "smoke_table"
+        pk = None
+
+    class FakeQuery:
+        fields = []
+
+        @staticmethod
+        def get_meta():
+            return FakeMeta()
+
+    class FakeCompiler(ydb_compiler.BaseSQLWriteCompiler):
+        connection = FakeConnection()
+        query = FakeQuery()
+
+        def _get_statement(self):
+            return "UPSERT INTO"
+
+    class FakeTargetField:
+        def __init__(self, internal_type):
+            self.internal_type = internal_type
+
+        def get_internal_type(self):
+            return self.internal_type
+
+    class FakeForeignKeyField:
+        def __init__(self, column, target_internal_type):
+            self.column = column
+            self.target_field = FakeTargetField(target_internal_type)
+
+        @staticmethod
+        def get_internal_type():
+            return "ForeignKey"
+
+    big_auto_fk = FakeForeignKeyField("user_id", "BigAutoField")
+    uuid_fk = FakeForeignKeyField("tenant_id", "UUIDField")
+    FakeQuery.fields = [big_auto_fk, uuid_fk]
+
+    compiler = FakeCompiler.__new__(FakeCompiler)
+    compiler.connection = FakeConnection()
+    compiler.query = FakeQuery()
+    sql = " ".join(compiler._prepare_sql_statement())
+
+    assert "`user_id`: Int64" in sql
+    assert "`tenant_id`: UUID" in sql
+
+
 def test_build_database_settings_rejects_unknown_driver(tmp_path):
     with pytest.raises(ImproperlyConfigured):
         build_database_settings(

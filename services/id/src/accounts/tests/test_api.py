@@ -468,8 +468,10 @@ class AccountsApiTests(TestCase):
     def test_email_status_and_resend(self):
         token = self.login_and_get_token()
         mail.outbox.clear()
-        EmailAddress.objects.create(
-            user=self.user, email=self.user.email, primary=True, verified=True
+        EmailAddress.objects.update_or_create(
+            user=self.user,
+            email=self.user.email,
+            defaults={"primary": True, "verified": True},
         )
         resp_status = self.client.get("/api/v1/auth/email", HTTP_X_SESSION_TOKEN=token)
         self.assertEqual(resp_status.status_code, 200)

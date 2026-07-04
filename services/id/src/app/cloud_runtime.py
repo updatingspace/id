@@ -104,6 +104,57 @@ def _patch_ydb_version_check() -> None:
     ydb_base.DatabaseWrapper._updspace_id_version_patch = True
 
 
+def _patch_ydb_write_compiler_relation_types() -> None:
+    try:
+        from ydb_backend.models.sql import compiler as ydb_compiler
+    except Exception:
+        return
+
+    if getattr(ydb_compiler.BaseSQLWriteCompiler, "_updspace_id_relation_patch", False):
+        return
+
+    def _field_internal_type(field) -> str:
+        target_field = getattr(field, "target_field", None)
+        if target_field is not None:
+            return target_field.get_internal_type()
+        return field.get_internal_type()
+
+    def _patched_prepare_sql_statement(self):
+        qn = self.connection.ops.quote_name
+        opts = self.query.get_meta()
+        fields = self.query.fields or [opts.pk]
+
+        field_types = [
+            qn(f.column)
+            + ": "
+            + self.connection.introspection.get_field_type(_field_internal_type(f), {})
+            for f in fields
+        ]
+        in_ = f"{', '.join(field_types)}"
+
+        return [
+            f"DECLARE $in_ as List<Struct<{in_}>>;",
+            f"{self._get_statement()} {qn(opts.db_table)}",
+            f"({', '.join(qn(f.column) for f in fields)})",
+            f"SELECT {', '.join(qn(f.column) for f in fields)} FROM AS_TABLE($in_);",
+        ]
+
+    def _patched_get_data_type(fields):
+        struct_type = ydb.StructType()
+        for field in fields:
+            struct_type.add_member(
+                field.column,
+                ydb_compiler._ydb_types[_field_internal_type(field)],
+            )
+        return ydb.ListType(struct_type)
+
+    ydb_compiler.BaseSQLWriteCompiler._prepare_sql_statement = (
+        _patched_prepare_sql_statement
+    )
+    ydb_compiler._get_data_type = _patched_get_data_type
+    ydb_compiler.BaseSQLWriteCompiler._updspace_id_relation_patch = True
+
+
 def build_database_settings(
     *,
     base_dir: Path,
@@ -138,6 +189,7 @@ def build_database_settings(
         raise ImproperlyConfigured("DB_DRIVER must be one of: postgres, ydb")
 
     _patch_ydb_version_check()
+    _patch_ydb_write_compiler_relation_types()
 
     ydb_endpoint = _require("YDB_ENDPOINT", read_env)
     ydb_database = _require("YDB_DATABASE", read_env)
