@@ -219,6 +219,8 @@ def _patch_ydb_write_compiler_relation_types() -> None:
     def _infer_ydb_param_type(value):
         if isinstance(value, bool):
             return ydb_compiler._ydb_types["BooleanField"], value
+        if isinstance(value, str):
+            return ydb_compiler._ydb_types["TextField"], str(value)
         if isinstance(value, datetime):
             return ydb_compiler._ydb_types["DateTimeField"], int(value.timestamp())
         if isinstance(value, date):
@@ -240,6 +242,8 @@ def _patch_ydb_write_compiler_relation_types() -> None:
         ydb_type = ydb_compiler._ydb_types[internal_type]
         if value is None:
             return ydb.OptionalType(ydb_type), value
+        if isinstance(value, str):
+            value = str(value)
         if internal_type == "DateTimeField" and isinstance(value, datetime):
             return ydb_type, int(value.timestamp())
         return ydb_type, value

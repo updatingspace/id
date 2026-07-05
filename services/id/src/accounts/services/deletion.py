@@ -99,8 +99,12 @@ class AccountDeletionService:
             revoked_at=timezone.now()
         )
         EmailAddress.objects.filter(user=user).delete()
-        SocialToken.objects.filter(account__user=user).delete()
-        SocialAccount.objects.filter(user=user).delete()
+        social_account_ids = list(
+            SocialAccount.objects.filter(user=user).values_list("id", flat=True)
+        )
+        if social_account_ids:
+            SocialToken.objects.filter(account_id__in=social_account_ids).delete()
+            SocialAccount.objects.filter(id__in=social_account_ids).delete()
         try:
             from idp.models import OidcConsent, OidcToken
 

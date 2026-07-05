@@ -305,11 +305,18 @@ class AuthService:
             user=user, refresh_jti=jti, revoked_at__isnull=True
         ).first()
         if not mapping:
-            logger.warning(
-                "Refresh token rejected: session mapping missing",
-                extra={"user_id": getattr(user, "id", None)},
+            session_key = str(rt.get("session_key") or "")
+            if not session_key:
+                logger.warning(
+                    "Refresh token rejected: session mapping missing",
+                    extra={"user_id": getattr(user, "id", None)},
+                )
+                raise _http_error(401, INVALID_TOKEN_PAYLOAD)
+            mapping, _ = UserSessionToken.objects.get_or_create(
+                user=user,
+                refresh_jti=jti,
+                defaults={"session_key": session_key},
             )
-            raise _http_error(401, INVALID_TOKEN_PAYLOAD)
 
         meta = UserSessionMeta.objects.filter(
             user=user, session_key=mapping.session_key

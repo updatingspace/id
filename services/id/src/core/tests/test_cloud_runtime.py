@@ -199,6 +199,35 @@ def test_ydb_select_param_binding_infers_types_when_columns_do_not_match(tmp_pat
     assert str(params["$element_4"][1]) == "Datetime"
 
 
+def test_ydb_select_param_binding_coerces_string_subclasses(tmp_path):
+    build_database_settings(
+        base_dir=tmp_path,
+        read_env=_reader(
+            {
+                "DB_DRIVER": "ydb",
+                "YDB_ENDPOINT": "grpcs://ydb.serverless.yandexcloud.net:2135",
+                "YDB_DATABASE": "/ru-central1/example/database",
+            }
+        ),
+    )
+
+    from ydb_backend.models.sql import compiler as ydb_compiler
+
+    class StringChoice(str):
+        pass
+
+    params = ydb_compiler._generate_params_for_update(
+        ["$element_1"],
+        ["id"],
+        {},
+        [StringChoice("totp")],
+    )
+
+    assert params["$element_1"][0] == "totp"
+    assert type(params["$element_1"][0]) is str
+    assert str(params["$element_1"][1]) == "Utf8"
+
+
 def test_ydb_update_param_binding_uses_known_json_field_type(tmp_path):
     build_database_settings(
         base_dir=tmp_path,
