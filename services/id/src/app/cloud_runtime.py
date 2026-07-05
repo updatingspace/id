@@ -107,6 +107,24 @@ def _patch_ydb_version_check() -> None:
     ydb_base.DatabaseWrapper._updspace_id_version_patch = True
 
 
+def _patch_ydb_json_adaptation() -> None:
+    try:
+        from ydb_backend.backend import operations as ydb_operations
+    except Exception:
+        return
+
+    if getattr(ydb_operations.DatabaseOperations, "_updspace_id_json_patch", False):
+        return
+
+    def _adapt_json_value(self, value, encoder):
+        if value is None or isinstance(value, str):
+            return value
+        return json.dumps(value, cls=encoder, ensure_ascii=False)
+
+    ydb_operations.DatabaseOperations.adapt_json_value = _adapt_json_value
+    ydb_operations.DatabaseOperations._updspace_id_json_patch = True
+
+
 def _patch_ydb_write_compiler_relation_types() -> None:
     try:
         from ydb_backend.models.sql import compiler as ydb_compiler
@@ -269,6 +287,7 @@ def build_database_settings(
         raise ImproperlyConfigured("DB_DRIVER must be one of: postgres, ydb")
 
     _patch_ydb_version_check()
+    _patch_ydb_json_adaptation()
     _patch_ydb_write_compiler_relation_types()
 
     ydb_endpoint = _require("YDB_ENDPOINT", read_env)

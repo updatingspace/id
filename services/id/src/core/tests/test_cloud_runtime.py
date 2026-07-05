@@ -66,6 +66,28 @@ def test_build_database_settings_uses_metadata_credentials_by_default_for_ydb(tm
     assert default["CREDENTIALS"].__class__.__name__ == "MetadataUrlCredentials"
 
 
+def test_ydb_json_adaptation_accepts_django_values(tmp_path):
+    build_database_settings(
+        base_dir=tmp_path,
+        read_env=_reader(
+            {
+                "DB_DRIVER": "ydb",
+                "YDB_ENDPOINT": "grpcs://ydb.serverless.yandexcloud.net:2135",
+                "YDB_DATABASE": "/ru-central1/example/database",
+            }
+        ),
+    )
+
+    from ydb_backend.backend.operations import DatabaseOperations
+
+    ops = DatabaseOperations(connection=None)
+
+    assert ops.adapt_json_value({"profile_basic": "allow"}, None) == (
+        '{"profile_basic": "allow"}'
+    )
+    assert ops.adapt_json_value('{"already":"json"}', None) == '{"already":"json"}'
+
+
 def test_ydb_write_compiler_uses_target_field_type_for_foreign_keys(tmp_path):
     build_database_settings(
         base_dir=tmp_path,
