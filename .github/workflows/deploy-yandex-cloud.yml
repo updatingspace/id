@@ -245,7 +245,7 @@ jobs:
       ID_TOKEN_HASH_SECRET: migrate-token-hash-secret
       OIDC_REFRESH_TOKEN_SALT: migrate-refresh-salt
       BFF_INTERNAL_HMAC_SECRET: ${{ secrets.YC_BFF_INTERNAL_HMAC_SECRET }}
-      PORTAL_OIDC_CLIENT_ID: updspace-portal
+      PORTAL_OIDC_CLIENT_ID: portal-prod-client
       PORTAL_OIDC_CLIENT_SECRET: ${{ secrets.YC_PORTAL_OIDC_CLIENT_SECRET }}
       PORTAL_PUBLIC_BASE_URL: ${{ secrets.YC_PORTAL_PUBLIC_BASE_URL }}
       DB_DRIVER: ydb
