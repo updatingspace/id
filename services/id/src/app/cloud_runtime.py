@@ -125,12 +125,6 @@ def _patch_ydb_write_compiler_relation_types() -> None:
             return "TextField"
         return internal_type
 
-    def _ydb_field_type(field):
-        field_type = ydb_compiler._ydb_types[_field_internal_type(field)]
-        if getattr(field, "null", False):
-            return ydb.OptionalType(field_type)
-        return field_type
-
     def _patched_prepare_sql_statement(self):
         qn = self.connection.ops.quote_name
         opts = self.query.get_meta()
@@ -156,9 +150,38 @@ def _patch_ydb_write_compiler_relation_types() -> None:
         for field in fields:
             struct_type.add_member(
                 field.column,
-                _ydb_field_type(field),
+                ydb_compiler._ydb_types[_field_internal_type(field)],
             )
         return ydb.ListType(struct_type)
+
+    def _default_ydb_value(internal_type: str):
+        if internal_type == "DateTimeField":
+            return 0
+        if internal_type == "DateField":
+            return date(1970, 1, 1)
+        if internal_type in {
+            "CharField",
+            "EmailField",
+            "FileField",
+            "ImageField",
+            "SlugField",
+            "TextField",
+            "URLField",
+        }:
+            return ""
+        if internal_type == "BooleanField":
+            return False
+        if internal_type in {
+            "AutoField",
+            "BigAutoField",
+            "BigIntegerField",
+            "IntegerField",
+            "PositiveIntegerField",
+            "PositiveSmallIntegerField",
+            "SmallIntegerField",
+        }:
+            return 0
+        return None
 
     def _patched_get_data(fields, param_rows):
         result = []
@@ -166,7 +189,10 @@ def _patch_ydb_write_compiler_relation_types() -> None:
             struct = {}
             for index, field in enumerate(fields):
                 value = row[index]
-                if _field_internal_type(field) == "DateTimeField" and value is not None:
+                internal_type = _field_internal_type(field)
+                if value is None:
+                    value = _default_ydb_value(internal_type)
+                if internal_type == "DateTimeField" and isinstance(value, datetime):
                     value = int(value.timestamp())
                 struct[field.column] = value
             result.append(struct)

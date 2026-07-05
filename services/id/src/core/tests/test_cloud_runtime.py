@@ -177,7 +177,7 @@ def test_ydb_select_param_binding_infers_types_when_columns_do_not_match(tmp_pat
     assert str(params["$element_4"][1]) == "Datetime"
 
 
-def test_ydb_insert_data_keeps_nullable_datetime_none(tmp_path):
+def test_ydb_insert_data_coerces_nullable_datetime_none(tmp_path):
     build_database_settings(
         base_dir=tmp_path,
         read_env=_reader(
@@ -205,7 +205,7 @@ def test_ydb_insert_data_keeps_nullable_datetime_none(tmp_path):
         [[None], [now]],
     )
 
-    assert rows[0]["checked_at"] is None
+    assert rows[0]["checked_at"] == 0
     assert rows[1]["checked_at"] == int(now.timestamp())
 
 
@@ -225,7 +225,6 @@ def test_ydb_insert_declares_file_fields_as_utf8_text(tmp_path):
 
     class FakeImageField:
         column = "avatar"
-        null = True
 
         @staticmethod
         def get_internal_type():
@@ -237,9 +236,9 @@ def test_ydb_insert_declares_file_fields_as_utf8_text(tmp_path):
         [["avatars/user_1/pic.jpg"], [None]],
     )
 
-    assert "avatar:Utf8?" in str(data_type)
+    assert "avatar:Utf8" in str(data_type)
     assert rows[0]["avatar"] == "avatars/user_1/pic.jpg"
-    assert rows[1]["avatar"] is None
+    assert rows[1]["avatar"] == ""
 
 
 def test_build_database_settings_rejects_unknown_driver(tmp_path):
