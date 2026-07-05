@@ -63,6 +63,12 @@ def _build_redirect(uri: str, params: dict[str, str]) -> str:
     return urlunparse(parsed._replace(query=combined))
 
 
+def _as_aware_datetime(value):
+    if value is not None and timezone.is_naive(value):
+        return timezone.make_aware(value, timezone.get_default_timezone())
+    return value
+
+
 def _normalize_scope_request(raw: str, client: OidcClient) -> list[str]:
     requested = normalize_scopes(raw)
     allowed = set(client.allowed_scopes or [])
@@ -375,7 +381,7 @@ class OidcService:
             raise HttpError(
                 404, {"code": "REQUEST_NOT_FOUND", "message": "request not found"}
             )
-        if req.expires_at < timezone.now():
+        if _as_aware_datetime(req.expires_at) < timezone.now():
             req.delete()
             raise HttpError(
                 400, {"code": "REQUEST_EXPIRED", "message": "request expired"}
@@ -469,7 +475,7 @@ class OidcService:
         code_obj = OidcAuthorizationCode.objects.filter(code=code).first()
         if not code_obj or code_obj.client_id != client.id:
             raise HttpError(400, {"code": "INVALID_CODE", "message": "invalid code"})
-        if code_obj.used_at or code_obj.expires_at < timezone.now():
+        if code_obj.used_at or _as_aware_datetime(code_obj.expires_at) < timezone.now():
             raise HttpError(400, {"code": "CODE_EXPIRED", "message": "code expired"})
         if redirect_uri and redirect_uri != code_obj.redirect_uri:
             raise HttpError(
@@ -526,7 +532,8 @@ class OidcService:
             .first()
         )
         if not token or (
-            token.refresh_expires_at and token.refresh_expires_at < timezone.now()
+            token.refresh_expires_at
+            and _as_aware_datetime(token.refresh_expires_at) < timezone.now()
         ):
             raise HttpError(
                 400,

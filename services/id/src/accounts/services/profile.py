@@ -23,6 +23,12 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _as_aware_datetime(value):
+    if value is not None and timezone.is_naive(value):
+        return timezone.make_aware(value, timezone.get_default_timezone())
+    return value
+
+
 @dataclass(slots=True)
 class AvatarState:
     url: str | None
@@ -315,7 +321,8 @@ class ProfileService:
         if (
             not force
             and profile.gravatar_checked_at
-            and now - profile.gravatar_checked_at < cls.GRAVATAR_TTL
+            and now - _as_aware_datetime(profile.gravatar_checked_at)
+            < cls.GRAVATAR_TTL
         ):
             return False
         raw = cls._fetch_gravatar(email)

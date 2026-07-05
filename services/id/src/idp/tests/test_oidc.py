@@ -7,7 +7,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import StringIO
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -38,6 +38,7 @@ from idp.router import (
 from idp.services import (
     OidcService,
     _apply_privacy_prefs,
+    _as_aware_datetime,
     _build_redirect,
     _claims_for_scopes,
     _decode_jwt_token,
@@ -779,6 +780,41 @@ class OidcProtocolComplianceTests(TestCase):
             request=SimpleNamespace(headers={}),
         )
         self.assertEqual(token_resp["scope"], "openid profile")
+
+    def test_approve_authorization_accepts_naive_ydb_expiry(self):
+        prepared = OidcService.prepare_authorization(
+            self.user,
+            {
+                "client_id": self.private_client.client_id,
+                "redirect_uri": "http://localhost/callback",
+                "response_type": "code",
+                "scope": "openid profile",
+                "state": "state-naive-expiry",
+                "code_challenge": "",
+                "code_challenge_method": "",
+            },
+        )
+        auth_req = OidcAuthorizationRequest.objects.get(
+            request_id=prepared["request_id"]
+        )
+        auth_req.expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+        with patch.object(OidcAuthorizationRequest.objects, "filter") as filter_mock:
+            filter_mock.return_value.first.return_value = auth_req
+            redirect = OidcService.approve_authorization(
+                self.user,
+                request_id=prepared["request_id"],
+                remember=False,
+            )
+
+        self.assertIn("code=", redirect)
+
+    def test_as_aware_datetime_normalizes_naive_ydb_value(self):
+        naive = datetime.utcnow()
+
+        normalized = _as_aware_datetime(naive)
+
+        self.assertFalse(timezone.is_naive(normalized))
 
     def test_exchange_code_rejects_redirect_mismatch(self):
         prepared = OidcService.prepare_authorization(
