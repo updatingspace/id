@@ -36,6 +36,11 @@ class _DummyQuery:
         return self._items[0] if self._items else None
 
 
+class _BrokenQuery:
+    def filter(self, **_kwargs):
+        raise RuntimeError("ydb lookup failed")
+
+
 class _AuthType:
     TOTP = "totp"
     WEBAUTHN = "webauthn"
@@ -80,6 +85,25 @@ class MfaServiceUnitTests(TestCase):
             self.assertFalse(out.has_webauthn)
             self.assertTrue(out.has_recovery_codes)
             self.assertEqual(out.recovery_codes_left, 3)
+
+        _run()
+
+    def test_status_fails_closed_when_authenticator_lookup_fails(self):
+        @patch("accounts.services.mfa._mfa_imports")
+        def _run(mock_imports):
+            mock_imports.return_value = (
+                lambda: None,
+                SimpleNamespace(Type=_AuthType, objects=_BrokenQuery()),
+                _RC,
+                None,
+                None,
+                None,
+            )
+            out = MfaService.status(SimpleNamespace(id=42))
+            self.assertFalse(out.has_totp)
+            self.assertFalse(out.has_webauthn)
+            self.assertFalse(out.has_recovery_codes)
+            self.assertEqual(out.recovery_codes_left, 0)
 
         _run()
 

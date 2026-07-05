@@ -80,6 +80,12 @@ class PasskeyService:
                 extra={"user_id": getattr(user, "id", None)},
             )
             raise HttpError(401, "reauth_required") from err
+        except Exception as err:
+            logger.exception(
+                "Passkey registration is unavailable",
+                extra={"user_id": getattr(user, "id", None)},
+            )
+            raise HttpError(501, "passkeys_unavailable") from err
 
     @staticmethod
     def complete_registration(request, name: str, credential: dict):
