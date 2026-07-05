@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone as datetime_timezone
 
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.models import SocialAccount
@@ -16,6 +17,15 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
+def _sort_desc(items: list[dict], field: str, limit: int) -> list[dict]:
+    return sorted(
+        items,
+        key=lambda item: item.get(field)
+        or datetime.min.replace(tzinfo=datetime_timezone.utc),
+        reverse=True,
+    )[:limit]
+
+
 @dataclass(slots=True)
 class ExportService:
     @staticmethod
@@ -28,24 +38,35 @@ class ExportService:
                 "provider", "uid", "last_login"
             )
         )
-        consents = list(
-            UserConsent.objects.filter(user=user)
-            .order_by("-granted_at")[:200]
-            .values("kind", "version", "granted_at", "revoked_at", "source", "meta")
+        consents = _sort_desc(
+            list(
+                UserConsent.objects.filter(user=user).values(
+                    "kind",
+                    "version",
+                    "granted_at",
+                    "revoked_at",
+                    "source",
+                    "meta",
+                )
+            ),
+            "granted_at",
+            200,
         )
         sessions = SessionService.list(request, user)
-        logins = list(
-            LoginEvent.objects.filter(user=user)
-            .order_by("-created_at")[:100]
-            .values(
-                "status",
-                "ip_address",
-                "user_agent",
-                "device_id",
-                "is_new_device",
-                "reason",
-                "created_at",
-            )
+        logins = _sort_desc(
+            list(
+                LoginEvent.objects.filter(user=user).values(
+                    "status",
+                    "ip_address",
+                    "user_agent",
+                    "device_id",
+                    "is_new_device",
+                    "reason",
+                    "created_at",
+                )
+            ),
+            "created_at",
+            100,
         )
         payload = {
             "user": {

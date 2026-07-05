@@ -235,12 +235,29 @@ def _patch_ydb_write_compiler_relation_types() -> None:
             return ydb_compiler._ydb_types["BinaryField"], value
         return ydb_compiler._ydb_types["TextField"], value
 
+    def _prepare_typed_ydb_param(field_type: str, value):
+        internal_type = "TextField" if field_type in {"FileField", "ImageField"} else field_type
+        ydb_type = ydb_compiler._ydb_types[internal_type]
+        if value is None:
+            return ydb.OptionalType(ydb_type), value
+        if internal_type == "DateTimeField" and isinstance(value, datetime):
+            return ydb_type, int(value.timestamp())
+        return ydb_type, value
+
     def _patched_generate_params_for_update(
         placeholder_rows, columns, field_types, params
     ):
         modified_params = {}
-        for placeholder, value in zip(placeholder_rows, params, strict=False):
-            ydb_type, prepared = _infer_ydb_param_type(value)
+        model_types = [
+            field_types[column] for column in columns if column in field_types
+        ]
+        for index, (placeholder, value) in enumerate(
+            zip(placeholder_rows, params, strict=False)
+        ):
+            if index < len(model_types):
+                ydb_type, prepared = _prepare_typed_ydb_param(model_types[index], value)
+            else:
+                ydb_type, prepared = _infer_ydb_param_type(value)
             modified_params[placeholder] = (prepared, ydb_type)
         return modified_params
 
