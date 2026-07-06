@@ -9,7 +9,7 @@ dependencies = [
     "django-allauth[socialaccount]",
     "django-cors-headers",
     "django-storages",
-    "django-ydb-backend==0.0.1b1",
+    "django-ydb-backend==0.0.1b7",
     "djangorestframework",
     "email-validator",
     "fido2",
