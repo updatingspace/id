@@ -223,7 +223,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
 
       - name: OpenTofu local check
         run: scripts/ci/check-yc-terraform-local.sh
