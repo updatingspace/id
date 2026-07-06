@@ -29,7 +29,7 @@ jobs:
       DJANGO_SETTINGS_MODULE: app.settings
       PYTHONPATH: src
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -124,7 +124,7 @@ jobs:
       DJANGO_SETTINGS_MODULE: app.settings
       PYTHONPATH: src
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -171,7 +171,7 @@ jobs:
       YDB_CREDENTIALS_MODE: token
       YDB_TOKEN: local-ydb-token
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -204,7 +204,7 @@ jobs:
       TF_VAR_cloud_id: dummy-cloud
       TF_VAR_folder_id: dummy-folder
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: hashicorp/setup-terraform@v3
 
@@ -221,7 +221,7 @@ jobs:
     name: OpenTofu validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: opentofu/setup-opentofu@v1
 
@@ -235,7 +235,7 @@ jobs:
       run:
         working-directory: web/id-frontend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -280,7 +280,7 @@ jobs:
       run:
         working-directory: web/id-frontend
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -322,7 +322,7 @@ jobs:
       - frontend-ci
       - e2e-smoke
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -358,7 +358,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
@@ -398,7 +398,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
