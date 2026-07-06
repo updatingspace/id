@@ -104,7 +104,7 @@ jobs:
       - generate-build-id
       - validate-deploy-secrets
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - name: Build image (PR validation)
         if: github.event_name == 'pull_request'
@@ -153,7 +153,7 @@ jobs:
       TF_VAR_monium_api_key: ${{ secrets.YC_MONIUM_API_KEY }}
       YC_TERRAFORM_AUTO_APPLY: ${{ secrets.YC_TERRAFORM_AUTO_APPLY }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v3
       - name: Write YC service account key
         run: |
@@ -253,7 +253,7 @@ jobs:
       YDB_CREDENTIALS_MODE: sa_json
       YDB_SERVICE_ACCOUNT_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install YC CLI
         run: |
           curl -fsSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i "$RUNNER_TEMP/yc" -n
@@ -323,7 +323,7 @@ jobs:
       YC_OBJECT_STORAGE_ENDPOINT: https://storage.yandexcloud.net
       AWS_DEFAULT_REGION: ru-central1
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Decode Terraform outputs
         run: |
           {
@@ -392,7 +392,7 @@ jobs:
       - ydb-bootstrap
     if: needs.ydb-bootstrap.result == 'success'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Run public smoke checks
         env:
           SMOKE_BASE_URL: ${{ secrets.YC_PUBLIC_BASE_URL }}
