@@ -154,7 +154,7 @@ jobs:
       YC_TERRAFORM_AUTO_APPLY: ${{ secrets.YC_TERRAFORM_AUTO_APPLY }}
     steps:
       - uses: actions/checkout@v6
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: Write YC service account key
         run: |
           printf '%s' '${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}' > "$RUNNER_TEMP/yc-sa-key.json"
