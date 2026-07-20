@@ -329,7 +329,7 @@ jobs:
           {
             echo "YC_BUCKET_NAME=$(printf '%s' "$TF_OUTPUT_FRONTEND_BUCKET_NAME_B64" | base64 --decode)"
           } >> "$GITHUB_ENV"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: pnpm/action-setup@v5
