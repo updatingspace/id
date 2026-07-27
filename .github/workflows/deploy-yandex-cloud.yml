@@ -283,7 +283,7 @@ jobs:
             echo "OIDC_ISSUER=${public_base_url}"
             echo "OIDC_PUBLIC_BASE_URL=${public_base_url}"
           } >> "$GITHUB_ENV"
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
