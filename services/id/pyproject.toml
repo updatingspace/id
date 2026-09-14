@@ -33,7 +33,7 @@ dependencies = [
     "opentelemetry-instrumentation-django",
     "opentelemetry-instrumentation-requests",
     "ydb[yc]==3.31.5",
-    "ydb-dbapi==0.1.20",
+    "ydb-dbapi==0.1.23",
 ]
 
 [project.optional-dependencies]
