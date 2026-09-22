@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ErrorBanner } from '../banners';
 import type { SessionRow } from '../../model/types';
 
 type Props = {
@@ -9,12 +10,16 @@ type Props = {
 };
 
 export const SessionsSection: React.FC<Props> = ({ t, sessions, onRevokeSession, onRevokeAll }) => {
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<{ [k: string]: boolean }>({});
 
   const safe = async (key: string, fn: () => Promise<void>) => {
+    setError(null);
     setBusy((p) => ({ ...p, [key]: true }));
     try {
       await fn();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('error.SERVER_ERROR'));
     } finally {
       setBusy((p) => ({ ...p, [key]: false }));
     }
@@ -22,6 +27,7 @@ export const SessionsSection: React.FC<Props> = ({ t, sessions, onRevokeSession,
 
   return (
     <div className="card">
+      {error && <ErrorBanner message={error} />}
       <h3>{t('sessions.title')}</h3>
 
       <div className="list">

@@ -18,7 +18,7 @@ vi.mock('../../lib/api', () => ({ api: {
 const logout = vi.fn().mockResolvedValue(undefined);
 const show = (page: React.ReactNode, path = '/') => render(
   <MemoryRouter initialEntries={[path]}>
-    <AuthContext.Provider value={{ user: null, loading: false, login: vi.fn(), signup: vi.fn(), logout, refresh: vi.fn() }}>
+    <AuthContext.Provider value={{ user: null, loading: false, login: vi.fn(), signup: vi.fn(), logout, endSession: vi.fn(), refresh: vi.fn() }}>
       <I18nProvider>{page}</I18nProvider>
     </AuthContext.Provider>
   </MemoryRouter>,

@@ -53,6 +53,7 @@ describe('AuthorizePage', () => {
             login: vi.fn(),
             signup: vi.fn(),
             logout: vi.fn(),
+            endSession: vi.fn(),
           }}
         >
           <I18nProvider>

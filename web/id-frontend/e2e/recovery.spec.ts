@@ -9,6 +9,7 @@ test('guest can request a recovery email from login', async ({ page }) => {
   });
   await page.goto('/login');
   await page.getByRole('link', { name: 'Забыли пароль?' }).click();
+  await expect(page.getByRole('heading', { name: 'Восстановление доступа', exact: true })).toBeVisible();
   await page.getByLabel('Email').fill('recover@example.com');
   await page.getByRole('button', { name: 'Отправить письмо' }).click();
   await expect(page.getByRole('status')).toContainText('Если аккаунт с таким email существует');

@@ -327,4 +327,18 @@ describe('AuthProvider', () => {
     expect(setSessionToken).not.toHaveBeenCalled();
     expect(result.current.user).toBeNull();
   });
+  it('ending a revoked session clears local state and ignores an in-flight profile response', async () => {
+    vi.mocked(getSessionToken).mockReturnValue('token-1');
+    let resolveProfile!: (value: Record<string, unknown>) => void;
+    vi.mocked(api.profile).mockImplementation(() => new Promise((resolve) => { resolveProfile = resolve; }));
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(api.profile).toHaveBeenCalledTimes(1));
+    act(() => result.current.endSession());
+    expect(result.current.loading).toBe(false);
+    expect(clearSessionToken).toHaveBeenCalledTimes(1);
+    await act(async () => resolveProfile({ email: 'stale@example.com' }));
+    expect(result.current.user).toBeNull();
+    expect(api.logout).not.toHaveBeenCalled();
+  });
+
 });

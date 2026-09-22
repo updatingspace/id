@@ -148,7 +148,7 @@ const formTokens = createFormTokenStore((purpose) =>
 );
 
 export const api = {
-  getOAuthProviders: () => request<{ providers: ProviderRow[] }>(`${API_BASE}/auth/oauth/providers`).catch(() => ({ providers: [] })),
+  getOAuthProviders: () => request<{ providers: ProviderRow[] }>(`${API_BASE}/auth/oauth/providers`),
   getOAuthLoginUrl: (providerId: string, next?: string) =>
     request<OAuthLinkResponse>(withQuery(`${API_BASE}/auth/oauth/login/${providerId}`, { next })),
   prefetchFormToken: formTokens.prefetch,
@@ -211,23 +211,23 @@ export const api = {
       new_password: nextPassword,
     }),
 
-  getPreferences: () => request<Preferences>(`${API_BASE}/auth/preferences`).catch(() => ({})),
+  getPreferences: () => request<Preferences>(`${API_BASE}/auth/preferences`),
   updatePreferences: (payload: Preferences) => patch<Preferences>(`${API_BASE}/auth/preferences`, payload),
 
-  getConsents: () => request<{ consents: ConsentRow[] }>(`${API_BASE}/auth/consents`).catch(() => ({ consents: [] })),
+  getConsents: () => request<{ consents: ConsentRow[] }>(`${API_BASE}/auth/consents`),
   revokeConsent: (kind: string) => post(withQuery(`${API_BASE}/auth/consents/revoke`, { kind })),
 
-  getSessions: () => request<{ sessions: SessionRow[] }>(`${API_BASE}/auth/sessions`).catch(() => ({ sessions: [] })),
+  getSessions: () => request<{ sessions: SessionRow[] }>(`${API_BASE}/auth/sessions`),
   revokeSession: (id: string) => del(`${API_BASE}/auth/sessions/${id}`),
   revokeOtherSessions: () => post(`${API_BASE}/auth/sessions/bulk`, { all_except_current: true }),
 
-  getOAuthApps: () => request<{ items: OAuthAppRow[] }>(`${API_BASE}/auth/oauth/apps`).catch(() => ({ items: [] })),
+  getOAuthApps: () => request<{ items: OAuthAppRow[] }>(`${API_BASE}/auth/oauth/apps`),
   revokeOAuthApp: (clientId: string) => post(`${API_BASE}/auth/oauth/apps/revoke`, { client_id: clientId }),
 
-  getLoginHistory: () => request<{ events: LoginHistoryRow[] }>(`${API_BASE}/auth/login-history`).catch(() => ({ events: [] })),
+  getLoginHistory: () => request<{ events: LoginHistoryRow[] }>(`${API_BASE}/auth/login-history`),
   mfaStatus: () => request<MfaStatus>(`${API_BASE}/auth/mfa/status`),
 
-  passkeysList: () => request<{ authenticators: PasskeyRow[] }>(`${API_BASE}/auth/passkeys`).catch(() => ({ authenticators: [] })),
+  passkeysList: () => request<{ authenticators: PasskeyRow[] }>(`${API_BASE}/auth/passkeys`),
   passkeysBegin: (passwordless: boolean) =>
     post<{ creation_options: Record<string, unknown> }>(`${API_BASE}/auth/passkeys/begin`, {
       passwordless,
@@ -236,7 +236,7 @@ export const api = {
     post<{ recovery_codes?: string[] }>(`${API_BASE}/auth/passkeys/complete`, { name, credential }),
   passkeysDelete: (ids: string[]) => post(`${API_BASE}/auth/passkeys/delete`, { ids }),
 
-  getTimezones: () => request<{ timezones: TimezoneRow[] }>(`${API_BASE}/auth/timezones`).catch(() => ({ timezones: [] })),
+  getTimezones: () => request<{ timezones: TimezoneRow[] }>(`${API_BASE}/auth/timezones`),
   emailStatus: () => request<EmailStatus>(`${API_BASE}/auth/email`),
   resendEmailVerification: () => post(`${API_BASE}/auth/email/resend`),
   changeEmail: (newEmail: string) => post(`${API_BASE}/auth/email/change`, { new_email: newEmail }),

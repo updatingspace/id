@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../lib/api';
-import type { AccountSection } from './types';
+import type { AccountSection, Preferences } from './types';
 
 export const accountKeys = {
   preferences: ['account', 'preferences'] as const,
@@ -21,6 +21,7 @@ const retryQuery = (failures: number, error: Error) => {
 };
 
 export const useAccountData = (enabled: boolean, section: AccountSection, identity: string) => {
+  const client = useQueryClient();
   const preferences = useQuery({
     queryKey: [...accountKeys.preferences, identity],
     queryFn: api.getPreferences,
@@ -113,6 +114,7 @@ export const useAccountData = (enabled: boolean, section: AccountSection, identi
 
   return {
     ...queries,
+    setPreferences: (value: Preferences) => client.setQueryData([...accountKeys.preferences, identity], value),
     error: sectionQueries.find((query) => query.isError)?.error,
     retry: () => Promise.all(sectionQueries.map((query) => query.refetch())),
   };

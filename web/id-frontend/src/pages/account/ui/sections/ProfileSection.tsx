@@ -34,6 +34,15 @@ export const ProfileSection: React.FC<Props> = ({
     birth_date: user.birth_date || '',
   }));
   const [emailForm, setEmailForm] = useState({ newEmail: '' });
+  const [busy, setBusy] = useState<{ profile?: boolean; email?: boolean }>({});
+  const run = async (key: 'profile' | 'email', action: () => Promise<void>) => {
+    setBusy((current) => ({ ...current, [key]: true }));
+    try {
+      await action();
+    } finally {
+      setBusy((current) => ({ ...current, [key]: false }));
+    }
+  };
 
   return (
     <div className="stack">
@@ -57,7 +66,7 @@ export const ProfileSection: React.FC<Props> = ({
             <input type="date" value={profileForm.birth_date} onChange={(e) => setProfileForm({ ...profileForm, birth_date: e.target.value })} />
           </label>
         </div>
-        <button className="primary-button" onClick={() => onSaveProfile(profileForm)}>
+        <button className="primary-button" onClick={() => run('profile', () => onSaveProfile(profileForm))} disabled={!!busy.profile}>
           {t('profile.save')}
         </button>
       </div>
@@ -76,7 +85,7 @@ export const ProfileSection: React.FC<Props> = ({
         {!emailVerified && (
           <>
             <p className="muted">{t('account.email.verifyHint')}</p>
-            <button className="ghost-button" onClick={onResendEmail} type="button">
+            <button className="ghost-button" onClick={() => run('email', onResendEmail)} disabled={!!busy.email} type="button">
               {t('account.email.resend')}
             </button>
           </>
@@ -94,8 +103,8 @@ export const ProfileSection: React.FC<Props> = ({
           <button
             type="button"
             className="secondary-button"
-            onClick={() => onRequestEmailChange(emailForm.newEmail.trim())}
-            disabled={!emailForm.newEmail.trim()}
+            onClick={() => run('email', () => onRequestEmailChange(emailForm.newEmail.trim()))}
+            disabled={!emailForm.newEmail.trim() || !!busy.email}
           >
             {t('account.email.changeButton')}
           </button>

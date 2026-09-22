@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { ErrorBanner } from '../banners';
 import type { ConsentRow, Preferences, TimezoneRow } from '../../model/types';
 
 type Props = {
@@ -20,6 +21,8 @@ export const PrivacySection: React.FC<Props> = ({
 }) => {
   const [draftPrefs, setDraftPrefs] = useState<Preferences | null>(null);
   const [busy, setBusy] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const prefs = draftPrefs ?? preferences ?? {};
 
   const setScopePolicy = (scope: string, policy: 'allow' | 'ask' | 'deny') => {
@@ -35,6 +38,7 @@ export const PrivacySection: React.FC<Props> = ({
   const scopes = useMemo(() => ['profile_basic', 'profile_extended', 'email', 'phone'] as const, []);
 
   const save = async () => {
+    setError(null);
     setBusy(true);
     try {
       await onSave({
@@ -43,13 +47,29 @@ export const PrivacySection: React.FC<Props> = ({
         marketing_opt_in: prefs.marketing_opt_in,
         privacy_scope_defaults: prefs.privacy_scope_defaults,
       });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('error.SERVER_ERROR'));
     } finally {
       setBusy(false);
     }
   };
 
+  const revokeMarketing = async () => {
+    setError(null);
+    setRevoking(true);
+    try {
+      await onRevokeMarketing();
+      setDraftPrefs((draft) => draft ? { ...draft, marketing_opt_in: false } : null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('error.SERVER_ERROR'));
+    } finally {
+      setRevoking(false);
+    }
+  };
+
   return (
     <div className="stack">
+      {error && <ErrorBanner message={error} />}
       <div className="card">
         <h3>{t('account.privacy')}</h3>
 
@@ -118,7 +138,7 @@ export const PrivacySection: React.FC<Props> = ({
           })}
         </div>
 
-        <button className="primary-button" onClick={save} disabled={busy}>
+        <button className="primary-button" onClick={save} disabled={busy || revoking}>
           {t('preferences.save')}
         </button>
       </div>
@@ -136,7 +156,7 @@ export const PrivacySection: React.FC<Props> = ({
               {consent.revoked_at ? (
                 <span className="muted">Отозвано</span>
               ) : consent.kind === 'marketing' ? (
-                <button className="ghost-button" onClick={onRevokeMarketing}>
+                <button className="ghost-button" onClick={revokeMarketing} disabled={revoking || busy}>
                   Отозвать
                 </button>
               ) : null}
