@@ -131,6 +131,21 @@ def _patch_ydb_query_parameters() -> None:
     if getattr(compiler, "_updspace_id_parameters_patch", False):
         return
 
+    from django.db.models.expressions import Ref
+    from django.db.models.sql.compiler import PositionRef
+
+    original_compile = compiler.SQLCompiler.compile
+
+    def _compile(self, node):
+        # Django orders projected fields by their SELECT position (ORDER BY 3).
+        # YDB treats that position as a constant, so use the selected alias or
+        # the original column/expression instead.
+        if isinstance(node, PositionRef):
+            node = Ref(node.refs, node.source) if node.refs else node.source
+        return original_compile(self, node)
+
+    compiler.SQLCompiler.compile = _compile
+
     def _parameters(placeholders, columns, field_types, params):
         result = {}
         for index, (placeholder, value) in enumerate(zip(placeholders, params)):

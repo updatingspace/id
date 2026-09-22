@@ -228,7 +228,8 @@ export const api = {
     post<{ creation_options: Record<string, unknown> }>(`${API_BASE}/auth/passkeys/begin`, {
       passwordless,
     }),
-  passkeysComplete: (name: string, credential: unknown) => post(`${API_BASE}/auth/passkeys/complete`, { name, credential }),
+  passkeysComplete: (name: string, credential: unknown) =>
+    post<{ recovery_codes?: string[] }>(`${API_BASE}/auth/passkeys/complete`, { name, credential }),
   passkeysDelete: (ids: string[]) => post(`${API_BASE}/auth/passkeys/delete`, { ids }),
 
   getTimezones: () => request<{ timezones: TimezoneRow[] }>(`${API_BASE}/auth/timezones`).catch(() => ({ timezones: [] })),

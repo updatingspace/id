@@ -147,10 +147,10 @@ const LoginPage = () => {
       const start = await api.passkeyLoginBegin();
       const requestOptions = mapRequestOptions(start.request_options);
       const credential = (await navigator.credentials.get({ publicKey: requestOptions })) as PublicKeyCredential;
+      if (!credential) return;
       const serialized = serializeCredential(credential);
       const complete = await api.passkeyLoginComplete(serialized);
       const token =
-        complete?.access_token ||
         complete?.meta?.session_token ||
         complete?.session_token ||
         '';

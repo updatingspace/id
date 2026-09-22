@@ -18,7 +18,7 @@ const toBase64Url = (value: ArrayBuffer): string => {
 };
 
 export const mapRequestOptions = (input: Record<string, unknown>): PublicKeyCredentialRequestOptions => {
-  const mapped: Record<string, unknown> = { ...input };
+  const mapped = unwrapPublicKey(input);
 
   if (typeof mapped.challenge === 'string') {
     mapped.challenge = toBytes(mapped.challenge);
@@ -42,7 +42,7 @@ export const mapRequestOptions = (input: Record<string, unknown>): PublicKeyCred
 };
 
 export const mapCreationOptions = (input: Record<string, unknown>): PublicKeyCredentialCreationOptions => {
-  const mapped: Record<string, unknown> = { ...input };
+  const mapped = unwrapPublicKey(input);
 
   if (typeof mapped.challenge === 'string') {
     mapped.challenge = toBytes(mapped.challenge);
@@ -73,26 +73,38 @@ export const mapCreationOptions = (input: Record<string, unknown>): PublicKeyCre
   return mapped as unknown as PublicKeyCredentialCreationOptions;
 };
 
+const unwrapPublicKey = (input: Record<string, unknown>): Record<string, unknown> => {
+  const options = input.publicKey ?? input;
+  if (!options || typeof options !== 'object' || !('challenge' in options)) {
+    throw new Error('Сервер не вернул параметры Passkey. Повторите попытку.');
+  }
+  return { ...options };
+};
+
 export const serializeCredential = (credential: PublicKeyCredential): Record<string, unknown> => {
   const response = credential.response;
+  const base = {
+    id: credential.id,
+    rawId: toBase64Url(credential.rawId),
+    type: credential.type,
+    clientExtensionResults: credential.getClientExtensionResults(),
+    authenticatorAttachment: credential.authenticatorAttachment,
+  };
 
   if (response instanceof AuthenticatorAttestationResponse) {
     return {
-      id: credential.id,
-      rawId: toBase64Url(credential.rawId),
-      type: credential.type,
+      ...base,
       response: {
         clientDataJSON: toBase64Url(response.clientDataJSON),
         attestationObject: toBase64Url(response.attestationObject),
+        transports: response.getTransports?.() ?? [],
       },
     };
   }
 
   if (response instanceof AuthenticatorAssertionResponse) {
     return {
-      id: credential.id,
-      rawId: toBase64Url(credential.rawId),
-      type: credential.type,
+      ...base,
       response: {
         clientDataJSON: toBase64Url(response.clientDataJSON),
         authenticatorData: toBase64Url(response.authenticatorData),
@@ -102,9 +114,5 @@ export const serializeCredential = (credential: PublicKeyCredential): Record<str
     };
   }
 
-  return {
-    id: credential.id,
-    rawId: toBase64Url(credential.rawId),
-    type: credential.type,
-  };
+  return base;
 };
