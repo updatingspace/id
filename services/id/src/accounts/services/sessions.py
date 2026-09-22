@@ -190,18 +190,15 @@ class SessionService:
 
     @staticmethod
     def _compose_row(
-        request, us: UserSession | None, meta: UserSessionMeta | None
+        request,
+        us: UserSession | None,
+        meta: UserSessionMeta | None,
+        *,
+        session: Session | None,
     ) -> SessionRowOut:
         s_key = getattr(us, "session_key", None) or getattr(meta, "session_key", None)
-        expires = None
-        session_alive = False
-        if s_key:
-            try:
-                s = Session.objects.get(session_key=s_key)
-                expires = s.expire_date
-                session_alive = True
-            except Session.DoesNotExist:
-                session_alive = False
+        expires = session.expire_date if session else None
+        session_alive = session is not None
 
         created = (
             (getattr(us, "created", None) if us else None)
@@ -263,8 +260,19 @@ class SessionService:
             m.session_key: m for m in meta_list if getattr(m, "session_key", None)
         }
         all_keys = set(by_key_us) | set(by_key_meta)
+        sessions = {
+            row.session_key: row
+            for row in Session.objects.filter(session_key__in=all_keys).only(
+                "session_key", "expire_date"
+            )
+        }
         return [
-            SessionService._compose_row(request, by_key_us.get(k), by_key_meta.get(k))
+            SessionService._compose_row(
+                request,
+                by_key_us.get(k),
+                by_key_meta.get(k),
+                session=sessions.get(k),
+            )
             for k in sorted(all_keys)
         ]
 

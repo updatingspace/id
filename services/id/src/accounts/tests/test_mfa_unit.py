@@ -35,6 +35,12 @@ class _DummyQuery:
     def first(self):
         return self._items[0] if self._items else None
 
+    def order_by(self, *_fields):
+        return self
+
+    def __iter__(self):
+        return iter(self._items)
+
 
 class _AuthType:
     TOTP = "totp"

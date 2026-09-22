@@ -52,10 +52,13 @@ class MfaService:
             _DeactivateTOTPForm,
             _totp_flows,
         ) = _mfa_imports()
-        auths = Authenticator.objects.filter(user=user)
-        has_totp = auths.filter(type=Authenticator.Type.TOTP).exists()
-        has_webauthn = auths.filter(type=Authenticator.Type.WEBAUTHN).exists()
-        rc = auths.filter(type=Authenticator.Type.RECOVERY_CODES).first()
+        auths = list(Authenticator.objects.filter(user=user).order_by("pk"))
+        has_totp = any(auth.type == Authenticator.Type.TOTP for auth in auths)
+        has_webauthn = any(auth.type == Authenticator.Type.WEBAUTHN for auth in auths)
+        rc = next(
+            (auth for auth in auths if auth.type == Authenticator.Type.RECOVERY_CODES),
+            None,
+        )
         recovery_left = len(RecoveryCodes(rc).get_unused_codes()) if rc else 0
         return MfaStatusOut(
             has_totp=has_totp,
