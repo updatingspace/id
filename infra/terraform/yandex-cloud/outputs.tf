@@ -35,7 +35,7 @@ output "container_registry_id" {
 
 output "backend_invoke_url" {
   description = "Private invoke URL for the backend serverless container."
-  value       = yandex_serverless_container.backend.url
+  value       = local.backend_urls[var.rollout_active_slot]
 }
 
 output "ydb_endpoint" {

@@ -16,6 +16,8 @@ resource "yandex_vpc_subnet" "serverless" {
 resource "yandex_logging_group" "id" {
   name             = "${local.name_prefix}-logs"
   retention_period = var.log_retention_period
+  # A concrete label map avoids the provider's perpetual null/computed diff.
+  labels = { service = local.name_prefix }
 }
 
 resource "yandex_iam_service_account" "runtime" {
@@ -118,14 +120,15 @@ resource "yandex_resourcemanager_folder_iam_member" "runtime_image_puller" {
 resource "yandex_serverless_container" "backend" {
   name               = "${local.name_prefix}-backend"
   description        = "UpdSpace ID backend"
-  memory             = var.backend_memory_mb
-  cores              = var.backend_cores
-  core_fraction      = 100
-  concurrency        = var.backend_concurrency
-  execution_timeout  = "60s"
-  service_account_id = yandex_iam_service_account.runtime.id
+  memory             = local.blue_backend.memory
+  cores              = local.blue_backend.cores
+  core_fraction      = local.blue_backend.core_fraction
+  concurrency        = local.blue_backend.concurrency
+  execution_timeout  = local.blue_backend.execution_timeout
+  service_account_id = local.blue_backend.service_account_id
 
   depends_on = [
+    terraform_data.rollout_safety,
     yandex_resourcemanager_folder_iam_member.runtime_image_puller,
     yandex_lockbox_secret_iam_member.runtime_payload_viewer,
     yandex_ydb_database_iam_binding.runtime_editor,
@@ -136,48 +139,118 @@ resource "yandex_serverless_container" "backend" {
   }
 
   dynamic "connectivity" {
-    for_each = local.backend_network_id != "" ? [1] : []
+    for_each = nonsensitive(local.blue_backend.network_id) != "" ? [1] : []
     content {
-      network_id = local.backend_network_id
+      network_id = local.blue_backend.network_id
     }
   }
 
   metadata_options {
-    gce_http_endpoint = 1
+    gce_http_endpoint    = local.blue_backend.metadata_options.gce_http_endpoint
+    aws_v1_http_endpoint = local.blue_backend.metadata_options.aws_v1_http_endpoint
   }
 
   dynamic "provision_policy" {
-    for_each = var.min_ready_instances > 0 ? [1] : []
+    for_each = nonsensitive(local.blue_backend.min_instances) > 0 ? [1] : []
     content {
-      min_instances = var.min_ready_instances
+      min_instances = local.blue_backend.min_instances
     }
   }
 
   image {
-    url         = "cr.yandex/${local.container_registry_id}/updatingspace-id-backend:${var.container_image_tag}"
-    environment = local.backend_env
+    url         = local.blue_backend.image_url
+    environment = local.blue_backend.environment
   }
 
   dynamic "secrets" {
-    for_each = nonsensitive(toset(keys(local.runtime_secret_entries)))
+    for_each = nonsensitive(local.blue_backend.secrets)
     content {
-      id                   = yandex_lockbox_secret.runtime.id
-      version_id           = yandex_lockbox_secret_version.runtime.id
-      key                  = secrets.key
-      environment_variable = secrets.key
+      id                   = secrets.value.id
+      version_id           = secrets.value.version_id
+      key                  = secrets.value.key
+      environment_variable = secrets.value.environment_variable
     }
   }
 
   log_options {
-    log_group_id = yandex_logging_group.id.id
-    min_level    = "INFO"
+    log_group_id = local.blue_backend.log_group_id
+    min_level    = local.blue_backend.log_min_level
+  }
+}
+
+resource "yandex_serverless_container" "backend_green" {
+  count              = var.blue_green_enabled ? 1 : 0
+  name               = "${local.name_prefix}-backend-green"
+  description        = "UpdSpace ID backend"
+  memory             = local.green_backend.memory
+  cores              = local.green_backend.cores
+  core_fraction      = local.green_backend.core_fraction
+  concurrency        = local.green_backend.concurrency
+  execution_timeout  = local.green_backend.execution_timeout
+  service_account_id = local.green_backend.service_account_id
+
+  depends_on = [
+    terraform_data.rollout_safety,
+    yandex_resourcemanager_folder_iam_member.runtime_image_puller,
+    yandex_lockbox_secret_iam_member.runtime_payload_viewer,
+    yandex_ydb_database_iam_binding.runtime_editor,
+  ]
+
+  runtime {
+    type = "http"
+  }
+
+  dynamic "connectivity" {
+    for_each = nonsensitive(local.green_backend.network_id) != "" ? [1] : []
+    content {
+      network_id = local.green_backend.network_id
+    }
+  }
+
+  metadata_options {
+    gce_http_endpoint    = local.green_backend.metadata_options.gce_http_endpoint
+    aws_v1_http_endpoint = local.green_backend.metadata_options.aws_v1_http_endpoint
+  }
+
+  dynamic "provision_policy" {
+    for_each = nonsensitive(local.green_backend.min_instances) > 0 ? [1] : []
+    content {
+      min_instances = local.green_backend.min_instances
+    }
+  }
+
+  image {
+    url         = local.green_backend.image_url
+    environment = local.green_backend.environment
+  }
+
+  dynamic "secrets" {
+    for_each = nonsensitive(local.green_backend.secrets)
+    content {
+      id                   = secrets.value.id
+      version_id           = secrets.value.version_id
+      key                  = secrets.value.key
+      environment_variable = secrets.value.environment_variable
+    }
+  }
+
+  log_options {
+    log_group_id = local.green_backend.log_group_id
+    min_level    = local.green_backend.log_min_level
   }
 }
 
 resource "yandex_serverless_container_iam_binding" "gateway_backend_invoker" {
   container_id = yandex_serverless_container.backend.id
   role         = "serverless.containers.invoker"
-  members      = ["serviceAccount:${yandex_iam_service_account.gateway.id}"]
+  members      = local.backend_invokers
+}
+
+resource "yandex_serverless_container_iam_binding" "gateway_green_invoker" {
+  count        = var.blue_green_enabled ? 1 : 0
+  container_id = yandex_serverless_container.backend_green[0].id
+  role         = "serverless.containers.invoker"
+  members      = local.backend_invokers
 }
 
 data "yandex_api_gateway" "existing" {
@@ -196,6 +269,7 @@ resource "yandex_api_gateway" "id" {
 
   depends_on = [
     yandex_serverless_container_iam_binding.gateway_backend_invoker,
+    yandex_serverless_container_iam_binding.gateway_green_invoker,
     yandex_storage_bucket_iam_binding.gateway_frontend_viewer,
   ]
 
