@@ -49,6 +49,7 @@ type AuthContextValue = {
   login: (email: string, password: string, totpCode?: string, recoveryCode?: string) => Promise<AuthResult>;
   signup: (payload: SignupPayload) => Promise<AuthResult>;
   logout: () => Promise<void>;
+  endSession: () => void;
 };
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -198,6 +199,15 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     }
   };
 
+  // Used after the server already revoked the session (password change/deletion).
+  const endSession = () => {
+    generation.current += 1;
+    clearSessionToken();
+    setUser(null);
+    setError(null);
+    setLoading(false);
+  };
+
   const logout = async (): Promise<void> => {
     const requestGeneration = ++generation.current;
     try {
@@ -222,6 +232,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     login,
     signup,
     logout,
+    endSession,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

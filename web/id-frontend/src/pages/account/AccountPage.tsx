@@ -39,7 +39,7 @@ const toErrorMessage = (err: unknown, fallback: string): string => {
 };
 
 const AccountPage = () => {
-  const { user, loading: authLoading, refresh, logout } = useAuth();
+  const { user, loading: authLoading, refresh, endSession } = useAuth();
   const { t, language, setLanguage } = useI18n();
   const navigate = useNavigate();
 
@@ -106,7 +106,7 @@ const AccountPage = () => {
     setError(null);
     try {
       await api.changePassword(current, next);
-      await logout();
+      endSession();
       navigate('/login?password=changed');
     } catch (err: unknown) {
       setError(toErrorMessage(err, 'Не удалось обновить пароль'));
@@ -118,6 +118,8 @@ const AccountPage = () => {
     setError(null);
     try {
       const updated = await api.updatePreferences(nextPrefs);
+      q.setPreferences(updated);
+      void q.consents.refetch();
       if (updated.language && updated.language !== language) {
         setLanguage(updated.language === 'en' ? 'en' : 'ru');
       }
@@ -213,13 +215,24 @@ const AccountPage = () => {
           requiresMfa={requiresMfa}
           onChangePassword={changePassword}
           onEnableTotp={api.totpBegin}
-          onConfirmTotp={api.totpConfirm}
-          onDisableTotp={api.totpDisable}
-          onRegenRecovery={api.recoveryRegenerate}
+          onConfirmTotp={async (code) => {
+            const result = await api.totpConfirm(code);
+            await q.mfa.refetch();
+            return result;
+          }}
+          onDisableTotp={async () => {
+            await api.totpDisable();
+            await q.mfa.refetch();
+          }}
+          onRegenRecovery={async () => {
+            const result = await api.recoveryRegenerate();
+            await q.mfa.refetch();
+            return result;
+          }}
           onAddPasskey={addPasskey}
           onDeletePasskey={async (id: string) => {
             await api.passkeysDelete([id]);
-            await q.passkeys.refetch();
+            await Promise.all([q.passkeys.refetch(), q.mfa.refetch()]);
           }}
           onLinkProvider={async (providerId: string) => api.getOAuthLinkUrl(providerId, '/account')}
           onUnlinkProvider={async (providerId: string) => {
@@ -243,7 +256,7 @@ const AccountPage = () => {
           onSave={savePreferences}
           onRevokeMarketing={async () => {
             await api.revokeConsent('marketing');
-            await q.consents.refetch();
+            await Promise.all([q.consents.refetch(), q.preferences.refetch()]);
           }}
         />
       );
@@ -289,7 +302,10 @@ const AccountPage = () => {
         requiresMfa={requiresMfa}
         onExport={api.dataExport}
         onDelete={api.deleteAccount}
-        onDone={() => navigate('/login')}
+        onDone={() => {
+          endSession();
+          navigate('/login');
+        }}
         setError={setError}
       />
     );
@@ -323,7 +339,7 @@ const AccountPage = () => {
 
           {renderSection()}
 
-          {section === 'sessions' && (
+          {section === 'sessions' && !q.error && (
             q.history.isLoading ? (
               <LoginHistorySkeleton />
             ) : (

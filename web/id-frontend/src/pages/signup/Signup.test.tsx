@@ -20,6 +20,7 @@ const renderPage = (signup = vi.fn().mockResolvedValue({ ok: true })) => {
           login: vi.fn(),
           signup,
           logout: vi.fn(),
+            endSession: vi.fn(),
         }}
       >
         <I18nProvider>

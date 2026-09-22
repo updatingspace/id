@@ -78,6 +78,8 @@ export const SecuritySection: React.FC<Props> = ({
     setBusy((p) => ({ ...p, [key]: true }));
     try {
       await fn();
+    } catch (err: unknown) {
+      setError(toError(err).message || t('error.SERVER_ERROR'));
     } finally {
       setBusy((p) => ({ ...p, [key]: false }));
     }
@@ -275,7 +277,11 @@ export const SecuritySection: React.FC<Props> = ({
               </div>
               <button
                 className="ghost-button"
-                onClick={() => onDeletePasskey(pk.id)}
+                onClick={() => {
+                  setMessage(null);
+                  setError(null);
+                  void safe(`pk:${pk.id}`, () => onDeletePasskey(pk.id));
+                }}
                 disabled={!!busy[`pk:${pk.id}`]}
               >
                 Удалить

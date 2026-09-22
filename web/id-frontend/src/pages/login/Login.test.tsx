@@ -31,6 +31,7 @@ describe('LoginPage', () => {
             login: mockLogin,
             signup: vi.fn(),
             logout: vi.fn(),
+            endSession: vi.fn(),
           }}
         >
           <I18nProvider>
