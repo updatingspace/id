@@ -228,6 +228,24 @@ def _patch_ydb_query_parameters() -> None:
     # ORDER BY id DESC in the upstream driver can return another request's ID.
     compiler.BaseSQLWriteCompiler.execute_sql = _execute_insert
 
+    def _update_sql(self):
+        from django.db.models.sql.compiler import SQLUpdateCompiler
+
+        sql, params = SQLUpdateCompiler.as_sql(self)
+        if not sql:
+            return sql, params
+        # The upstream mapping uses field.name, so user_id is untyped and the
+        # SDK infers Int64 even when the referenced user PK is an Int32.
+        columns = compiler._extract_column_names(sql)
+        sql, placeholders = compiler._replace_placeholders(sql)
+        field_types = {
+            field.column: _field_type(field)
+            for field in self.query.model._meta.concrete_fields
+        }
+        return sql, _parameters(placeholders, columns, field_types, params)
+
+    compiler.SQLUpdateCompiler.as_sql = _update_sql
+
     def _execute_update(self, result_type=None):
         sql, params = self.as_sql()
         if not sql:

@@ -32,10 +32,17 @@ class IssuedFormToken:
 class FormTokenPurpose:
     LOGIN = "login"
     REGISTER = "register"
+    PASSWORD_RESET = "password_reset"
+    EMAIL_VERIFICATION = "email_verification"
 
     @classmethod
     def is_allowed(cls, value: str) -> bool:
-        return value in {cls.LOGIN, cls.REGISTER}
+        return value in {
+            cls.LOGIN,
+            cls.REGISTER,
+            cls.PASSWORD_RESET,
+            cls.EMAIL_VERIFICATION,
+        }
 
 
 class FormTokenService:

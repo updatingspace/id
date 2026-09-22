@@ -370,6 +370,11 @@ a {
   box-shadow: var(--shadow);
 }
 
+.recovery-panel {
+  max-width: 580px;
+  margin-inline: auto;
+}
+
 .auth-panel h2 {
   font-family: 'Newsreader', serif;
 }

@@ -1,0 +1,11 @@
+{{ title }}
+
+{{ message }}
+
+{{ action_label }}:
+{{ action_url }}
+
+{{ note }}
+
+Восстановление доступа: {{ recovery_url }}
+UpdSpace ID

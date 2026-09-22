@@ -19,6 +19,7 @@ from allauth.socialaccount.models import SocialAccount
 from core.models import UserSessionMeta, UserSessionToken
 from django.conf import settings
 from django.contrib.auth import get_user_model, logout as dj_logout
+from django.db import transaction
 from django.utils import timezone
 from ninja.errors import HttpError
 from rest_framework_simplejwt.token_blacklist.models import (
@@ -148,6 +149,7 @@ class AuthService:
         )
 
     @staticmethod
+    @transaction.atomic
     def change_password(user, current: str, new: str) -> None:
         from django.contrib.auth.password_validation import validate_password
         from django.core.exceptions import ValidationError
@@ -183,6 +185,16 @@ class AuthService:
             raise HttpError(400, "; ".join(e.messages)) from e
         user.set_password(new)
         user.save(update_fields=["password"])
+        from allauth.account.adapter import get_adapter
+        from accounts.services.sessions import SessionService
+
+        SessionService.revoke_all(user, reason="password_changed")
+        adapter = get_adapter()
+        transaction.on_commit(
+            lambda: adapter.send_notification_mail(
+                "account/email/password_changed", user
+            )
+        )
         logger.info(
             "Password changed successfully",
             extra={"user_id": getattr(user, "id", None)},

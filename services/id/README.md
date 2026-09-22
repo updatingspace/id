@@ -64,3 +64,9 @@ before then. Redis credentials are injected from Lockbox.
 
 Authentication and OAuth responses, including errors, are marked
 `Cache-Control: private, no-store` independently of frontend asset caching.
+
+## Account email and recovery
+
+Password recovery, email verification, and security notifications use the configured
+SMTP backend. For iCloud and `account@updspace.com`, see
+[delivery setup and verification](docs/email-delivery.md).

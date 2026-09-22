@@ -37,3 +37,12 @@ images fall back to initials.
 The publication script uploads dependencies before `index.html`, retains old
 assets for active tabs/rollback, and gives fingerprinted assets a one-year
 immutable cache policy. See the Yandex Cloud README for deployment details.
+
+## Recovery routes
+
+- `/forgot-password` — request a password reset email.
+- `/reset-password#key=…` — set a new password using the email link.
+- `/verify-email#key=…` — confirm an email; without a key, request a new email.
+
+These routes work without a session. Resetting or changing a password signs the
+user out; MFA stays enabled. Mail link origins are configured on the backend.

@@ -44,8 +44,12 @@ def patch_json(client: Client, path: str, payload: dict, *, token: str | None = 
     return client.patch(path, data=json.dumps(payload), **headers)
 
 
+@override_settings(ACCOUNT_EMAIL_VERIFICATION="optional")
 class AccountsApiTests(TestCase):
-    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        ACCOUNT_EMAIL_VERIFICATION="mandatory",
+    )
     def test_signup_pending_email_verification_does_not_issue_jwt(self):
         response = post_json(
             self.client,

@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 
 import ydb
+from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.db.models import Value
+from django.db.models.sql import UpdateQuery
 
 from app.cloud_runtime import _patch_ydb_query_parameters
 
@@ -60,3 +62,12 @@ def test_file_update_binds_bytes_for_ydb_string_column():
         ["$file"], ["avatar"], {"avatar": "FileField"}, ["avatars/example.png"]
     )
     assert params["$file"] == (b"avatars/example.png", ydb.PrimitiveType.String)
+
+
+def test_email_address_update_uses_referenced_user_id_type():
+    query = EmailAddress.objects.filter(pk=42).query.chain(UpdateQuery)
+    query.add_update_values({"user_id": 123, "verified": True})
+    sql, params = _compiler(query).as_sql()
+    assert "`user_id` = $element_1" in sql
+    assert params["$element_1"] == (123, ydb.PrimitiveType.Int32)
+    assert params["$element_2"] == (True, ydb.PrimitiveType.Bool)

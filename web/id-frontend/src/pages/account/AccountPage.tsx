@@ -39,7 +39,7 @@ const toErrorMessage = (err: unknown, fallback: string): string => {
 };
 
 const AccountPage = () => {
-  const { user, loading: authLoading, refresh } = useAuth();
+  const { user, loading: authLoading, refresh, logout } = useAuth();
   const { t, language, setLanguage } = useI18n();
   const navigate = useNavigate();
 
@@ -106,7 +106,8 @@ const AccountPage = () => {
     setError(null);
     try {
       await api.changePassword(current, next);
-      setMessage('Пароль обновлён');
+      await logout();
+      navigate('/login?password=changed');
     } catch (err: unknown) {
       setError(toErrorMessage(err, 'Не удалось обновить пароль'));
     }

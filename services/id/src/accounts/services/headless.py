@@ -97,6 +97,17 @@ class HeadlessService:
                     "message": "Неверный логин или пароль",
                 },
             )
+        if getattr(settings, "ACCOUNT_EMAIL_VERIFICATION", "mandatory") == "mandatory":
+            if not EmailAddress.objects.filter(
+                user=user, email__iexact=user.email, verified=True
+            ).exists():
+                raise HttpError(
+                    401,
+                    {
+                        "code": "EMAIL_VERIFICATION_REQUIRED",
+                        "message": "Подтвердите email перед входом. При необходимости запросите новое письмо.",
+                    },
+                )
         record_authentication(request, user, method="password", email=email.strip())
 
         mfa_enabled = False
