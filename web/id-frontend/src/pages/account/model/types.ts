@@ -39,6 +39,7 @@ export type SessionRow = {
   user_agent?: string;
   ip?: string;
   current?: boolean;
+  revoked?: boolean;
 };
 
 export type OAuthAppRow = {

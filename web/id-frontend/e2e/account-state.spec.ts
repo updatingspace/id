@@ -7,6 +7,7 @@ async function account(page: Page) {
     mfa: { has_totp: false, has_webauthn: false, has_recovery_codes: false, recovery_codes_left: 0 },
     consents: [{ kind: 'marketing', granted_at: '2026-09-01', revoked_at: null as string | null }],
     passkeys: [] as { id: string; name: string }[],
+    sessions: [{ id: 's2', user_agent: 'Other device', current: false, revoked: false }],
     failSessions: false,
     failMutation: false,
     calls: [] as string[],
@@ -24,7 +25,7 @@ async function account(page: Page) {
       email: { email: 'account@example.invalid', verified: true },
       preferences: state.preferences,
       consents: { consents: state.consents },
-      sessions: { sessions: [{ id: 's2', user_agent: 'Other device' }] },
+      sessions: { sessions: state.sessions },
       'login-history': { events: [] },
       'mfa/status': state.mfa,
       passkeys: { authenticators: state.passkeys },
@@ -41,7 +42,9 @@ async function account(page: Page) {
       await route.fulfill({ json: state.preferences });
       return;
     }
-    if (path === 'consents/revoke') {
+    if (path === 'sessions/s2' && method === 'DELETE') {
+      state.sessions.find((session) => session.id === 's2')!.revoked = true;
+    } else if (path === 'consents/revoke') {
       state.preferences.marketing_opt_in = false;
       state.consents[0].revoked_at = '2026-09-23';
     } else if (path === 'mfa/totp/begin') {
@@ -63,6 +66,27 @@ async function account(page: Page) {
 }
 
 const tab = (page: Page, name: string) => page.getByRole('button', { name, exact: true }).click();
+
+test('active sessions and their count exclude ended rows after revocation and tab navigation', async ({ page }) => {
+  const state = await account(page);
+  state.sessions.push(
+    { id: 's1', user_agent: 'Current device', current: true, revoked: false },
+    { id: 'old', user_agent: 'Ended device', current: false, revoked: true },
+  );
+  await tab(page, 'Сессии');
+  const count = page.locator('.hero-stat').filter({ hasText: 'Sessions' }).locator('strong');
+  await expect(count).toHaveText('2');
+  await expect(page.getByText('Ended device')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Завершить', exact: true }).click();
+  await expect(page.getByText('Other device')).toHaveCount(0);
+  await expect(page.getByText('Current device')).toBeVisible();
+  await expect(count).toHaveText('1');
+  await tab(page, 'Профиль');
+  await tab(page, 'Сессии');
+  await expect(page.getByText('Other device')).toHaveCount(0);
+  await expect(count).toHaveText('1');
+  expect(state.calls.filter((call) => call === 'DELETE sessions/s2')).toHaveLength(1);
+});
 
 test('failed session reads show a recoverable error rather than empty account data', async ({ page }) => {
   const state = await account(page);

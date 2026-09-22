@@ -198,7 +198,7 @@ class SessionService:
     ) -> SessionRowOut:
         s_key = getattr(us, "session_key", None) or getattr(meta, "session_key", None)
         expires = session.expire_date if session else None
-        session_alive = session is not None
+        session_alive = session is not None and session.expire_date > timezone.now()
 
         created = (
             (getattr(us, "created", None) if us else None)

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from allauth.mfa.models import Authenticator
 from allauth.mfa.recovery_codes.internal.auth import RecoveryCodes
@@ -67,6 +68,28 @@ class AccountReadQueryTests(TestCase):
         request.session = SessionStore()
         with self.assertNumQueries(2):
             self.assertEqual(SessionService.list(request, self.user), [])
+
+    def test_session_listing_marks_unpurged_expired_sessions_as_revoked(self):
+        request = RequestFactory().get("/")
+        request.session = SessionStore()
+        now = timezone.now()
+        for key, expiry in (
+            ("expired", now - timedelta(seconds=1)),
+            ("expires-now", now),
+            ("active", now + timedelta(days=1)),
+        ):
+            Session.objects.create(session_key=key, session_data="", expire_date=expiry)
+            UserSessionMeta.objects.create(user=self.user, session_key=key)
+
+        with patch("accounts.services.sessions.timezone.now", return_value=now):
+            with self.assertNumQueries(3):
+                rows = SessionService.list(request, self.user)
+
+        by_key = {row.id: row for row in rows}
+        self.assertTrue(by_key["expired"].revoked)
+        self.assertTrue(by_key["expires-now"].revoked)
+        self.assertFalse(by_key["active"].revoked)
+        self.assertEqual(by_key["expired"].expires, now - timedelta(seconds=1))
 
     def test_mfa_status_uses_one_query_and_counts_only_unused_codes(self):
         Authenticator.objects.create(

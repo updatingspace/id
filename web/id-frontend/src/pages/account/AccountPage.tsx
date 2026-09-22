@@ -54,6 +54,7 @@ const AccountPage = () => {
 
   const enabled = !!user;
   const q = useAccountData(enabled, section, user?.email || user?.id || 'guest');
+  const activeSessions = q.sessions.data?.sessions.filter((session) => !session.revoked);
 
   const emailVerified = q.emailStatus.data?.verified ?? user?.email_verified;
   const emailAddress = q.emailStatus.data?.email || user?.email || '';
@@ -267,7 +268,7 @@ const AccountPage = () => {
       return (
         <SessionsSection
           t={t}
-          sessions={q.sessions.data?.sessions || []}
+          sessions={activeSessions || []}
           onRevokeSession={async (id: string) => {
             await api.revokeSession(id);
             await q.sessions.refetch();
@@ -320,7 +321,7 @@ const AccountPage = () => {
         emailVerified={!!emailVerified}
         requiresMfa={requiresMfa}
         passkeysCount={q.passkeys.data?.authenticators?.length}
-        sessionsCount={q.sessions.data?.sessions?.length}
+        sessionsCount={activeSessions?.length}
       />
 
       <div className="account-layout">
