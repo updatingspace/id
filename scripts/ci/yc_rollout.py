@@ -325,6 +325,21 @@ def outputs(terraform_dir: Path) -> dict[str, Any]:
     return read_json("terraform", f"-chdir={terraform_dir}", "output", "-json")
 
 
+def slot_ids(terraform_dir: Path) -> dict[str, str]:
+    # A failed first apply may persist resources without persisting new outputs.
+    current = outputs(terraform_dir).get("backend_slots", {}).get("value")
+    if current:
+        return current["ids"]
+    state = read_json("terraform", f"-chdir={terraform_dir}", "show", "-json")
+    resources = state.get("values", {}).get("root_module", {}).get("resources", [])
+    return {
+        slot: item["values"]["id"]
+        for slot, address in SLOTS.items()
+        for item in resources
+        if item["address"] == address and item.get("values", {}).get("id")
+    }
+
+
 def target_identity(terraform_dir: Path, manifest: dict[str, Any]) -> tuple[str, str]:
     slots = outputs(terraform_dir)["backend_slots"]["value"]
     target = manifest["target_slot"]
@@ -462,6 +477,26 @@ def run_terraform(command: list[str], log_path: Path) -> None:
     with os.fdopen(descriptor, "w") as stream:
         result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT)
     if result.returncode:
+        raw = log_path.read_text(errors="replace")
+        # Never copy provider diagnostics to CI: they can contain runtime values.
+        # Emit only fixed classifications, not matched text or response bodies.
+        if "serverless.containers.count" in raw:
+            print(
+                "Serverless container count quota exhausted (serverless.containers.count).",
+                flush=True,
+            )
+        elif "ResourceExhausted" in raw:
+            print(
+                "Cloud resource quota exhausted; inspect the deployment quotas.",
+                flush=True,
+            )
+        elif "PermissionDenied" in raw:
+            print("Cloud API denied a deployment permission.", flush=True)
+        elif "Resource postcondition failed" in raw:
+            print(
+                "Cloud revision verification failed; requested runtime was not activated.",
+                flush=True,
+            )
         raise RuntimeError(f"Terraform failed; private diagnostics: {log_path}")
 
 
@@ -488,9 +523,12 @@ def apply_phase(terraform_dir: Path, manifest_path: Path, phase: str) -> None:
         )
         serving = gateway_backend(current["openapi_spec"])
         original = manifest["original_container_id"]
-        candidate = outputs(terraform_dir)["backend_slots"]["value"]["ids"].get(
-            manifest["target_slot"]
-        )
+        candidate = slot_ids(terraform_dir).get(manifest["target_slot"])
+        if phase == "abort" and candidate is None:
+            if serving != original:
+                raise RuntimeError("Gateway changed while candidate creation failed")
+            print("Candidate container was not created; no capacity cleanup needed")
+            return
         permitted = (
             {candidate}
             if phase == "retire"

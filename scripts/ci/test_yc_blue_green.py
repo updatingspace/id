@@ -1,6 +1,9 @@
 """Release safety checks with synthetic state; no cloud credentials or HTTP traffic."""
 
 import copy
+import io
+from contextlib import redirect_stdout
+from types import SimpleNamespace
 import json
 import sys
 import tempfile
@@ -500,6 +503,65 @@ class BlueGreenTests(unittest.TestCase):
                     for _, _, headers in requests
                 )
             )
+
+    def test_partial_apply_slot_lookup_uses_resources_when_outputs_are_missing(self):
+        state = {
+            "values": {
+                "root_module": {
+                    "resources": [
+                        {"address": rollout.SLOTS["blue"], "values": {"id": "blue-id"}},
+                        {
+                            "address": rollout.SLOTS["green"],
+                            "values": {"id": "green-id"},
+                        },
+                    ]
+                }
+            }
+        }
+        with (
+            patch.object(rollout, "outputs", return_value={}),
+            patch.object(rollout, "read_json", return_value=state),
+        ):
+            self.assertEqual(
+                rollout.slot_ids(Path("terraform")),
+                {"blue": "blue-id", "green": "green-id"},
+            )
+
+    def test_failed_container_creation_requires_no_abort_apply(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            rollout.write_private(path, manifest())
+            with (
+                patch.object(rollout, "slot_ids", return_value={"blue": "blue-id"}),
+                patch.object(
+                    rollout,
+                    "read_json",
+                    return_value={"openapi_spec": gateway("blue-id")},
+                ),
+                patch.object(rollout, "run_terraform") as run,
+            ):
+                rollout.apply_phase(Path("terraform"), path, "abort")
+            run.assert_not_called()
+
+    def test_failed_apply_reports_quota_without_copying_sensitive_diagnostics(self):
+        def fail(command, stdout, stderr):
+            stdout.write(
+                "Error ResourceExhausted serverless.containers.count secret=do-not-log"
+            )
+            return SimpleNamespace(returncode=1)
+
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "apply.log"
+            captured = io.StringIO()
+            with (
+                redirect_stdout(captured),
+                patch.object(rollout.subprocess, "run", side_effect=fail),
+                self.assertRaises(RuntimeError),
+            ):
+                rollout.run_terraform(["terraform", "apply"], log)
+            self.assertIn("quota exhausted", captured.getvalue())
+            self.assertNotIn("do-not-log", captured.getvalue())
+            self.assertEqual(log.stat().st_mode & 0o777, 0o600)
 
     def test_workflow_only_promotes_after_migrations_build_and_warm_checks(self):
         # BaseLoader avoids treating the GitHub 'on' key as YAML 1.1 boolean.

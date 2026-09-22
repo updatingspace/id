@@ -16,8 +16,7 @@ resource "yandex_vpc_subnet" "serverless" {
 resource "yandex_logging_group" "id" {
   name             = "${local.name_prefix}-logs"
   retention_period = var.log_retention_period
-  # A concrete label map avoids the provider's perpetual null/computed diff.
-  labels = { service = local.name_prefix }
+  labels           = { service = local.name_prefix }
 }
 
 resource "yandex_iam_service_account" "runtime" {
