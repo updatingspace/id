@@ -19,20 +19,69 @@ def main():
     parser.add_argument("--terraform-dir", required=True)
     parser.add_argument("--terraform-bin", default="terraform")
     parser.add_argument("--output", required=True)
-    parser.add_argument("--shared-cache", action="store_true", help="Resolve VPC/subnet for an explicitly enabled managed cache")
+    parser.add_argument(
+        "--shared-cache",
+        action="store_true",
+        help="Resolve VPC/subnet for an explicitly enabled managed cache",
+    )
+    parser.add_argument("--blue-green", action="store_true")
+    parser.add_argument("--release-image-tag")
+    parser.add_argument("--manifest", type=Path)
     args = parser.parse_args()
-    outputs = read_json(args.terraform_bin, f"-chdir={args.terraform_dir}", "output", "-json")
+    if args.blue_green and (not args.release_image_tag or not args.manifest):
+        parser.error("--blue-green requires --release-image-tag and --manifest")
+    outputs = read_json(
+        args.terraform_bin, f"-chdir={args.terraform_dir}", "output", "-json"
+    )
     # Use the container recorded in this stack's state, not another folder service.
-    container_id = outputs["backend_invoke_url"]["value"].split("//", 1)[1].split(".", 1)[0]
-    revisions = read_json("yc", "serverless", "container", "revision", "list", "--container-id", container_id, "--format", "json")
+    container_id = (
+        outputs["backend_invoke_url"]["value"].split("//", 1)[1].split(".", 1)[0]
+    )
+    overrides, manifest = {}, None
+    if args.blue_green:
+        from yc_rollout import rollout_snapshot
+
+        container_id, overrides, manifest = rollout_snapshot(
+            outputs, args.release_image_tag
+        )
+    revisions = read_json(
+        "yc",
+        "serverless",
+        "container",
+        "revision",
+        "list",
+        "--container-id",
+        container_id,
+        "--format",
+        "json",
+    )
     active = [revision for revision in revisions if revision["status"] == "ACTIVE"]
     if len(active) != 1:
         raise RuntimeError("Expected one active backend revision before rollout")
     revision = active[0]
+    if manifest and manifest["original_revision_id"] != revision["id"]:
+        raise RuntimeError("Serving revision changed during snapshot")
     values = {}
-    for secret_id, version_id in {(s["id"], s["version_id"]) for s in revision.get("secrets", [])}:
-        payload = read_json("yc", "lockbox", "payload", "get", "--id", secret_id, "--version-id", version_id, "--format", "json")
-        entries = {entry["key"]: entry["text_value"] for entry in payload["entries"] if "text_value" in entry}
+    for secret_id, version_id in {
+        (s["id"], s["version_id"]) for s in revision.get("secrets", [])
+    }:
+        payload = read_json(
+            "yc",
+            "lockbox",
+            "payload",
+            "get",
+            "--id",
+            secret_id,
+            "--version-id",
+            version_id,
+            "--format",
+            "json",
+        )
+        entries = {
+            entry["key"]: entry["text_value"]
+            for entry in payload["entries"]
+            if "text_value" in entry
+        }
         for secret in revision["secrets"]:
             if secret["id"] == secret_id and secret["version_id"] == version_id:
                 values[secret["environment_variable"]] = entries[secret["key"]]
@@ -42,19 +91,46 @@ def main():
         "live_secret_entries": values,
     }
     # Preserve live connectivity; do not attach a VPC just for a disabled cache.
-    result["existing_network_id"] = revision.get("connectivity", {}).get("network_id", "")
+    result["existing_network_id"] = revision.get("connectivity", {}).get(
+        "network_id", ""
+    )
     if args.shared_cache:
-        network = read_json("yc", "vpc", "network", "get", "--name", os.environ.get("YC_ID_NETWORK_NAME", "default"), "--format", "json")
-        subnet = read_json("yc", "vpc", "subnet", "get", "--name", os.environ.get("YC_ID_CACHE_SUBNET_NAME", "default-ru-central1-a"), "--format", "json")
+        network = read_json(
+            "yc",
+            "vpc",
+            "network",
+            "get",
+            "--name",
+            os.environ.get("YC_ID_NETWORK_NAME", "default"),
+            "--format",
+            "json",
+        )
+        subnet = read_json(
+            "yc",
+            "vpc",
+            "subnet",
+            "get",
+            "--name",
+            os.environ.get("YC_ID_CACHE_SUBNET_NAME", "default-ru-central1-a"),
+            "--format",
+            "json",
+        )
         if subnet["network_id"] != network["id"]:
             raise RuntimeError("Cache subnet must belong to the selected backend VPC")
         result.update(existing_network_id=network["id"], cache_subnet_id=subnet["id"])
+    result.update(overrides)
+    if manifest:
+        from yc_rollout import write_private
+
+        write_private(args.manifest, manifest)
     destination = Path(args.output)
     descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.chmod(destination, 0o600)
     with os.fdopen(descriptor, "w") as stream:
         json.dump(result, stream)
-    print(f"Preserved runtime configuration from revision {revision['id']}; secret values were not logged.")
+    print(
+        f"Preserved runtime configuration from revision {revision['id']}; secret values were not logged."
+    )
 
 
 if __name__ == "__main__":

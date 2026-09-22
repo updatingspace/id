@@ -76,7 +76,7 @@ locals {
   ) : key => value if key != "PORT" } # Injected by Serverless Containers.
 
   api_gateway_spec = templatefile("${path.module}/templates/api-gateway.openapi.yaml.tftpl", {
-    backend_container_id       = yandex_serverless_container.backend.id
+    backend_container_id       = local.backend_ids[var.rollout_active_slot]
     frontend_bucket            = local.frontend_bucket_name
     gateway_service_account_id = yandex_iam_service_account.gateway.id
   })

@@ -154,3 +154,51 @@ Cloudflare settings are outside this Terraform module. Check the actual
 cache headers after deployment: browser TTL rules can override origin TTL.
 Keep account/API/OAuth responses out of shared caches; do not enable a blanket
 Cache Everything rule. No CDN/DNS migration is performed by these changes.
+
+## Backend release slots
+
+The production workflow uses two private backend containers (`blue` and `green`).
+The original `yandex_serverless_container.backend` resource remains the blue
+slot; existing data, domains and resource identities are preserved. The gateway
+routes to one slot. Every release selects the other slot from the **live gateway
+specification**, including after a rollback, rather than trusting a stale output.
+
+The single release job keeps a private runtime snapshot and rollback files on its
+runner. It prepares the inactive slot, runs backward-compatible YDB migrations,
+builds the frontend, and saves the previous Object Storage `index.html`. It then
+waits for the candidate's prepared-capacity configuration to settle and checks
+`/readyz` and form-token issuance through the private container URL using the
+CI service account. Only a verified revision can receive public gateway traffic.
+The IAM token is never forwarded to a redirect or arbitrary host.
+
+The coordinator (`scripts/ci/yc_rollout.py`) validates each saved Terraform plan:
+
+- Preparation cannot update the serving container or gateway. Adding only
+  sensitive marks to identical, fully known values is allowed: Terraform 1.15.7
+  persists these marks in state without calling the provider. Removing marks
+  or changing any runtime value remains forbidden.
+- Promotion and rollback may change only the gateway specification.
+- Capacity cleanup may only remove the inactive slot's prepared capacity.
+- Deletion or replacement of persistent resources remains forbidden.
+
+After promotion, publication still uploads frontend dependencies before index.
+If publication or public smoke fails, the job restores the previous index and
+backend, then releases the failed candidate's prepared capacity. Database
+migrations are not reversed: releases must remain compatible with the previous
+backend during overlap and rollback. Schema removal requires a separate release
+following an expand/migrate/contract sequence.
+
+Successful public smoke is the release commit point. Failure to retire the old
+prepared capacity is reported as a failed job but does **not** roll traffic back
+to that old slot. Normal steady state has one prepared instance, with two during
+release overlap. Prepared capacity is billed, and scale-out can still cause cold
+starts. Readiness checks do not establish a user-visible 500 ms latency bound.
+
+For recovery, retain the private snapshot, release image tag and manifest from
+the same run while invoking coordinator phases. `rollback` is only valid before
+capacity retirement; `abort` requires the gateway to point to the original slot.
+A stopped runner or a manual gateway change requires inspecting live routing and
+revisions before recovery. Never publish manifests, tfvars, state or saved plans
+as CI artifacts. Do not run a bare production apply with default slot values;
+use the snapshot and guarded coordinator. Disabling `blue_green_enabled` after
+a green slot exists would propose deletion and is rejected by the plan guard.

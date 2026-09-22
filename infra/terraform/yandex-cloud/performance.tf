@@ -5,7 +5,7 @@ resource "random_password" "cache" {
 }
 
 data "yandex_iam_service_account" "deployer" {
-  count = var.enable_gravatar_job && var.deployment_service_account_name != "" ? 1 : 0
+  count = (var.enable_gravatar_job || var.blue_green_enabled) && var.deployment_service_account_name != "" ? 1 : 0
   name  = var.deployment_service_account_name
 }
 
@@ -173,7 +173,9 @@ resource "terraform_data" "existing_gateway_spec" {
   }
   depends_on = [
     data.yandex_serverless_container.deployed_backend,
+    data.yandex_serverless_container.deployed_green,
     yandex_serverless_container_iam_binding.gateway_backend_invoker,
+    yandex_serverless_container_iam_binding.gateway_green_invoker,
     yandex_storage_bucket_iam_binding.gateway_frontend_viewer,
   ]
 }
