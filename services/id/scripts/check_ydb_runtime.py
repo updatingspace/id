@@ -182,6 +182,24 @@ def main():
         assert response.status_code == 200, response.content.decode()[:400]
         assert EmailAddress.objects.get(email=email).verified
         assert "Email подтверждён" in mail.outbox[-1].subject
+
+        # YDB has no unique constraint on username. Legacy accounts sharing a
+        # username must still authenticate only with their own email/password.
+        other_password = "Local-only-Other-Password!789"
+        other_user = User.objects.create_user(
+            username="runtime-" + run_id,
+            email="other-" + run_id + "@example.com",
+            password=other_password,
+        )
+        EmailAddress.objects.create(
+            user=other_user, email=other_user.email, verified=True, primary=True
+        )
+        assert User.objects.filter(username=other_user.username).count() == 2
+        response = post(
+            "/api/v1/auth/login", {"email": email, "password": other_password}
+        )
+        assert response.status_code == 401, response.content.decode()[:400]
+        assert response.json()["code"] == "INVALID_CREDENTIALS"
         response = post("/api/v1/auth/login", {"email": email, "password": password})
         assert response.status_code == 200, response.content.decode()[:400]
         data = response.json()
@@ -232,8 +250,14 @@ def main():
             "/api/v1/auth/login", {"email": email, "password": new_password}
         )
         assert response.status_code == 200
+        response = post(
+            "/api/v1/auth/login",
+            {"email": other_user.email.upper(), "password": other_password},
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        assert response.json()["user"]["email"] == other_user.email
         print(
-            "YDB auth: concurrent IDs, rollback, signup, email verification, password recovery, session revocation, profile and avatar update passed"
+            "YDB auth: concurrent IDs, rollback, signup, email verification, duplicate usernames, password recovery, session revocation, profile and avatar update passed"
         )
     connections.close_all()
 

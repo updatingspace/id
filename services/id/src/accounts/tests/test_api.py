@@ -173,6 +173,58 @@ class AccountsApiTests(TestCase):
         body = resp.json()
         self.assertEqual(body.get("code"), "INVALID_CREDENTIALS")
 
+    def test_email_login_does_not_resolve_duplicate_legacy_username(self):
+        with patch.object(
+            User._default_manager,
+            "get_by_natural_key",
+            side_effect=User.MultipleObjectsReturned("Duplicate legacy username"),
+        ) as username_lookup:
+            token = self.login_and_get_token(email="  IVAN@example.com  ")
+        username_lookup.assert_not_called()
+        response = self.client.get("/api/v1/auth/me", HTTP_X_SESSION_TOKEN=token)
+        self.assertEqual(response.json()["user"]["email"], self.user.email)
+
+    def test_email_login_rejects_another_accounts_password(self):
+        other_password = "Another-Account-Password!456"
+        self._create_user("other", "other@example.com", other_password)
+        response = post_json(
+            self.client,
+            "/api/v1/auth/login",
+            {
+                "email": self.user.email,
+                "password": other_password,
+                "form_token": self._form_token(self.client, "login"),
+            },
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "INVALID_CREDENTIALS")
+        self.assertNotIn("X-Session-Token", response.headers)
+
+    def test_email_login_rejects_inactive_account(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        response = post_json(
+            self.client,
+            "/api/v1/auth/login",
+            {
+                "email": self.user.email,
+                "password": self.password,
+                "form_token": self._form_token(self.client, "login"),
+            },
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "INVALID_CREDENTIALS")
+        self.assertNotIn("X-Session-Token", response.headers)
+
+    def test_session_from_previous_auth_backend_remains_valid(self):
+        token = self.login_and_get_token()
+        session = self.client.session
+        session["_auth_user_backend"] = "django.contrib.auth.backends.ModelBackend"
+        session.save()
+        response = self.client.get("/api/v1/auth/me", HTTP_X_SESSION_TOKEN=token)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user"]["email"], self.user.email)
+
     def test_headless_login_requires_form_token(self):
         resp = post_json(
             self.client,

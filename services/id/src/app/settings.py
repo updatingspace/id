@@ -287,6 +287,12 @@ elif MEDIA_STORAGE_DRIVER != "local":
 
 SITE_ID = 1
 
+AUTHENTICATION_BACKENDS = [
+    "accounts.backends.EmailBackend",
+    # Retain username-based admin login and sessions issued by older releases.
+    "django.contrib.auth.backends.ModelBackend",
+]
+
 # Allauth settings (updated for allauth 0.60+)
 ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]

@@ -74,7 +74,7 @@ class HeadlessService:
             )
         user = authenticate(
             request,
-            username=getattr(user_obj, "username", ""),
+            email=email.strip(),
             password=password,
         )
         if not user:
