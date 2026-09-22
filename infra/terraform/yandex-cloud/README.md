@@ -107,11 +107,11 @@ capacity does not eliminate cold starts above that capacity.
 
 The checked-in `production.performance.tfvars` disables managed Redis to avoid
 the fixed host cost at the current traffic level. With YDB and no `REDIS_URL`,
-the backend retains its existing file cache. It is shared by workers in one
-container, but not across instances and does not survive replacement. Prepared
-capacity is not an instance limit. Form tokens and rate limits therefore need
-a shared store before relying on multiple instances; the existing YDB is a
-candidate, but requires implementation and concurrency testing.
+the backend uses the existing serverless YDB for shared transient state.
+Terraform creates `id_shared_cache` with automatic TTL cleanup. Form tokens
+are consumed atomically and rate-limit increments use serializable transactions
+across container instances. Prepared capacity is not an instance limit.
+This adds database requests/storage without a dedicated cache host.
 
 The optional managed cache configuration is not part of the production rollout.
 Enabling it requires an explicit cost decision, `enable_shared_cache = true`,

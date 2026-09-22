@@ -201,8 +201,8 @@ if REDIS_URL:
 elif DB_DRIVER == "ydb":
     CACHES = {
         "default": {
-            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
-            "LOCATION": read_env("YDB_CACHE_DIR", "/tmp/updspace-id-cache"),
+            "BACKEND": "core.ydb_cache.YDBCache",
+            "LOCATION": read_env("YDB_CACHE_TABLE", "id_shared_cache"),
         }
     }
 else:

@@ -163,6 +163,15 @@ def signup(request, payload: SignupIn = REQUIRED_BODY):
         identifiers.append(f"email:{payload.email.strip().lower()}")
     RateLimitService.reset("register", identifiers)
 
+    if not getattr(request.user, "is_authenticated", False):
+        # Mandatory email verification creates the account but deliberately
+        # does not authenticate it. Never issue JWTs for this pending login.
+        return Response(
+            {"meta": {"session_token": ""}, "verification_required": True},
+            status=201,
+            headers={"Cache-Control": "no-store"},
+        )
+
     token_pair = AuthService.issue_pair_for_session(request, request.user)
     return Response(
         {

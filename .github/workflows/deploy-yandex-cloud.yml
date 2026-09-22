@@ -318,14 +318,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e .
+          pip install uv==0.8.5
+          uv sync --frozen --no-dev
       - name: Run migrate_ydb
-        run: python src/manage.py migrate_ydb
+        run: uv run --frozen python src/manage.py migrate_ydb
       - name: Run setup_db
-        run: python src/manage.py setup_db --skip-migrate
+        run: uv run --frozen python src/manage.py setup_db --skip-migrate
       - name: Configure Portal OIDC client
         run: |
-          python src/manage.py setup_portal_client \
+          uv run --frozen python src/manage.py setup_portal_client \
             --client-id "$PORTAL_OIDC_CLIENT_ID" \
             --secret "$PORTAL_OIDC_CLIENT_SECRET" \
             --site-domain id.updspace.com \

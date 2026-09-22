@@ -57,4 +57,5 @@ if [[ "${me_cache}" != *no-store* ]]; then
   exit 1
 fi
 
+python3 "$(dirname "$0")/smoke-yc-auth.py"
 echo "YC gateway smoke checks passed for ${base_url}"

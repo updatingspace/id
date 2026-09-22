@@ -45,6 +45,27 @@ def patch_json(client: Client, path: str, payload: dict, *, token: str | None = 
 
 
 class AccountsApiTests(TestCase):
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_signup_pending_email_verification_does_not_issue_jwt(self):
+        response = post_json(
+            self.client,
+            "/api/v1/auth/signup",
+            {
+                "email": "pending@example.com",
+                "username": "pending",
+                "password": "StrongSignupPass123!",
+                "consent_data_processing": True,
+                "form_token": self._form_token(self.client, "register"),
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()["verification_required"])
+        self.assertEqual(response.json()["meta"]["session_token"], "")
+        self.assertFalse(response.json().get("access_token"))
+        self.assertNotIn("X-Session-Token", response.headers)
+        self.assertTrue(User.objects.filter(email="pending@example.com").exists())
+        self.assertFalse(EmailAddress.objects.get(email="pending@example.com").verified)
+
     def setUp(self):
         self.client = Client()
         self.password = "StrongPass123!"

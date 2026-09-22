@@ -28,6 +28,7 @@ type OidcPrepareResponse = {
 };
 type SessionMeta = { session_token?: string };
 type HeadlessAuthResponse = {
+  verification_required?: boolean;
   ok?: boolean;
   code?: string;
   message?: string;

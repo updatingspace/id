@@ -4,6 +4,7 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/src
+ENV PATH="/app/.venv/bin:$PATH"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -16,9 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY certs/YandexInternalRootCA.crt /usr/local/share/ca-certificates/YandexInternalRootCA.crt
 RUN update-ca-certificates
 
-COPY pyproject.toml .
+COPY pyproject.toml uv.lock ./
 COPY src/ src/
-RUN pip install --upgrade pip && pip install "pillow>=10.0.0" && pip install .
+RUN pip install --no-cache-dir uv==0.8.5 && uv sync --frozen --no-dev --no-editable
 
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser

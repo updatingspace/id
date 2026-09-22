@@ -21,6 +21,7 @@ export type AuthUser = {
 
 export type AuthResult = {
   ok: boolean;
+  verificationRequired?: boolean;
   code?: string;
   message?: string;
   recoveryCodes?: string[];
@@ -187,6 +188,9 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
         birth_date: payload.birthDate,
       });
 
+      if (response.verification_required) {
+        return { ok: true, verificationRequired: true };
+      }
       await acceptSession(response);
       return { ok: true };
     } catch (err) {

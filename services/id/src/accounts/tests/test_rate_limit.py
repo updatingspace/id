@@ -15,6 +15,24 @@ from accounts.services.rate_limit import (
 
 
 class RateLimitServiceTests(TestCase):
+    def test_shared_cache_uses_atomic_window_update(self):
+        def update_atomic(key, advance):
+            value, ttl = advance({"count": 5, "reset_at": 160})
+            self.assertEqual(key, "shared")
+            self.assertEqual(ttl, 60)
+            return value
+
+        with (
+            patch(
+                "accounts.services.rate_limit.cache",
+                SimpleNamespace(update_atomic=update_atomic),
+            ),
+            patch("accounts.services.rate_limit.time.time", return_value=100),
+        ):
+            result = RateLimitService._increment("shared", limit=5, window_sec=60)
+        self.assertTrue(result.blocked)
+        self.assertEqual(result.retry_after, 60)
+
     def setUp(self):
         cache.clear()
 

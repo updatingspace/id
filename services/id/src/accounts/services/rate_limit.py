@@ -47,15 +47,24 @@ class RateLimitService:
 
     @classmethod
     def _increment(cls, key: str, *, limit: int, window_sec: int) -> RateLimitDecision:
+        def advance(current):
+            now = int(time.time())
+            current = current or {}
+            count = int(current.get("count", 0)) + 1
+            reset_at = int(current.get("reset_at", now + window_sec))
+            if reset_at <= now:
+                reset_at = now + window_sec
+                count = 1
+            return {"count": count, "reset_at": reset_at}, max(reset_at - now, 1)
+
+        update_atomic = getattr(cache, "update_atomic", None)
+        if callable(update_atomic):
+            cached = update_atomic(key, advance)
+        else:
+            cached, ttl = advance(cache.get(key))
+            cache.set(key, cached, ttl)
+        count, reset_at = cached["count"], cached["reset_at"]
         now = int(time.time())
-        cached = cache.get(key) or {}
-        count = int(cached.get("count", 0)) + 1
-        reset_at = int(cached.get("reset_at", now + window_sec))
-        if reset_at <= now:
-            reset_at = now + window_sec
-            count = 1
-        ttl = max(reset_at - now, 1)
-        cache.set(key, {"count": count, "reset_at": reset_at}, ttl)
         blocked = count > limit
         retry_after = max(reset_at - now, 0) if blocked else None
         remaining = max(limit - count, 0) if not blocked else 0

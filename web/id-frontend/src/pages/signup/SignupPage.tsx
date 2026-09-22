@@ -33,6 +33,7 @@ const SignupPage = () => {
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [verificationRequired, setVerificationRequired] = useState(false);
 
   const getErrorMessage = (code?: string, message?: string): string => {
     if (code) {
@@ -68,8 +69,22 @@ const SignupPage = () => {
       return;
     }
 
+    if (res.verificationRequired) {
+      setVerificationRequired(true);
+      return;
+    }
     navigate('/account');
   };
+
+  if (verificationRequired) {
+    return (
+      <div className="auth-panel" role="status">
+        <h2>{t('signup.verifyTitle')}</h2>
+        <p>{t('signup.verifyMessage')}</p>
+        <Link to="/login">{t('nav.login')}</Link>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-grid">

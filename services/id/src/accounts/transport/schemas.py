@@ -235,6 +235,7 @@ class LoginOut(Schema):
     access_token: str | None = None
     refresh_token: str | None = None
     recovery_codes: list[str] | None = None
+    verification_required: bool = False
 
 
 class LoginIn(Schema):

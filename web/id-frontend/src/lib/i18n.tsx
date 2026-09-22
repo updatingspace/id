@@ -35,6 +35,8 @@ const RU: Record<string, string> = {
   'login.mfa': 'Код MFA',
   'login.recovery': 'Резервный код',
   'signup.title': 'Регистрация',
+  'signup.verifyTitle': 'Подтвердите email',
+  'signup.verifyMessage': 'Аккаунт создан. Перейдите по ссылке в письме, затем войдите в аккаунт.',
   'signup.subtitle': 'Создайте новый аккаунт.',
   'signup.username': 'Имя пользователя',
   'signup.email': 'Email',
@@ -118,6 +120,8 @@ const RU: Record<string, string> = {
 };
 
 const EN: Record<string, string> = {
+  'signup.verifyTitle': 'Verify your email',
+  'signup.verifyMessage': 'Your account is created. Follow the link in the email, then sign in.',
   'common.retry': 'Retry',
   'auth.sessionUnavailable': 'Unable to verify your session. Try again or sign in.',
   'error.pageUnavailable': 'Unable to load this page. Try reloading it.',

@@ -236,6 +236,19 @@ describe('AuthProvider', () => {
     });
   });
 
+  it('does not restore a session while signup awaits email verification', async () => {
+    vi.mocked(api.getFormToken).mockResolvedValue({ form_token: 'ft', expires_in: 900 });
+    vi.mocked(api.signup).mockResolvedValue({ meta: { session_token: '' }, verification_required: true });
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await act(async () => {
+      expect(await result.current.signup({ email: 'new@example.com', password: 'password' }))
+        .toEqual({ ok: true, verificationRequired: true });
+    });
+    expect(setSessionToken).not.toHaveBeenCalled();
+    expect(api.profile).not.toHaveBeenCalled();
+    expect(result.current.user).toBeNull();
+  });
+
   it.each(['login', 'signup'] as const)('uses the profile returned by %s without another /me request', async (method) => {
     vi.mocked(api.getFormToken).mockResolvedValue({ form_token: 'ft', expires_in: 900 });
     const response = { meta: { session_token: 'new-session' }, user: { email: 'new@example.com' } };

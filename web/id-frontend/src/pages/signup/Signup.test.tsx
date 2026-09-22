@@ -30,6 +30,17 @@ const renderPage = (signup = vi.fn().mockResolvedValue({ ok: true })) => {
 };
 
 describe('SignupPage', () => {
+  it('shows email confirmation after an account is created without a session', async () => {
+    renderPage(vi.fn().mockResolvedValue({ ok: true, verificationRequired: true }));
+    await userEvent.type(screen.getByLabelText('Email'), 'new@example.com');
+    await userEvent.type(screen.getByLabelText('Пароль'), 'super-secret');
+    await userEvent.click(screen.getByLabelText('Согласие на обработку данных'));
+    await userEvent.click(screen.getByRole('button', { name: 'Зарегистрироваться' }));
+    expect(await screen.findByRole('heading', { name: 'Подтвердите email' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Войти' })).toHaveAttribute('href', '/login');
+    expect(screen.queryByRole('button', { name: 'Зарегистрироваться' })).not.toBeInTheDocument();
+  });
+
   it('keeps submit button disabled until consent to data processing is checked', async () => {
     renderPage();
     const submit = screen.getByRole('button', { name: 'Зарегистрироваться' });

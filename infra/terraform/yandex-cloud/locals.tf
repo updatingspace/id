@@ -69,7 +69,10 @@ locals {
     },
     var.live_service_environment,
     var.service_environment,
-    { BUILD_ID = var.container_image_tag },
+    {
+      BUILD_ID        = var.container_image_tag
+      YDB_CACHE_TABLE = yandex_ydb_table.cache.path
+    },
   ) : key => value if key != "PORT" } # Injected by Serverless Containers.
 
   api_gateway_spec = templatefile("${path.module}/templates/api-gateway.openapi.yaml.tftpl", {

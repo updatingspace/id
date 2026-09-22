@@ -87,7 +87,9 @@ class FormTokenService:
     ) -> None:
         if not token:
             raise _invalid_token_error()
-        stored = cache.get(FormTokenService._key(token))
+        take = getattr(cache, "take", None)
+        read = take if callable(take) else cache.get
+        stored = read(FormTokenService._key(token))
         if not stored or stored.get("purpose") != purpose:
             logger.info(
                 "Form token rejected",
@@ -113,11 +115,12 @@ class FormTokenService:
                 extra={"purpose": purpose, "client_ip": client_ip},
             )
             raise _invalid_token_error()
-        cache.set(
-            FormTokenService._key(token),
-            {**stored, "used": True},
-            max(stored.get("expires_at", now) - now, 1),
-        )
+        if not callable(take):
+            cache.set(
+                FormTokenService._key(token),
+                {**stored, "used": True},
+                max(stored.get("expires_at", now) - now, 1),
+            )
         logger.debug(
             "Form token consumed",
             extra={"purpose": purpose, "client_ip": client_ip},
