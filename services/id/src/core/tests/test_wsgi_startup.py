@@ -22,7 +22,7 @@ with patch.object(BaseDatabaseWrapper, 'ensure_connection', side_effect=Assertio
 
     assert 'app.urls' in sys.modules, 'routes must be ready before requests arrive'
     factory = RequestFactory()
-    for path, expected in [('/healthz', {'status': 'alive'}), ('/api/v1/auth/me', {'user': None})]:
+    for path, expected in [('/healthz', {'status': 'alive'}), ('/api/v1/auth/me', {'user': None}), ('/api/v1/auth/timezones', None)]:
         status_headers = []
         def start_response(status, headers):
             status_headers.append((status, dict(headers)))
@@ -33,7 +33,10 @@ with patch.object(BaseDatabaseWrapper, 'ensure_connection', side_effect=Assertio
             response.close()
         status, headers = status_headers[0]
         assert status.startswith('200 '), status
-        assert payload == expected, payload
+        if expected is None:
+            assert len(payload['timezones']) > 300
+        else:
+            assert payload == expected, payload
         if path.endswith('/me'):
             assert headers['Cache-Control'] == 'private, no-store'
 print('worker startup and public requests passed')
