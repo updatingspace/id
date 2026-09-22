@@ -26,7 +26,13 @@ export const EmailRequestForm = ({ verification = false }: { verification?: bool
     }
   };
   return (
-    <form onSubmit={submit} className="form-stack" aria-busy={loading}>
+    <form
+      onSubmit={submit}
+      onFocusCapture={() => api.prefetchFormToken(verification ? 'email_verification' : 'password_reset')}
+      onChangeCapture={() => api.prefetchFormToken(verification ? 'email_verification' : 'password_reset')}
+      className="form-stack"
+      aria-busy={loading}
+    >
       <label>
         <span>{t('login.email')}</span>
         <input type="email" autoComplete="email" required maxLength={254} value={email}

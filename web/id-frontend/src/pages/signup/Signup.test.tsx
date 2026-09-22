@@ -7,6 +7,8 @@ import SignupPage from './SignupPage';
 import { AuthContext } from '../../lib/auth';
 import { I18nProvider } from '../../lib/i18n';
 
+vi.mock('../../lib/api', () => ({ api: { prefetchFormToken: vi.fn() } }));
+
 const renderPage = (signup = vi.fn().mockResolvedValue({ ok: true })) => {
   render(
     <MemoryRouter>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../lib/auth';
+import { api } from '../../lib/api';
 import { useI18n } from '../../lib/i18n';
 
 const SignupPage = () => {
@@ -93,7 +94,12 @@ const SignupPage = () => {
         <h2>{t('signup.title')}</h2>
         <p className="muted">{t('signup.subtitle')}</p>
 
-        <form onSubmit={submit} className="form-stack">
+        <form
+          onSubmit={submit}
+          onFocusCapture={() => api.prefetchFormToken('register')}
+          onChangeCapture={() => api.prefetchFormToken('register')}
+          className="form-stack"
+        >
           <label>
             <span>{t('signup.username')}</span>
             <input value={username} onChange={(e) => setUsername(e.target.value)} type="text" />

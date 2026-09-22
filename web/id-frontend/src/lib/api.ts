@@ -15,9 +15,9 @@ import type {
   TotpConfirmResponse,
 } from '../pages/account/model/types';
 import { getSessionToken } from './session';
+import { createFormTokenStore, type FormToken } from './formTokens';
 
 type ApiError = Error & { code?: string; status?: number };
-type FormTokenPurpose = 'login' | 'register' | 'password_reset' | 'email_verification';
 type OidcScope = { name: string; description: string; required: boolean; granted: boolean };
 type OidcPrepareResponse = {
   request_id: string;
@@ -143,12 +143,16 @@ const patch = <T>(path: string, body?: unknown) =>
 const del = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'DELETE', body: body === undefined ? undefined : JSON.stringify(body) });
 
+const formTokens = createFormTokenStore((purpose) =>
+  request<FormToken>(withQuery(`${API_BASE}/auth/form_token`, { purpose })),
+);
+
 export const api = {
   getOAuthProviders: () => request<{ providers: ProviderRow[] }>(`${API_BASE}/auth/oauth/providers`).catch(() => ({ providers: [] })),
   getOAuthLoginUrl: (providerId: string, next?: string) =>
     request<OAuthLinkResponse>(withQuery(`${API_BASE}/auth/oauth/login/${providerId}`, { next })),
-  getFormToken: (purpose: FormTokenPurpose) =>
-    request<{ form_token: string; expires_in: number }>(withQuery(`${API_BASE}/auth/form_token`, { purpose })),
+  prefetchFormToken: formTokens.prefetch,
+  getFormToken: formTokens.take,
 
   passkeyLoginBegin: () => post<{ request_options: Record<string, unknown> }>(`${API_BASE}/auth/passkeys/login/begin`),
   passkeyLoginComplete: (credential: unknown) =>
