@@ -37,7 +37,7 @@ resource "yandex_mdb_redis_cluster" "cache" {
   config {
     password         = random_password.cache[0].result
     version          = "7.2"
-    maxmemory_policy = "noeviction"
+    maxmemory_policy = "NOEVICTION"
   }
   resources {
     resource_preset_id = "b3-c1-m4"
