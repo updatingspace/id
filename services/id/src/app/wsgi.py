@@ -1,21 +1,10 @@
-import os
-
 from django.core.wsgi import get_wsgi_application
-from django.urls import get_resolver
 
+from app.startup import prepare_application
+from core.telemetry import configure_telemetry
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "app.settings")
-
+prepare_application()
+# Create exporters only in the serving process, after Gunicorn forks. Instrument
+# Django before constructing its handler so tracing middleware is installed.
+configure_telemetry()
 application = get_wsgi_application()
-
-# Django normally imports the URL tree on the first request in each worker.
-# Resolve it during worker initialization so prepared instances have their API
-# schemas, routes and telemetry setup loaded before serving account requests.
-# Keep Gunicorn's per-worker loading: preloading the master could fork SDK threads.
-get_resolver().url_patterns
-
-# Service packages import models, so import only after Django is initialized.
-from accounts.services.timezone import TimezoneService  # noqa: E402
-
-# Load timezone definitions during preparation, without any network/DB access.
-TimezoneService.get_all_timezones()

@@ -19,11 +19,9 @@ from core.health import (
     set_service_start_time,
 )
 from core.logging_config import configure_logging, sanitize_log_data
-from core.telemetry import configure_telemetry
 
 # Initialize production logging
 configure_logging()
-configure_telemetry()
 
 # Track service startup time
 set_service_start_time()

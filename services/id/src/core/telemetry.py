@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from importlib import import_module
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -17,6 +18,26 @@ from django.http import HttpRequest
 logger = logging.getLogger(__name__)
 
 _configured = False
+
+
+def prepare_telemetry_dependencies() -> None:
+    """Import SDK code before fork without starting exporters or persistent threads."""
+    if not getattr(settings, "OTEL_ENABLED", False):
+        return
+    try:
+        for module in (
+            "opentelemetry.trace",
+            "opentelemetry.exporter.otlp.proto.grpc.trace_exporter",
+            "opentelemetry.instrumentation.django",
+            "opentelemetry.instrumentation.requests",
+            "opentelemetry.sdk.resources",
+            "opentelemetry.sdk.trace",
+            "opentelemetry.sdk.trace.export",
+        ):
+            import_module(module)
+    except Exception:
+        # Telemetry remains optional, just as in configure_telemetry().
+        logger.exception("OpenTelemetry dependencies could not be prepared")
 
 
 def configure_telemetry() -> None:
