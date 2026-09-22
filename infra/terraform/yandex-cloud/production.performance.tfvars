@@ -9,3 +9,6 @@ deployment_service_account_name = "updspace-id-github-actions"
 
 # Prepare the inactive backend before switching public routes.
 blue_green_enabled = true
+
+# Canonical Go duration avoids a perpetual framework-provider diff (same 7 days).
+log_retention_period = "168h0m0s"

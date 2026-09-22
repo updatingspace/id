@@ -204,3 +204,12 @@ revisions before recovery. Never publish manifests, tfvars, state or saved plans
 as CI artifacts. Do not run a bare production apply with default slot values;
 use the snapshot and guarded coordinator. Disabling `blue_green_enabled` after
 a green slot exists would propose deletion and is rejected by the plan guard.
+
+Before the first two-slot release, the cloud needs one additional container slot
+and capacity for two prepared instances during overlap. Container quotas are
+shared with other services in the cloud. A quota failure before candidate
+creation leaves public routing unchanged; cleanup can resolve partial Terraform
+state even when the new slot outputs have not yet been saved. CI reports only
+a fixed error category, keeping raw provider diagnostics private. The production
+log retention is the canonical `168h0m0s` (the same seven days), avoiding a
+framework-provider duration-normalization diff during promotion.
