@@ -151,6 +151,7 @@ resource "yandex_function_trigger" "gravatar" {
   depends_on = [
     yandex_serverless_container_iam_binding.gravatar_invoker,
     yandex_resourcemanager_folder_iam_member.deployer_trigger_editor,
+    data.yandex_serverless_container.deployed_gravatar,
   ]
 }
 
@@ -171,7 +172,7 @@ resource "terraform_data" "existing_gateway_spec" {
     }
   }
   depends_on = [
-    yandex_serverless_container.backend,
+    data.yandex_serverless_container.deployed_backend,
     yandex_serverless_container_iam_binding.gateway_backend_invoker,
     yandex_storage_bucket_iam_binding.gateway_frontend_viewer,
   ]

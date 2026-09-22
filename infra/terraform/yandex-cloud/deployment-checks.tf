@@ -1,0 +1,36 @@
+# The provider reports failed revision deployments as warnings. Read the cloud
+# again after each update, rather than trusting proposed resource state.
+data "yandex_serverless_container" "deployed_backend" {
+  container_id = yandex_serverless_container.backend.id
+  depends_on   = [yandex_serverless_container.backend]
+
+  lifecycle {
+    postcondition {
+      condition = try(
+        self.revision_id != null && self.revision_id != "" &&
+        self.image[0].url == "cr.yandex/${local.container_registry_id}/updatingspace-id-backend:${var.container_image_tag}" &&
+        tomap(self.image[0].environment) == tomap(local.backend_env),
+        false,
+      )
+      error_message = "YC did not deploy the requested backend revision. Inspect deployment warnings; an apply with only the previous revision is not successful."
+    }
+  }
+}
+
+data "yandex_serverless_container" "deployed_gravatar" {
+  count        = var.enable_gravatar_job ? 1 : 0
+  container_id = yandex_serverless_container.gravatar[0].id
+  depends_on   = [yandex_serverless_container.gravatar]
+
+  lifecycle {
+    postcondition {
+      condition = try(
+        self.revision_id != null && self.revision_id != "" &&
+        self.image[0].url == "cr.yandex/${local.container_registry_id}/updatingspace-id-backend:${var.container_image_tag}" &&
+        tomap(self.image[0].environment) == tomap(merge(local.backend_env, { GRAVATAR_BATCH_LIMIT = "25" })),
+        false,
+      )
+      error_message = "YC did not deploy the requested Gravatar revision. Inspect deployment warnings before enabling the timer."
+    }
+  }
+}

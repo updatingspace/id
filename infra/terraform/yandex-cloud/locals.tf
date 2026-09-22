@@ -32,7 +32,7 @@ locals {
 
   default_from_domain = var.public_domain != "" ? var.public_domain : "id.localhost"
 
-  backend_env = merge(
+  backend_env = { for key, value in merge(
     {
       BUILD_ID                    = var.container_image_tag
       CORS_ALLOWED_ORIGINS        = local.public_base_url
@@ -57,7 +57,6 @@ locals {
       OTEL_EXPORTER_OTLP_ENDPOINT = "ingest.monium.yandex.cloud:443"
       OTEL_TRACES_SAMPLER         = "parentbased_traceidratio"
       OTEL_TRACES_SAMPLER_ARG     = "0.1"
-      PORT                        = "8080"
       S3_BUCKET_NAME              = local.media_bucket_name
       S3_ENDPOINT_URL             = "https://storage.yandexcloud.net"
       S3_REGION                   = var.region
@@ -71,7 +70,7 @@ locals {
     var.live_service_environment,
     var.service_environment,
     { BUILD_ID = var.container_image_tag },
-  )
+  ) : key => value if key != "PORT" } # Injected by Serverless Containers.
 
   api_gateway_spec = templatefile("${path.module}/templates/api-gateway.openapi.yaml.tftpl", {
     backend_container_id       = yandex_serverless_container.backend.id
