@@ -208,6 +208,34 @@ def main():
             "/api/v1/auth/me", HTTP_X_SESSION_TOKEN=data["meta"]["session_token"]
         )
         assert response.status_code == 200 and response.json()["user"]["email"] == email
+        from accounts.models import DataExportRequest, UserConsent
+
+        owner = User.objects.get(email=email)
+        UserConsent.objects.create(user=owner, kind="export-check", version="owner")
+        UserConsent.objects.create(
+            user=other_user, kind="export-check", version="other-user"
+        )
+        response = client.post(
+            "/api/v1/auth/data/export",
+            data=json.dumps({"password": password}),
+            content_type="application/json",
+            HTTP_X_SESSION_TOKEN=data["meta"]["session_token"],
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        exported = response.json()["payload"]
+        assert exported["user"]["email"] == email
+        assert "owner" in [item["version"] for item in exported["consents"]]
+        assert "other-user" not in [item["version"] for item in exported["consents"]]
+        for collection, field in [
+            ("consents", "granted_at"),
+            ("login_events", "created_at"),
+        ]:
+            values = [item[field] for item in exported[collection]]
+            assert values == sorted(values, reverse=True)
+        assert (
+            DataExportRequest.objects.get(user=owner).status
+            == DataExportRequest.Status.READY
+        )
         from accounts.models import UserProfile
 
         profile = UserProfile.objects.get(user=User.objects.get(email=email))
@@ -250,14 +278,45 @@ def main():
             "/api/v1/auth/login", {"email": email, "password": new_password}
         )
         assert response.status_code == 200
+        client = Client()
         response = post(
             "/api/v1/auth/login",
             {"email": other_user.email.upper(), "password": other_password},
         )
         assert response.status_code == 200, response.content.decode()[:400]
         assert response.json()["user"]["email"] == other_user.email
+        from accounts.tests.webauthn_helpers import VirtualPasskey
+
+        other_token = response.json()["meta"]["session_token"]
+        response = client.post(
+            "/api/v1/auth/passkeys/begin",
+            data=json.dumps({"passwordless": True}),
+            content_type="application/json",
+            HTTP_X_SESSION_TOKEN=other_token,
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        key = VirtualPasskey()
+        credential = key.register(response.json()["creation_options"]["publicKey"])
+        response = client.post(
+            "/api/v1/auth/passkeys/complete",
+            data=json.dumps({"name": "Runtime passkey", "credential": credential}),
+            content_type="application/json",
+            HTTP_X_SESSION_TOKEN=other_token,
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        assert response.json()["authenticator"]["is_passwordless"]
+        passkey_client = Client()
+        response = passkey_client.post("/api/v1/auth/passkeys/login/begin")
+        assertion = key.authenticate(response.json()["request_options"]["publicKey"])
+        response = passkey_client.post(
+            "/api/v1/auth/passkeys/login/complete",
+            data=json.dumps({"credential": assertion}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        assert response.json()["user"]["email"] == other_user.email
         print(
-            "YDB auth: concurrent IDs, rollback, signup, email verification, duplicate usernames, password recovery, session revocation, profile and avatar update passed"
+            "YDB auth: concurrent IDs, rollback, signup, email verification, duplicate usernames, password recovery, session revocation, profile, export and passkeys passed"
         )
     connections.close_all()
 

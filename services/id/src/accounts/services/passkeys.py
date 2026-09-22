@@ -9,6 +9,7 @@ from allauth.core import context
 from allauth.core.exceptions import ReauthenticationRequired
 from django.conf import settings
 from django.contrib.auth import login as dj_login
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from ninja.errors import HttpError
 
@@ -84,10 +85,33 @@ class PasskeyService:
     @staticmethod
     def complete_registration(request, name: str, credential: dict):
         _Authenticator, _webauthn_auth, flows = _passkeys_imports()
+        from allauth.account.internal.flows.reauthentication import (
+            raise_if_reauthentication_required,
+        )
+        from allauth.mfa.webauthn.forms import AddWebAuthnForm
+
         try:
             with context.request_context(request):
+                raise_if_reauthentication_required(request)
+                form = AddWebAuthnForm(
+                    user=request.user, data={"name": name, "credential": credential}
+                )
+                try:
+                    valid = form.is_valid()
+                except (ValueError, TypeError):
+                    valid = False
+                if not valid:
+                    raise HttpError(
+                        400,
+                        {
+                            "code": "INVALID_PASSKEY",
+                            "message": "Не удалось проверить Passkey. Повторите добавление ключа.",
+                        },
+                    )
                 auth, rc = flows.add_authenticator(
-                    request, name=name, credential=credential
+                    request,
+                    name=form.cleaned_data["name"],
+                    credential=form.cleaned_data["credential"],
                 )
                 logger.info(
                     "Passkey registration completed",
@@ -173,8 +197,20 @@ class PasskeyService:
     def complete_login(request, credential: dict):
         _Authenticator, webauthn_auth, _flows = _passkeys_imports()
         with context.request_context(request):
-            user = webauthn_auth.extract_user_from_response(credential)
-            authenticator = webauthn_auth.complete_authentication(user, credential)
+            try:
+                webauthn_auth.parse_authentication_response(credential)
+                user = webauthn_auth.extract_user_from_response(credential)
+                if not user.is_active:
+                    raise ValidationError("inactive account")
+                authenticator = webauthn_auth.complete_authentication(user, credential)
+            except (ValidationError, ValueError, TypeError) as err:
+                raise HttpError(
+                    400,
+                    {
+                        "code": "INVALID_PASSKEY",
+                        "message": "Не удалось войти с Passkey. Повторите попытку.",
+                    },
+                ) from err
             record_authentication(
                 request,
                 user,

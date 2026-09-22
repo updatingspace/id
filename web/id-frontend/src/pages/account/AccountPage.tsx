@@ -131,13 +131,17 @@ const AccountPage = () => {
     setMessage(null);
     setError(null);
     try {
-      const begin = await api.passkeysBegin(false);
+      const begin = await api.passkeysBegin(true);
       const publicKey = mapCreationOptions(begin.creation_options);
       const credential = (await navigator.credentials.create({ publicKey })) as PublicKeyCredential;
+      if (!credential) return;
       const serialized = serializeCredential(credential);
       const name = window.prompt('Название Passkey', 'Passkey') || 'Passkey';
-      await api.passkeysComplete(name, serialized);
-      await q.passkeys.refetch();
+      const result = await api.passkeysComplete(name, serialized);
+      if (result.recovery_codes?.length) {
+        window.alert(`Сохраните резервные коды:\n${result.recovery_codes.join('\n')}`);
+      }
+      await Promise.all([q.passkeys.refetch(), q.mfa.refetch()]);
       setMessage('Passkey добавлен');
     } catch (err: unknown) {
       setError(toErrorMessage(err, 'Не удалось добавить Passkey'));

@@ -3,10 +3,11 @@ from datetime import datetime, timezone
 import ydb
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
-from django.db.models import Value
+from django.db.models import F, Value
 from django.db.models.sql import UpdateQuery
 
 from app.cloud_runtime import _patch_ydb_query_parameters
+from accounts.models import UserConsent
 
 
 def _compiler(query):
@@ -71,3 +72,27 @@ def test_email_address_update_uses_referenced_user_id_type():
     assert "`user_id` = $element_1" in sql
     assert params["$element_1"] == (123, ydb.PrimitiveType.Int32)
     assert params["$element_2"] == (True, ydb.PrimitiveType.Bool)
+
+
+def test_projected_export_fields_order_by_alias_instead_of_position():
+    query = (
+        UserConsent.objects.filter(user_id=42)
+        .order_by("-granted_at")
+        .values("kind", "version", "granted_at")[:200]
+        .query
+    )
+    sql, _ = _compiler(query).as_sql()
+    assert "ORDER BY `granted_at` DESC" in sql
+    assert "ORDER BY 3" not in sql
+    assert "LIMIT 200" in sql
+
+
+def test_expression_ordering_uses_selected_alias():
+    query = (
+        UserConsent.objects.annotate(recorded=F("granted_at"))
+        .values("kind", "recorded")
+        .order_by(F("recorded").asc())
+        .query
+    )
+    sql, _ = _compiler(query).as_sql()
+    assert "ORDER BY `recorded` ASC" in sql
