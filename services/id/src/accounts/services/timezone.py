@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from functools import lru_cache
 
 import pytz
 
@@ -24,52 +25,42 @@ class TimezoneInfo:
     offset_seconds: int
 
 
+@lru_cache(maxsize=1)
+def _timezones_at_minute(instant: datetime) -> tuple[TimezoneInfo, ...]:
+    """Cache only public metadata; replace the entry every UTC minute for DST."""
+    result = []
+    for name in pytz.common_timezones:
+        tz = pytz.timezone(name)
+        # Convert one real instant to each zone. Localizing naive wall time can
+        # omit zones during a DST gap/fold or calculate the wrong current offset.
+        offset = instant.astimezone(tz).utcoffset()
+        if offset is None:
+            continue
+        seconds = int(offset.total_seconds())
+        hours, remainder = divmod(abs(seconds), 3600)
+        minutes = remainder // 60
+        sign = "-" if seconds < 0 else "+"
+        text = f"{sign}{hours:02d}:{minutes:02d}"
+        result.append(
+            TimezoneInfo(
+                name=name,
+                display_name=f"{name} (UTC{text})",
+                offset=text,
+                offset_seconds=seconds,
+            )
+        )
+    return tuple(sorted(result, key=lambda item: (item.offset_seconds, item.name)))
+
+
 @dataclass(slots=True)
 class TimezoneService:
     """Service for managing timezone operations."""
 
     @staticmethod
     def get_all_timezones() -> list[TimezoneInfo]:
-        """
-        Get all available timezones with their display information.
-        Returns a list sorted by offset and then by name.
-        """
-        # Use naive datetime for pytz offset calculation
-        now = datetime.now()
-        timezones_info = []
-
-        for tz_name in pytz.common_timezones:
-            try:
-                tz = pytz.timezone(tz_name)
-                offset = tz.utcoffset(now)
-                if offset is None:
-                    continue
-
-                offset_seconds = int(offset.total_seconds())
-                offset_hours = offset_seconds // 3600
-                offset_minutes = abs(offset_seconds % 3600) // 60
-
-                # Format offset as "+HH:MM" or "-HH:MM"
-                offset_str = f"{offset_hours:+03d}:{offset_minutes:02d}"
-
-                # Create display name: "Europe/Moscow (UTC+03:00)"
-                display_name = f"{tz_name} (UTC{offset_str})"
-
-                timezones_info.append(
-                    TimezoneInfo(
-                        name=tz_name,
-                        display_name=display_name,
-                        offset=offset_str,
-                        offset_seconds=offset_seconds,
-                    )
-                )
-            except Exception as e:
-                logger.warning(f"Failed to process timezone {tz_name}: {e}")
-                continue
-
-        # Sort by offset first, then by name
-        timezones_info.sort(key=lambda x: (x.offset_seconds, x.name))
-        return timezones_info
+        instant = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        # Return a new list so callers cannot mutate the cached ordering.
+        return list(_timezones_at_minute(instant))
 
     @staticmethod
     def validate_timezone(timezone_name: str | None) -> bool:

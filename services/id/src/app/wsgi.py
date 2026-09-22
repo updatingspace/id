@@ -3,6 +3,7 @@ import os
 from django.core.wsgi import get_wsgi_application
 from django.urls import get_resolver
 
+
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "app.settings")
 
 application = get_wsgi_application()
@@ -12,3 +13,9 @@ application = get_wsgi_application()
 # schemas, routes and telemetry setup loaded before serving account requests.
 # Keep Gunicorn's per-worker loading: preloading the master could fork SDK threads.
 get_resolver().url_patterns
+
+# Service packages import models, so import only after Django is initialized.
+from accounts.services.timezone import TimezoneService  # noqa: E402
+
+# Load timezone definitions during preparation, without any network/DB access.
+TimezoneService.get_all_timezones()
