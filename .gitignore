@@ -179,3 +179,11 @@ web/id-frontend/test-results/
 **/.terraform/
 **/.terraform.lock.hcl
 *.tfplan
+**/*.auto.tfvars
+**/*.auto.tfvars.json
+**/terraform.tfvars
+**/backend.hcl
+**/backend.hcl.json
+**/*.tfstate
+**/*.tfstate.*
+!infra/terraform/yandex-cloud/.terraform.lock.hcl

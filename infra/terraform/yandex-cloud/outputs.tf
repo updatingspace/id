@@ -3,6 +3,11 @@ output "api_gateway_id" {
   value       = local.api_gateway_id
 }
 
+output "api_gateway_spec" {
+  description = "Rendered specification, also used by CI to update an existing gateway."
+  value       = local.api_gateway_spec
+}
+
 output "api_gateway_invoke_domain" {
   description = "Default invoke domain assigned by Yandex API Gateway."
   value       = local.api_gateway_domain

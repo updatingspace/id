@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
 vi.mock('./api', () => ({
@@ -79,10 +79,17 @@ const asAuthError = (status: number, code: string, message = 'auth error') =>
 
 describe('AuthProvider', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.mocked(getSessionToken).mockReturnValue(null);
+    vi.mocked(setSessionToken).mockImplementation((token) => {
+      vi.mocked(getSessionToken).mockReturnValue(token);
+    });
+    vi.mocked(clearSessionToken).mockImplementation(() => {
+      vi.mocked(getSessionToken).mockReturnValue(null);
+    });
   });
 
-  it('loads profile even without local token (cookie-only session)', async () => {
+  it('renders a guest immediately without calling the token-only profile endpoint', async () => {
     vi.mocked(getSessionToken).mockReturnValue(null);
     vi.mocked(api.profile).mockResolvedValue({ email: 'cookie-user@example.com' });
 
@@ -93,8 +100,9 @@ describe('AuthProvider', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('cookie-user@example.com')).toBeInTheDocument();
+      expect(screen.getByText('guest')).toBeInTheDocument();
     });
+    expect(api.profile).not.toHaveBeenCalled();
     expect(clearSessionToken).not.toHaveBeenCalled();
   });
 
@@ -226,5 +234,84 @@ describe('AuthProvider', () => {
       });
       expect(setSessionToken).toHaveBeenCalledWith('session-signup');
     });
+  });
+
+  it.each(['login', 'signup'] as const)('uses the profile returned by %s without another /me request', async (method) => {
+    vi.mocked(api.getFormToken).mockResolvedValue({ form_token: 'ft', expires_in: 900 });
+    const response = { meta: { session_token: 'new-session' }, user: { email: 'new@example.com' } };
+    vi.mocked(api.headlessLogin).mockResolvedValue(response);
+    vi.mocked(api.signup).mockResolvedValue(response);
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await act(async () => {
+      if (method === 'login') await result.current.login('new@example.com', 'password');
+      else await result.current.signup({ email: 'new@example.com', password: 'password' });
+    });
+    expect(result.current.user?.email).toBe('new@example.com');
+    expect(api.profile).not.toHaveBeenCalled();
+  });
+
+  it('falls back to /me when login returns no profile', async () => {
+    vi.mocked(api.getFormToken).mockResolvedValue({ form_token: 'ft', expires_in: 900 });
+    vi.mocked(api.headlessLogin).mockResolvedValue({ meta: { session_token: 'new-session' }, user: null });
+    vi.mocked(api.profile).mockResolvedValue({ email: 'fallback@example.com' });
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await act(async () => { await result.current.login('fallback@example.com', 'password'); });
+    expect(result.current.user?.email).toBe('fallback@example.com');
+    expect(api.profile).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a retry after a session timeout without dropping the token', async () => {
+    vi.mocked(getSessionToken).mockReturnValue('session-1');
+    vi.mocked(api.profile)
+      .mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'REQUEST_TIMEOUT' }))
+      .mockResolvedValueOnce({ email: 'retry@example.com' });
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(result.current.error).toBe('auth.sessionUnavailable'));
+    expect(result.current.user).toBeNull();
+    expect(result.current.loading).toBe(false);
+    expect(clearSessionToken).not.toHaveBeenCalled();
+    await act(async () => { await result.current.refresh(); });
+    expect(result.current.user?.email).toBe('retry@example.com');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('does not restore a user from a stale request after logout', async () => {
+    vi.mocked(getSessionToken).mockReturnValue('session-1');
+    let finish!: (profile: Record<string, unknown>) => void;
+    vi.mocked(api.profile).mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(api.profile).toHaveBeenCalled());
+    await act(async () => { await result.current.logout(); });
+    await act(async () => { finish({ email: 'stale@example.com' }); });
+    expect(result.current.user).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('does not clear a new login when an old session request returns 401', async () => {
+    vi.mocked(getSessionToken).mockReturnValue('old-session');
+    let fail!: (error: Error) => void;
+    vi.mocked(api.profile).mockReturnValue(new Promise((_, reject) => { fail = reject; }));
+    vi.mocked(api.getFormToken).mockResolvedValue({ form_token: 'ft', expires_in: 900 });
+    vi.mocked(api.headlessLogin).mockResolvedValue({
+      meta: { session_token: 'new-session' }, user: { email: 'new@example.com' },
+    });
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(api.profile).toHaveBeenCalled());
+    await act(async () => { await result.current.login('new@example.com', 'password'); });
+    await act(async () => { fail(asAuthError(401, 'INVALID_SESSION')); });
+    expect(result.current.user?.email).toBe('new@example.com');
+    expect(getSessionToken()).toBe('new-session');
+    expect(clearSessionToken).not.toHaveBeenCalled();
+  });
+
+  it('does not accept a session when MFA is still required', async () => {
+    vi.mocked(api.getFormToken).mockResolvedValue({ form_token: 'ft', expires_in: 900 });
+    vi.mocked(api.headlessLogin).mockRejectedValue(asAuthError(401, 'MFA_REQUIRED'));
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await act(async () => {
+      expect(await result.current.login('user@example.com', 'password')).toMatchObject({ ok: false, code: 'MFA_REQUIRED' });
+    });
+    expect(setSessionToken).not.toHaveBeenCalled();
+    expect(result.current.user).toBeNull();
   });
 });

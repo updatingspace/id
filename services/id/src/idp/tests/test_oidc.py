@@ -388,7 +388,7 @@ class OidcTokenLifecycleTests(TestCase):
         tokens = self._issue_tokens()
         resp = self._refresh(tokens["refresh_token"])
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.headers.get("Cache-Control"), "no-store")
+        self.assertEqual(resp.headers.get("Cache-Control"), "private, no-store")
         self.assertTrue(resp.json()["refresh_token"])
         reuse_response = self._refresh(tokens["refresh_token"])
         self.assertEqual(reuse_response.status_code, 400)

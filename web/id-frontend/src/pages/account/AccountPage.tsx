@@ -10,9 +10,7 @@ import { useAccountData } from './model/useAccountData';
 import type { AccountSection, Preferences } from './model/types';
 
 import { AccountHero } from './ui/AccountHero';
-import { AccountHeroSkeleton } from './ui/AccountHeroSkeleton';
 import { AccountNav } from './ui/AccountNav';
-import { AccountNavSkeleton } from './ui/AccountNavSkeleton';
 import { ErrorBanner, SuccessBanner } from './ui/banners';
 
 import { ProfileSection } from './ui/sections/ProfileSection';
@@ -55,7 +53,7 @@ const AccountPage = () => {
   }, [authLoading, user, navigate]);
 
   const enabled = !!user;
-  const q = useAccountData(enabled);
+  const q = useAccountData(enabled, section, user?.email || user?.id || 'guest');
 
   const emailVerified = q.emailStatus.data?.verified ?? user?.email_verified;
   const emailAddress = q.emailStatus.data?.email || user?.email || '';
@@ -147,6 +145,14 @@ const AccountPage = () => {
 
   const renderSection = () => {
     if (!user) return null;
+    if (q.error) {
+      return (
+        <div role="alert">
+          <p>{t('error.sectionUnavailable')}</p>
+          <button type="button" onClick={() => void q.retry()}>{t('common.retry')}</button>
+        </div>
+      );
+    }
 
     if (section === 'profile') {
       if (q.emailStatus.isLoading) return <ProfileSectionSkeleton />;
@@ -284,37 +290,27 @@ const AccountPage = () => {
     );
   };
 
-  const showNavSkeleton = q.anyInitialLoading;
-
   return (
     <div className="account-shell">
-      {q.anyInitialLoading ? (
-        <AccountHeroSkeleton />
-      ) : (
-        <AccountHero
-          user={user}
-          displayName={displayName}
-          emailAddress={emailAddress}
-          emailVerified={!!emailVerified}
-          requiresMfa={requiresMfa}
-          passkeysCount={q.passkeys.data?.authenticators?.length ?? 0}
-          sessionsCount={q.sessions.data?.sessions?.length ?? 0}
-        />
-      )}
+      <AccountHero
+        user={user}
+        displayName={displayName}
+        emailAddress={emailAddress}
+        emailVerified={!!emailVerified}
+        requiresMfa={requiresMfa}
+        passkeysCount={q.passkeys.data?.authenticators?.length}
+        sessionsCount={q.sessions.data?.sessions?.length}
+      />
 
       <div className="account-layout">
-        {showNavSkeleton ? (
-          <AccountNavSkeleton />
-        ) : (
-          <AccountNav
-            title={t('account.title')}
-            tabs={tabs}
-            section={section}
-            onChangeSection={setSection}
-            email={user?.email || emailAddress}
-            emailVerified={!!emailVerified}
-          />
-        )}
+        <AccountNav
+          title={t('account.title')}
+          tabs={tabs}
+          section={section}
+          onChangeSection={setSection}
+          email={user?.email || emailAddress}
+          emailVerified={!!emailVerified}
+        />
 
         <section className="account-content">
           {message && <SuccessBanner message={message} />}

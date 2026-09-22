@@ -8,6 +8,10 @@ terraform {
       source  = "registry.terraform.io/yandex-cloud/yandex"
       version = "~> 0.196"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.7"
+    }
   }
 }
 

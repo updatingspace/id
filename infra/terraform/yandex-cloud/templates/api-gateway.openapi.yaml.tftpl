@@ -73,6 +73,32 @@ paths:
         container_id: ${backend_container_id}
         service_account_id: ${gateway_service_account_id}
 
+%{ for route in ["login", "signup", "authorize", "account"] ~}
+  /${route}:
+    get:
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: ${frontend_bucket}
+        object: index.html
+        service_account_id: ${gateway_service_account_id}
+
+%{ endfor ~}
+  /assets/{file+}:
+    get:
+      parameters:
+        - name: file
+          in: path
+          required: true
+          explode: false
+          style: simple
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: object_storage
+        bucket: ${frontend_bucket}
+        object: "assets/{file}"
+        service_account_id: ${gateway_service_account_id}
+
   /{file+}:
     get:
       parameters:

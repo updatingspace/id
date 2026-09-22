@@ -34,6 +34,7 @@ type HeadlessAuthResponse = {
   meta?: SessionMeta;
   session_token?: string;
   recovery_codes?: string[];
+  user?: Record<string, unknown> | null;
 };
 
 const API_BASE = import.meta.env.VITE_ID_API_BASE_URL ?? '/api/v1';
@@ -95,22 +96,41 @@ const toError = async (res: Response): Promise<ApiError> => {
   return error;
 };
 
-const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const res = await fetch(path, {
-    credentials: 'include',
-    ...init,
-    headers: buildHeaders(init?.headers, init?.body),
-  });
+type RequestOptions = RequestInit & { timeoutMs?: number };
 
-  if (!res.ok) {
-    throw await toError(res);
+const request = async <T>(path: string, init: RequestOptions = {}): Promise<T> => {
+  const { timeoutMs = 30_000, signal, ...options } = init;
+  const controller = new AbortController();
+  let timedOut = false;
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const res = await fetch(path, {
+      credentials: 'include',
+      ...options,
+      signal: controller.signal,
+      headers: buildHeaders(options.headers, options.body),
+    });
+
+    if (!res.ok) throw await toError(res);
+    if (res.status === 204) return {} as T;
+
+    return (await res.json()) as T;
+  } catch (err) {
+    if (timedOut) {
+      throw Object.assign(new Error('Request timed out'), { code: 'REQUEST_TIMEOUT' });
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
   }
-
-  if (res.status === 204) {
-    return {} as T;
-  }
-
-  return (await res.json()) as T;
 };
 
 const post = <T>(path: string, body?: unknown) =>
@@ -146,7 +166,10 @@ export const api = {
 
   signup: (payload: Record<string, unknown>) => post<HeadlessAuthResponse>(`${API_BASE}/auth/signup`, payload),
   profile: async () => {
-    const payload = await request<{ user: Record<string, unknown> | null }>(`${API_BASE}/auth/me`);
+    const payload = await request<{ user: Record<string, unknown> | null }>(`${API_BASE}/auth/me`, {
+      timeoutMs: 8_000,
+      cache: 'no-store',
+    });
     if (!payload.user) {
       const err = new Error('Not authenticated') as ApiError;
       err.code = 'UNAUTHORIZED';

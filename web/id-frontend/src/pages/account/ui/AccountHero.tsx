@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { AccountUser } from '../model/types';
 
 type BadgeTone = 'accent' | 'info' | 'muted' | 'danger';
@@ -9,8 +9,8 @@ type Props = {
   emailAddress: string;
   emailVerified: boolean;
   requiresMfa: boolean;
-  passkeysCount: number;
-  sessionsCount: number;
+  passkeysCount?: number;
+  sessionsCount?: number;
 };
 
 export const AccountHero: React.FC<Props> = ({
@@ -22,6 +22,7 @@ export const AccountHero: React.FC<Props> = ({
   passkeysCount,
   sessionsCount,
 }) => {
+  const [failedAvatar, setFailedAvatar] = useState<string>();
   const heroBadges = useMemo(() => {
     const badges: Array<{ key: string; text: string; tone: BadgeTone }> = [];
     if (emailVerified) badges.push({ key: 'email', text: 'Email verified', tone: 'accent' });
@@ -36,8 +37,8 @@ export const AccountHero: React.FC<Props> = ({
     <div className="account-hero">
       <div className="account-hero-main">
         <div className="hero-avatar" aria-hidden>
-          {user?.avatar_url ? (
-            <img src={user.avatar_url} alt={displayName} />
+          {user?.avatar_url && user.avatar_url !== failedAvatar ? (
+            <img src={user.avatar_url} alt={displayName} onError={() => setFailedAvatar(user.avatar_url)} />
           ) : (
             <span>{(displayName || 'U').slice(0, 1).toUpperCase()}</span>
           )}
@@ -65,11 +66,11 @@ export const AccountHero: React.FC<Props> = ({
         </div>
         <div className="hero-stat">
           <span className="muted">Passkeys</span>
-          <strong>{passkeysCount}</strong>
+          <strong>{passkeysCount ?? '—'}</strong>
         </div>
         <div className="hero-stat">
           <span className="muted">Sessions</span>
-          <strong>{sessionsCount}</strong>
+          <strong>{sessionsCount ?? '—'}</strong>
         </div>
       </div>
     </div>

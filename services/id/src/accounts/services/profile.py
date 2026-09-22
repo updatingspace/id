@@ -226,19 +226,8 @@ class ProfileService:
         url = None
         if profile.avatar:
             try:
-                if not profile.avatar.storage.exists(profile.avatar.name):
-                    logger.warning(
-                        "Avatar file missing in storage",
-                        extra={
-                            "user_id": getattr(user, "id", None),
-                            "avatar_name": profile.avatar.name,
-                        },
-                    )
-                    return AvatarState(
-                        url=None,
-                        source=profile.avatar_source,
-                        gravatar_enabled=profile.gravatar_enabled,
-                    )
+                # Reading a profile must not perform a remote HEAD request.
+                # Clients render a fallback if the saved image is unavailable.
                 url = profile.avatar.url
                 if request:
                     url = request.build_absolute_uri(url)
@@ -284,12 +273,14 @@ class ProfileService:
                 "Gravatar returned HTTP error",
                 extra={"status": exc.code, "email_hash": email_hash},
             )
+            raise
         except Exception as exc:  # pragma: no cover - сеть в тестах замокаем
             logger.warning(
                 "Gravatar fetch failed",
                 exc_info=exc,
                 extra={"email_hash": email_hash},
             )
+            raise
         return None
 
     @classmethod
@@ -319,6 +310,14 @@ class ProfileService:
         ):
             return False
         raw = cls._fetch_gravatar(email)
+        # The scheduled job may spend seconds doing I/O. Respect an upload or
+        # opt-out made while it was fetching; do not replace that user's image.
+        profile.refresh_from_db()
+        if (
+            not profile.gravatar_enabled
+            or profile.avatar_source == UserProfile.AvatarSource.UPLOAD
+        ):
+            return False
         profile.gravatar_checked_at = now
         if not raw:
             profile.save(update_fields=["gravatar_checked_at", "updated_at"])

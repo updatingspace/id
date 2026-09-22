@@ -4,6 +4,9 @@ folder_id = "replace-me"
 public_domain = "id.updspace.com"
 public_zone   = "updspace.com"
 
+# Prepared instance avoids cold starts within its capacity; idle time is billed.
+min_ready_instances = 1
+
 # container_registry_id = "crp..." # Use an existing registry for first CI bootstrap.
 # certificate_id   = "fpq..."
 # manage_dns_zone  = false

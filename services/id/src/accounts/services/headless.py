@@ -305,14 +305,6 @@ class HeadlessService:
             username=(username or "").strip(),
         )
         perform_login(request, user)
-        try:
-            ProfileService.maybe_refresh_gravatar(user, force=True)
-        except Exception:
-            logger.warning(
-                "Gravatar prefetch failed after signup",
-                extra={"user_id": getattr(user, "id", None)},
-                exc_info=True,
-            )
         ProfileService.update_profile_fields(
             user,
             birth_date=birth_date,

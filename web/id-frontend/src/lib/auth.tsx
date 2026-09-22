@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { api } from './api';
 import { clearSessionToken, getSessionToken, setSessionToken } from './session';
@@ -43,6 +43,7 @@ export type SignupPayload = {
 type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
+  error?: string | null;
   refresh: () => Promise<void>;
   login: (email: string, password: string, totpCode?: string, recoveryCode?: string) => Promise<AuthResult>;
   signup: (payload: SignupPayload) => Promise<AuthResult>;
@@ -79,32 +80,67 @@ const isAuthFailure = (err: unknown): boolean => {
 
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(getSessionToken()));
+  const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
 
   const refresh = useCallback(async (): Promise<void> => {
+    const requestGeneration = ++generation.current;
     const token = getSessionToken();
+    setError(null);
+
+    // /auth/me authenticates by header token, not by Django cookies.
+    if (!token) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
 
     try {
       const profile = await api.profile();
+      if (generation.current !== requestGeneration || getSessionToken() !== token) return;
       setUser(profile as AuthUser);
     } catch (err) {
+      if (generation.current !== requestGeneration || getSessionToken() !== token) return;
       if (isAuthFailure(err)) {
-        if (token) {
-          clearSessionToken();
-        }
+        clearSessionToken();
         setUser(null);
+      } else {
+        setError('auth.sessionUnavailable');
       }
     } finally {
-      setLoading(false);
+      if (generation.current === requestGeneration) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    const initialGeneration = generation.current;
     const timer = window.setTimeout(() => {
-      void refresh();
+      if (generation.current === initialGeneration) void refresh();
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      generation.current += 1;
+    };
   }, [refresh]);
+
+  const acceptSession = async (response: {
+    meta?: { session_token?: string };
+    session_token?: string;
+    user?: Record<string, unknown> | null;
+  }) => {
+    generation.current += 1;
+    const token = response.meta?.session_token || response.session_token;
+    if (token) setSessionToken(token);
+    if (token && response.user) {
+      setUser(response.user as AuthUser);
+      setError(null);
+      setLoading(false);
+    } else {
+      await refresh();
+    }
+  };
 
   const login = async (
     email: string,
@@ -122,12 +158,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
         form_token,
       });
 
-      const token = response.meta?.session_token || response.session_token;
-      if (token) {
-        setSessionToken(token);
-      }
-
-      await refresh();
+      await acceptSession(response);
 
       return {
         ok: true,
@@ -156,12 +187,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
         birth_date: payload.birthDate,
       });
 
-      const token = response.meta?.session_token || response.session_token;
-      if (token) {
-        setSessionToken(token);
-      }
-
-      await refresh();
+      await acceptSession(response);
       return { ok: true };
     } catch (err) {
       return toAuthResult(err, 'Signup failed');
@@ -169,19 +195,25 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   };
 
   const logout = async (): Promise<void> => {
+    const requestGeneration = ++generation.current;
     try {
       await api.logout();
     } catch {
       // logout should always clear local auth state
     } finally {
-      clearSessionToken();
-      setUser(null);
+      if (generation.current === requestGeneration) {
+        clearSessionToken();
+        setUser(null);
+        setError(null);
+        setLoading(false);
+      }
     }
   };
 
   const value: AuthContextValue = {
     user,
     loading,
+    error,
     refresh,
     login,
     signup,

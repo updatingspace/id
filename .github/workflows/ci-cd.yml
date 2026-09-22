@@ -262,6 +262,11 @@ jobs:
       - name: Unit tests with coverage
         run: pnpm test:coverage
 
+      - name: Frontend publication regression checks
+        run: |
+          bash -n ../../scripts/ci/deploy-frontend-object-storage.sh
+          python3 -m unittest discover -s ../../scripts/ci -p 'test_*.py'
+
       - name: Upload frontend coverage
         if: always()
         uses: actions/upload-artifact@v7
