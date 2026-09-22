@@ -188,6 +188,9 @@ def rollout_snapshot(
         "gateway_spec_before": spec,
         "original_container_id": container_id,
         "original_revision_id": revision["id"],
+        "retained_secret_versions": sorted(
+            {secret["version_id"] for secret in revision.get("secrets", [])}
+        ),
         "release_tag": release_tag,
         "promotion_attempted": False,
         "preparation_started": False,
@@ -253,6 +256,15 @@ def validate_plan(plan: dict[str, Any], manifest: dict[str, Any], phase: str) ->
         if "delete" in actions and item["type"] not in RECREATABLE:
             raise RuntimeError(f"Refusing destructive resource change: {address}")
         if phase == "prepare":
+            if (
+                item["type"] == "yandex_lockbox_secret_version"
+                and "delete" in actions
+                and (item["change"].get("before") or {}).get("id")
+                in manifest.get("retained_secret_versions", [])
+            ):
+                raise RuntimeError(
+                    "Preparation cannot delete a secret version still used by the serving backend"
+                )
             if address == original or address in GATEWAYS:
                 raise RuntimeError(
                     f"Preparation would change the serving backend or gateway: {address}"

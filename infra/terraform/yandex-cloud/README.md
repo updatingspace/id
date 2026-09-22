@@ -179,7 +179,9 @@ The coordinator (`scripts/ci/yc_rollout.py`) validates each saved Terraform plan
   or changing any runtime value remains forbidden.
 - Promotion and rollback may change only the gateway specification.
 - Capacity cleanup may only remove the inactive slot's prepared capacity.
-- Deletion or replacement of persistent resources remains forbidden.
+- Deletion or replacement of persistent resources remains forbidden. A secret
+  version still referenced by the serving backend cannot be deleted during
+  preparation; rotating it requires retaining that version through overlap.
 
 After promotion, publication still uploads frontend dependencies before index.
 If publication or public smoke fails, the job restores the previous index and

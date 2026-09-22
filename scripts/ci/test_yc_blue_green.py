@@ -401,6 +401,17 @@ class BlueGreenTests(unittest.TestCase):
             ):
                 rollout.validate_plan(plan(bad), manifest(), "prepare")
 
+    def test_preparation_preserves_secret_versions_used_by_serving_backend(self):
+        saved = manifest()
+        saved["retained_secret_versions"] = ["live-version"]
+        item = change(
+            "yandex_lockbox_secret_version.runtime",
+            ["delete", "create"],
+            before={"id": "live-version"},
+        )
+        with self.assertRaises(RuntimeError):
+            rollout.validate_plan(plan(item), saved, "prepare")
+
     def test_capacity_cleanup_cannot_increase_prepared_instances(self):
         value = {"image": [{"url": "same"}], "provision_policy": [{"min_instances": 1}]}
         with self.assertRaises(RuntimeError):
