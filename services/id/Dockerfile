@@ -26,4 +26,4 @@ USER appuser
 
 EXPOSE 8001
 
-CMD ["sh", "-c", "exec gunicorn app.wsgi:application --bind 0.0.0.0:${PORT:-8001} --workers ${WEB_CONCURRENCY:-4} --access-logfile - --error-logfile -"]
+CMD ["sh", "-c", "exec gunicorn app.wsgi:application --config python:app.gunicorn_config --bind 0.0.0.0:${PORT:-8001} --workers ${WEB_CONCURRENCY:-4} --access-logfile - --error-logfile -"]
