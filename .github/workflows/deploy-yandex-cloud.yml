@@ -15,7 +15,7 @@ on:
       - master
 
 concurrency:
-  group: deploy-yc-${{ github.ref }}
+  group: deploy-yc-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
   cancel-in-progress: false
 
 env:
