@@ -17,7 +17,7 @@ import type {
 import { getSessionToken } from './session';
 
 type ApiError = Error & { code?: string; status?: number };
-type FormTokenPurpose = 'login' | 'register';
+type FormTokenPurpose = 'login' | 'register' | 'password_reset' | 'email_verification';
 type OidcScope = { name: string; description: string; required: boolean; granted: boolean };
 type OidcPrepareResponse = {
   request_id: string;
@@ -164,6 +164,19 @@ export const api = {
     recovery_code?: string;
     form_token: string;
   }) => post<HeadlessAuthResponse>(`${API_BASE}/auth/login`, payload),
+
+  requestPasswordReset: async (email: string) => {
+    const { form_token } = await api.getFormToken('password_reset');
+    return post<{ ok: boolean }>(`${API_BASE}/auth/password/reset/request`, { email, form_token });
+  },
+  resetPassword: (key: string, password: string) =>
+    post<{ ok: boolean }>(`${API_BASE}/auth/password/reset/confirm`, { key, password }),
+  requestEmailVerification: async (email: string) => {
+    const { form_token } = await api.getFormToken('email_verification');
+    return post<{ ok: boolean }>(`${API_BASE}/auth/email/verification/request`, { email, form_token });
+  },
+  confirmEmail: (key: string) =>
+    post<{ ok: boolean }>(`${API_BASE}/auth/email/verification/confirm`, { key }),
 
   signup: (payload: Record<string, unknown>) => post<HeadlessAuthResponse>(`${API_BASE}/auth/signup`, payload),
   profile: async () => {

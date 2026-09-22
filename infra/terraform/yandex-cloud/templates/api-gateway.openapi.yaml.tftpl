@@ -73,7 +73,7 @@ paths:
         container_id: ${backend_container_id}
         service_account_id: ${gateway_service_account_id}
 
-%{ for route in ["login", "signup", "authorize", "account"] ~}
+%{ for route in ["login", "signup", "authorize", "account", "forgot-password", "reset-password", "verify-email"] ~}
   /${route}:
     get:
       x-yc-apigateway-integration:

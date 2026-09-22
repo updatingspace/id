@@ -81,7 +81,8 @@ const SignupPage = () => {
       <div className="auth-panel" role="status">
         <h2>{t('signup.verifyTitle')}</h2>
         <p>{t('signup.verifyMessage')}</p>
-        <Link to="/login">{t('nav.login')}</Link>
+        <Link to="/verify-email">{t('recovery.resend')}</Link>
+        <p><Link to="/login">{t('nav.login')}</Link></p>
       </div>
     );
   }

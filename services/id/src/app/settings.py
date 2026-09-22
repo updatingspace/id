@@ -292,6 +292,11 @@ ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
+ACCOUNT_ADAPTER = "accounts.adapter.AccountAdapter"
+ACCOUNT_EMAIL_NOTIFICATIONS = True
+ACCOUNT_LOGIN_ON_PASSWORD_RESET = False
+ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = False
+PASSWORD_RESET_TIMEOUT = int(read_env("PASSWORD_RESET_TIMEOUT", "3600") or "3600")
 LOGIN_REDIRECT_URL = "/"
 SOCIALACCOUNT_LOGIN_ON_GET = False
 
@@ -313,6 +318,9 @@ SECURE_SSL_REDIRECT = read_env_flag("SECURE_SSL_REDIRECT", False)
 DEFAULT_FROM_EMAIL = read_env("DEFAULT_FROM_EMAIL", "no-reply@id.localhost")
 ID_PUBLIC_BASE_URL = read_env("ID_PUBLIC_BASE_URL", "http://id.localhost/api/v1")
 ID_ACTIVATION_BASE_URL = read_env("ID_ACTIVATION_BASE_URL", "http://id.localhost")
+ID_FRONTEND_BASE_URL = (
+    read_env("ID_FRONTEND_BASE_URL", ID_ACTIVATION_BASE_URL) or ID_ACTIVATION_BASE_URL
+).rstrip("/")
 ID_ACTIVATION_PATH = read_env("ID_ACTIVATION_PATH", "/activate")
 MAGIC_LINK_DEFAULT_REDIRECT = read_env("MAGIC_LINK_DEFAULT_REDIRECT", "")
 ID_TOKEN_HASH_SECRET = read_env("ID_TOKEN_HASH_SECRET", SECRET_KEY)
@@ -326,6 +334,7 @@ OIDC_PUBLIC_BASE_URL = (
     read_env("OIDC_PUBLIC_BASE_URL", OIDC_ISSUER) or OIDC_ISSUER
 ).rstrip("/")
 if not DEBUG:
+    _require_https_public_url("ID_FRONTEND_BASE_URL", ID_FRONTEND_BASE_URL)
     _require_https_public_url("ID_PUBLIC_BASE_URL", ID_PUBLIC_BASE_URL)
     _require_https_public_url("ID_ACTIVATION_BASE_URL", ID_ACTIVATION_BASE_URL)
     _require_https_public_url("OIDC_ISSUER", OIDC_ISSUER)
@@ -403,6 +412,7 @@ EMAIL_HOST_USER = read_env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = read_env_secret("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = read_env_flag("EMAIL_USE_TLS", True)
 EMAIL_USE_SSL = read_env_flag("EMAIL_USE_SSL", False)
+EMAIL_TIMEOUT = int(read_env("EMAIL_TIMEOUT", "10") or "10")
 
 # Rate limiting configuration
 RATE_LIMIT_OIDC_TOKEN = int(

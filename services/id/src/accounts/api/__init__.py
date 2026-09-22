@@ -7,7 +7,10 @@ from accounts.api.router_headless import headless_router
 from accounts.api.router_oauth import router_oauth
 from accounts.api.router_magic_link import router_magic_link
 
+from accounts.api.router_recovery import recovery_router
+
 router = Router()
+router.add_router("", recovery_router)
 router.add_router("", headless_router)
 router.add_router("", auth_router)
 router.add_router("", router_magic_link)

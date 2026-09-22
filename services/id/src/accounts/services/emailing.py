@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from smtplib import SMTPException
 
 from allauth.account.adapter import get_adapter as get_account_adapter
 from allauth.account.models import EmailAddress
@@ -39,13 +40,16 @@ class EmailService:
             f"Устройство/браузер: {ua_text}\n\n"
             "Если это не вы, срочно смените пароль и завершите все сессии."
         )
-        send_mail(
-            subject=subject,
-            message=body,
-            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-            recipient_list=[email],
-            fail_silently=True,
-        )
+        try:
+            send_mail(
+                subject=subject,
+                message=body,
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except (SMTPException, OSError):
+            logger.error("New-device email delivery failed")
 
     @staticmethod
     def status(user: User) -> dict:

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import django
 
@@ -17,6 +18,7 @@ from allauth.account.models import EmailAddress  # noqa: E402
 from django.conf import settings  # noqa: E402
 from django.contrib.auth import get_user_model  # noqa: E402
 from django.contrib.sites.models import Site  # noqa: E402
+from django.core import mail  # noqa: E402
 from django.core.cache import cache  # noqa: E402
 from django.db import connection, connections, transaction  # noqa: E402
 from django.test import Client, override_settings  # noqa: E402
@@ -156,15 +158,30 @@ def main():
             and not response.json()["meta"]["session_token"]
         )
         response = post("/api/v1/auth/login", {"email": email, "password": password})
-        assert response.status_code == 200
-        assert response.json()["user"]["email_verified"] is False
-        restricted = client.post(
-            "/api/v1/auth/mfa/totp/begin",
-            content_type="application/json",
-            HTTP_X_SESSION_TOKEN=response.json()["meta"]["session_token"],
+        assert response.status_code == 401
+        assert response.json()["code"] == "EMAIL_VERIFICATION_REQUIRED"
+
+        def key_from_mail(route):
+            link = re.search(
+                r"https?://[^\s]+/" + route + r"#[^\s]+", mail.outbox[-1].body
+            )
+            assert link is not None, "Recovery email must contain a frontend link"
+            return parse_qs(urlparse(link.group()).fragment)["key"][0]
+
+        response = post(
+            "/api/v1/auth/email/verification/request",
+            {"email": email},
+            "email_verification",
         )
-        assert restricted.json()["code"] == "EMAIL_VERIFICATION_REQUIRED"
-        EmailAddress.objects.filter(email=email).update(verified=True)
+        assert response.status_code == 200
+        response = client.post(
+            "/api/v1/auth/email/verification/confirm",
+            data=json.dumps({"key": key_from_mail("verify-email")}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        assert EmailAddress.objects.get(email=email).verified
+        assert "Email подтверждён" in mail.outbox[-1].subject
         response = post("/api/v1/auth/login", {"email": email, "password": password})
         assert response.status_code == 200, response.content.decode()[:400]
         data = response.json()
@@ -180,8 +197,43 @@ def main():
         profile.save(update_fields=["avatar"])
         profile.refresh_from_db()
         assert profile.avatar.name == "avatars/runtime-check.png"
+
+        response = post(
+            "/api/v1/auth/password/reset/request", {"email": email}, "password_reset"
+        )
+        assert response.status_code == 200
+        key = key_from_mail("reset-password")
+        new_password = "Local-only-Recovered-Password!456"
+        anonymous = Client()
+        payload = json.dumps({"key": key, "password": new_password})
+        response = anonymous.post(
+            "/api/v1/auth/password/reset/confirm",
+            data=payload,
+            content_type="application/json",
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        assert "Пароль восстановлен" in mail.outbox[-1].subject
+        assert User.objects.get(email=email).check_password(new_password)
+        assert anonymous.get("/api/v1/auth/me").json() == {"user": None}
+        assert (
+            Client()
+            .get("/api/v1/auth/me", HTTP_X_SESSION_TOKEN=data["meta"]["session_token"])
+            .status_code
+            == 401
+        )
+        replay = anonymous.post(
+            "/api/v1/auth/password/reset/confirm",
+            data=payload,
+            content_type="application/json",
+        )
+        assert replay.status_code == 400
+        assert replay.json()["code"] == "INVALID_RECOVERY_LINK"
+        response = post(
+            "/api/v1/auth/login", {"email": email, "password": new_password}
+        )
+        assert response.status_code == 200
         print(
-            "YDB auth: concurrent IDs, rollback, signup, email state, login, profile and avatar update passed"
+            "YDB auth: concurrent IDs, rollback, signup, email verification, password recovery, session revocation, profile and avatar update passed"
         )
     connections.close_all()
 

@@ -65,6 +65,30 @@ status, body = request(
 assert status == 400 and body.get("code") != "INVALID_FORM_TOKEN", (
     f"Signup validation failed: {status} {body.get('code')}"
 )
+
+# A unique nonexistent address exercises recovery without sending email.
+for purpose, path in [
+    ("password_reset", "password/reset/request"),
+    ("email_verification", "email/verification/request"),
+]:
+    status, body = request("/api/v1/auth/form_token?purpose=" + purpose)
+    assert status == 200, f"Cannot issue a {purpose} form token"
+    payload = {"email": email, "form_token": body["form_token"]}
+    status, body = request("/api/v1/auth/" + path, payload)
+    assert status == 200 and body.get("ok") is True, (
+        f"Recovery request failed: {path} {status} {body.get('code')}"
+    )
+    status, body = request("/api/v1/auth/" + path, payload)
+    assert status == 400 and body.get("code") == "INVALID_FORM_TOKEN"
+
+for path, payload in [
+    ("password/reset/confirm", {"key": "invalid", "password": "Unused-Password-123!"}),
+    ("email/verification/confirm", {"key": "invalid"}),
+]:
+    status, body = request("/api/v1/auth/" + path, payload)
+    assert status == 400 and body.get("code") == "INVALID_RECOVERY_LINK", (
+        f"Invalid recovery link not rejected: {path} {status} {body.get('code')}"
+    )
 print(
-    "Auth smoke passed: valid form tokens, credential validation, replay rejection and signup validation"
+    "Auth smoke passed: login, signup, recovery requests, form token replay and invalid recovery links"
 )

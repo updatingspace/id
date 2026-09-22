@@ -29,6 +29,39 @@ FORWARD_HEADERS = ("HTTP_X_REAL_IP", "HTTP_X_FORWARDED_FOR")
 @dataclass(slots=True)
 class SessionService:
     @staticmethod
+    def revoke_all(user, *, reason: str) -> None:
+        from idp.models import (
+            OidcAuthorizationCode,
+            OidcAuthorizationRequest,
+            OidcToken,
+        )
+
+        now = timezone.now()
+        keys = set(
+            UserSession.objects.filter(user=user).values_list("session_key", flat=True)
+        )
+        keys.update(
+            UserSessionMeta.objects.filter(user=user).values_list(
+                "session_key", flat=True
+            )
+        )
+        Session.objects.filter(session_key__in=keys).delete()
+        UserSession.objects.filter(user=user).delete()
+        UserSessionMeta.objects.filter(user=user).update(
+            revoked_at=now, revoked_reason=reason
+        )
+        UserSessionToken.objects.filter(user=user).update(revoked_at=now)
+        for token in OutstandingToken.objects.filter(user=user, expires_at__gt=now):
+            BlacklistedToken.objects.get_or_create(token=token)
+        OidcToken.objects.filter(user=user, revoked_at__isnull=True).update(
+            revoked_at=now
+        )
+        OidcAuthorizationCode.objects.filter(user=user, used_at__isnull=True).update(
+            used_at=now
+        )
+        OidcAuthorizationRequest.objects.filter(user=user).delete()
+
+    @staticmethod
     def _client_ip(request) -> str | None:
         for h in FORWARD_HEADERS:
             v = request.META.get(h)

@@ -16,6 +16,9 @@ curl "${curl_args[@]}" "${base_url}/health" >/dev/null
 curl "${curl_args[@]}" "${base_url}/.well-known/openid-configuration" >/dev/null
 curl "${curl_args[@]}" "${base_url}/.well-known/jwks.json" >/dev/null
 curl "${curl_args[@]}" "${base_url}/login" >/dev/null
+for route in forgot-password reset-password verify-email; do
+  curl "${curl_args[@]}" "${base_url}/${route}" >/dev/null
+done
 
 html="$(curl "${curl_args[@]}" "${base_url}/")"
 js_path="$(printf '%s' "${html}" | sed -n 's/.*src="\([^"]*\/assets\/[^"]*\.js\)".*/\1/p' | head -n 1)"

@@ -168,6 +168,9 @@ const LoginPage = () => {
       <div className="auth-panel">
         <h2>{t('login.title')}</h2>
         <p className="muted">{t('login.subtitle')}</p>
+        {new URLSearchParams(location.search).get('password') === 'changed' && (
+          <p role="status">{t('recovery.changed')}</p>
+        )}
 
         <form onSubmit={submit} className="form-stack">
           <label>
@@ -203,6 +206,11 @@ const LoginPage = () => {
             {t('login.submit')}
           </button>
         </form>
+
+        <div className="auth-footer">
+          <Link to="/forgot-password">{t('recovery.forgot')}</Link>
+          <Link to="/verify-email">{t('recovery.resend')}</Link>
+        </div>
 
         <button className="secondary-button" type="button" onClick={handlePasskey}>
           {t('login.passkey')}
