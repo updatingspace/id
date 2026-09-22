@@ -29,11 +29,15 @@ class OAuthService:
 
     @staticmethod
     def list_providers() -> list[dict]:
+        available = list(registry.as_choices())
+        if not available:
+            # With no provider implementation installed, database configuration
+            # cannot make an external login available. Avoid opening a YDB
+            # connection just to return the same empty public list.
+            return []
         configured = OAuthService.configured_provider_ids()
         providers = [
-            {"id": pid, "name": name}
-            for pid, name in registry.as_choices()
-            if pid in configured
+            {"id": pid, "name": name} for pid, name in available if pid in configured
         ]
         logger.info(
             "OAuth providers listed",
