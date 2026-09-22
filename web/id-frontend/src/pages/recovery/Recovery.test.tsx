@@ -10,6 +10,7 @@ import ResetPasswordPage from './ResetPasswordPage';
 import VerifyEmailPage from './VerifyEmailPage';
 
 vi.mock('../../lib/api', () => ({ api: {
+  prefetchFormToken: vi.fn(),
   requestPasswordReset: vi.fn(), resetPassword: vi.fn(),
   requestEmailVerification: vi.fn(), confirmEmail: vi.fn(),
 } }));

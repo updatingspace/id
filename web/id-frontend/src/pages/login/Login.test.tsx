@@ -8,6 +8,7 @@ import { I18nProvider } from '../../lib/i18n';
 
 vi.mock('../../lib/api', () => ({
   api: {
+    prefetchFormToken: vi.fn(),
     getOAuthProviders: vi.fn().mockResolvedValue({ providers: [] }),
     getOAuthLoginUrl: vi.fn(),
     passkeyLoginBegin: vi.fn(),

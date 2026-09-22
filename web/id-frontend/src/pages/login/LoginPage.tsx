@@ -172,7 +172,12 @@ const LoginPage = () => {
           <p role="status">{t('recovery.changed')}</p>
         )}
 
-        <form onSubmit={submit} className="form-stack">
+        <form
+          onSubmit={submit}
+          onFocusCapture={() => api.prefetchFormToken('login')}
+          onChangeCapture={() => api.prefetchFormToken('login')}
+          className="form-stack"
+        >
           <label>
             <span>{t('login.email')}</span>
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
