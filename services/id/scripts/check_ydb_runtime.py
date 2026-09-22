@@ -173,8 +173,15 @@ def main():
             "/api/v1/auth/me", HTTP_X_SESSION_TOKEN=data["meta"]["session_token"]
         )
         assert response.status_code == 200 and response.json()["user"]["email"] == email
+        from accounts.models import UserProfile
+
+        profile = UserProfile.objects.get(user=User.objects.get(email=email))
+        profile.avatar.name = "avatars/runtime-check.png"
+        profile.save(update_fields=["avatar"])
+        profile.refresh_from_db()
+        assert profile.avatar.name == "avatars/runtime-check.png"
         print(
-            "YDB auth: concurrent IDs, rollback, signup, email verification state, login and profile passed"
+            "YDB auth: concurrent IDs, rollback, signup, email state, login, profile and avatar update passed"
         )
     connections.close_all()
 

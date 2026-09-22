@@ -10,8 +10,11 @@ import django
 from django.core.management import call_command
 from django.db import close_old_connections
 
+from core.logging_config import configure_logging
+
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "app.settings")
 django.setup()
+configure_logging(service_name="id-gravatar-job")
 logger = logging.getLogger(__name__)
 
 

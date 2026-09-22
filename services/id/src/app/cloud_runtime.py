@@ -146,6 +146,10 @@ def _patch_ydb_query_parameters() -> None:
                 parameter_type = ydb.OptionalType(parameter_type)
             elif field_type == "DateTimeField":
                 value = int(value.timestamp())
+            elif field_type in {"FileField", "FilePathField"} and isinstance(
+                value, str
+            ):
+                value = value.encode()
             result[placeholder] = (value, parameter_type)
         return result
 

@@ -50,3 +50,13 @@ def test_datetime_and_null_parameters_keep_types():
     assert params["$a"] == (int(now.timestamp()), ydb.PrimitiveType.Datetime)
     assert params["$b"][0] is None
     assert str(params["$b"][1]) == "Datetime?"
+
+
+def test_file_update_binds_bytes_for_ydb_string_column():
+    from ydb_backend.models.sql import compiler
+
+    _patch_ydb_query_parameters()
+    params = compiler._generate_params_for_update(
+        ["$file"], ["avatar"], {"avatar": "FileField"}, ["avatars/example.png"]
+    )
+    assert params["$file"] == (b"avatars/example.png", ydb.PrimitiveType.String)
