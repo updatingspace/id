@@ -10,7 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     zlib1g-dev \
     libjpeg-dev \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+COPY certs/YandexInternalRootCA.crt /usr/local/share/ca-certificates/YandexInternalRootCA.crt
+RUN update-ca-certificates
 
 COPY pyproject.toml .
 COPY src/ src/

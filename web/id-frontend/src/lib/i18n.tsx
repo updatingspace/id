@@ -9,6 +9,11 @@ type I18nContextValue = {
 };
 
 const RU: Record<string, string> = {
+  'common.retry': 'Повторить',
+  'auth.sessionUnavailable': 'Не удалось проверить сессию. Попробуйте ещё раз или войдите заново.',
+  'error.pageUnavailable': 'Не удалось загрузить страницу. Попробуйте обновить её.',
+  'error.sectionUnavailable': 'Не удалось загрузить данные раздела.',
+  'error.REQUEST_TIMEOUT': 'Сервер не ответил вовремя. Попробуйте ещё раз.',
   'theme.label': 'Тема',
   'theme.system': 'Системная',
   'theme.light': 'Светлая',
@@ -113,6 +118,11 @@ const RU: Record<string, string> = {
 };
 
 const EN: Record<string, string> = {
+  'common.retry': 'Retry',
+  'auth.sessionUnavailable': 'Unable to verify your session. Try again or sign in.',
+  'error.pageUnavailable': 'Unable to load this page. Try reloading it.',
+  'error.sectionUnavailable': 'Unable to load this section.',
+  'error.REQUEST_TIMEOUT': 'The server did not respond in time. Please try again.',
   'theme.label': 'Theme',
   'theme.system': 'System',
   'theme.light': 'Light',

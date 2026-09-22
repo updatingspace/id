@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem('id_session_token', 'session-1'));
+});
+
 const authorizeQuery =
   '/authorize?client_id=portal&redirect_uri=http%3A%2F%2F127.0.0.1%3A4173%2Foauth-complete&response_type=code&scope=openid%20profile&state=s1';
 

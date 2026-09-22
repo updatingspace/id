@@ -114,7 +114,6 @@ class AuthService:
     def profile(user, request=None) -> ProfileOut:
         if not user or not getattr(user, "is_authenticated", False):
             raise HttpError(401, "Not authenticated")
-        ProfileService.maybe_refresh_gravatar(user)
         avatar = ProfileService.avatar_state(user, request=request)
         has_2fa = _has_mfa_enabled(user)
         profile = getattr(user, "profile", None) or ProfileService._ensure_profile(user)

@@ -6,15 +6,20 @@ locals {
   frontend_bucket_name  = var.frontend_bucket_name != "" ? var.frontend_bucket_name : "${local.name_prefix}-frontend-${substr(md5("${var.folder_id}-frontend"), 0, 8)}"
   media_bucket_name     = var.media_bucket_name != "" ? var.media_bucket_name : "${local.name_prefix}-media-${substr(md5("${var.folder_id}-media"), 0, 8)}"
   container_registry_id = var.container_registry_id != "" ? var.container_registry_id : yandex_container_registry.id[0].id
+  backend_network_id    = var.existing_network_id != "" ? var.existing_network_id : (var.enable_serverless_vpc ? yandex_vpc_network.id[0].id : "")
 
   runtime_secret_entries = merge(
     var.lockbox_secret_entries,
+    var.live_secret_entries,
     {
-      S3_ACCESS_KEY_ID     = yandex_iam_service_account_static_access_key.automation.access_key
-      S3_SECRET_ACCESS_KEY = yandex_iam_service_account_static_access_key.automation.secret_key
+      S3_ACCESS_KEY_ID     = lookup(var.live_secret_entries, "S3_ACCESS_KEY_ID", yandex_iam_service_account_static_access_key.automation.access_key)
+      S3_SECRET_ACCESS_KEY = lookup(var.live_secret_entries, "S3_SECRET_ACCESS_KEY", yandex_iam_service_account_static_access_key.automation.secret_key)
     },
     var.monium_api_key != "" ? {
       MONIUM_API_KEY = var.monium_api_key
+    } : {},
+    var.enable_shared_cache ? {
+      REDIS_URL = "rediss://:${random_password.cache[0].result}@c-${yandex_mdb_redis_cluster.cache[0].id}.rw.mdb.yandexcloud.net:6380/0?ssl_cert_reqs=required&socket_connect_timeout=3&socket_timeout=3"
     } : {},
   )
 
@@ -29,6 +34,7 @@ locals {
 
   backend_env = merge(
     {
+      BUILD_ID                    = var.container_image_tag
       CORS_ALLOWED_ORIGINS        = local.public_base_url
       CSRF_TRUSTED_ORIGINS        = local.public_base_url
       DB_DRIVER                   = "ydb"
@@ -62,7 +68,9 @@ locals {
       YDB_ENDPOINT                = yandex_ydb_database_serverless.id.ydb_full_endpoint
       YDB_NAME                    = "default"
     },
+    var.live_service_environment,
     var.service_environment,
+    { BUILD_ID = var.container_image_tag },
   )
 
   api_gateway_spec = templatefile("${path.module}/templates/api-gateway.openapi.yaml.tftpl", {

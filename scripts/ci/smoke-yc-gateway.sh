@@ -6,7 +6,7 @@ set -euo pipefail
 base_url="${SMOKE_BASE_URL%/}"
 host_header="${SMOKE_HOST_HEADER:-}"
 
-curl_args=(-fsS --retry 3 --retry-delay 2)
+curl_args=(-fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30)
 if [[ -n "${host_header}" ]]; then
   curl_args+=(-H "Host: ${host_header}")
 fi
@@ -44,5 +44,17 @@ case "${css_type}" in
     exit 1
     ;;
 esac
+
+missing_status="$(curl "${curl_args[@]}" --no-fail -o /dev/null -w '%{http_code}' "${base_url}/assets/__smoke_missing_asset__.js")"
+if [[ "${missing_status}" != '404' ]]; then
+  echo "Missing assets must return 404, got ${missing_status}" >&2
+  exit 1
+fi
+
+me_cache="$(curl "${curl_args[@]}" -o /dev/null -D - "${base_url}/api/v1/auth/me" | awk 'tolower($1)=="cache-control:" {print tolower($0)}')"
+if [[ "${me_cache}" != *no-store* ]]; then
+  echo "Session responses must include Cache-Control: no-store" >&2
+  exit 1
+fi
 
 echo "YC gateway smoke checks passed for ${base_url}"

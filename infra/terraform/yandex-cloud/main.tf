@@ -53,10 +53,10 @@ resource "yandex_lockbox_secret_version" "runtime" {
   secret_id = yandex_lockbox_secret.runtime.id
 
   dynamic "entries" {
-    for_each = local.runtime_secret_entries
+    for_each = nonsensitive(toset(keys(local.runtime_secret_entries)))
     content {
       key        = entries.key
-      text_value = entries.value
+      text_value = local.runtime_secret_entries[entries.key]
     }
   }
 }
@@ -136,9 +136,9 @@ resource "yandex_serverless_container" "backend" {
   }
 
   dynamic "connectivity" {
-    for_each = var.enable_serverless_vpc ? [1] : []
+    for_each = local.backend_network_id != "" ? [1] : []
     content {
-      network_id = yandex_vpc_network.id[0].id
+      network_id = local.backend_network_id
     }
   }
 
@@ -159,7 +159,7 @@ resource "yandex_serverless_container" "backend" {
   }
 
   dynamic "secrets" {
-    for_each = local.runtime_secret_entries
+    for_each = nonsensitive(toset(keys(local.runtime_secret_entries)))
     content {
       id                   = yandex_lockbox_secret.runtime.id
       version_id           = yandex_lockbox_secret_version.runtime.id

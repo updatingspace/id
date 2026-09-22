@@ -112,6 +112,9 @@ jobs:
         with:
           context: services/id
           push: false
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
           tags: id-ci/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -127,6 +130,10 @@ jobs:
         with:
           context: services/id
           push: true
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          outputs: type=image,oci-mediatypes=false
           tags: |
             cr.yandex/${{ secrets.YC_CONTAINER_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
             cr.yandex/${{ secrets.YC_CONTAINER_REGISTRY_ID }}/${{ env.BACKEND_IMAGE }}:${{ needs.generate-build-id.outputs.build_id }}
@@ -155,6 +162,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.7
+          terraform_wrapper: false
       - name: Write YC service account key
         run: |
           printf '%s' '${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}' > "$RUNNER_TEMP/yc-sa-key.json"
@@ -198,8 +208,25 @@ jobs:
             } >&2
             exit 1
           fi
+      - name: Install YC CLI for runtime snapshot and gateway adapter
+        run: |
+          curl -fsSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i "$RUNNER_TEMP/yc" -n
+          echo "$RUNNER_TEMP/yc/bin" >> "$GITHUB_PATH"
+      - name: Preserve deployed runtime configuration
+        run: |
+          yc config profile create deploy
+          yc config set service-account-key "$RUNNER_TEMP/yc-sa-key.json"
+          yc config set cloud-id "$TF_VAR_cloud_id"
+          yc config set folder-id "$TF_VAR_folder_id"
+          python scripts/ci/snapshot-yc-runtime.py \
+            --terraform-dir infra/terraform/yandex-cloud \
+            --output infra/terraform/yandex-cloud/live.auto.tfvars.json
       - name: Terraform plan
-        run: terraform -chdir=infra/terraform/yandex-cloud plan -out=tfplan
+        run: terraform -chdir=infra/terraform/yandex-cloud plan -var-file=production.performance.tfvars -out=tfplan
+      - name: Refuse destructive production plan
+        run: |
+          terraform -chdir=infra/terraform/yandex-cloud show -json tfplan > "$RUNNER_TEMP/id-plan.json"
+          python scripts/ci/check-yc-plan.py "$RUNNER_TEMP/id-plan.json"
       - name: Terraform apply
         if: env.YC_TERRAFORM_AUTO_APPLY == 'true'
         run: terraform -chdir=infra/terraform/yandex-cloud apply -auto-approve tfplan

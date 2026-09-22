@@ -129,9 +129,14 @@ variable "backend_concurrency" {
 }
 
 variable "min_ready_instances" {
-  description = "Prepared backend instances for latency-sensitive deployments."
+  description = "Prepared backend instances. Set 0 explicitly to trade cold-start latency for lower idle cost."
   type        = number
-  default     = 0
+  default     = 1
+
+  validation {
+    condition     = var.min_ready_instances >= 0 && floor(var.min_ready_instances) == var.min_ready_instances
+    error_message = "min_ready_instances must be a non-negative integer."
+  }
 }
 
 variable "service_environment" {
@@ -158,4 +163,39 @@ variable "log_retention_period" {
   description = "Cloud Logging group retention period."
   type        = string
   default     = "168h"
+}
+
+variable "existing_network_id" {
+  description = "Existing VPC with subnets in all availability zones for private cache access."
+  type        = string
+  default     = ""
+}
+
+variable "cache_subnet_id" {
+  description = "Existing subnet for the managed cache host."
+  type        = string
+  default     = ""
+}
+
+variable "enable_shared_cache" {
+  type    = bool
+  default = false
+}
+
+variable "enable_gravatar_job" {
+  type    = bool
+  default = false
+}
+
+variable "live_service_environment" {
+  description = "Existing runtime settings preserved by the deployment snapshot script. Explicit service_environment values take precedence."
+  type        = map(string)
+  default     = {}
+}
+
+variable "live_secret_entries" {
+  description = "Current Lockbox values preserved during rollout to avoid reverting out-of-band rotations."
+  type        = map(string)
+  default     = {}
+  sensitive   = true
 }

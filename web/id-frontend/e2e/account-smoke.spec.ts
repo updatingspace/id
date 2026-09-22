@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('account profile save sends update request', async ({ page }) => {
+  await page.addInitScript(() => sessionStorage.setItem('id_session_token', 'session-1'));
   let profilePatchBody: unknown = null;
 
   await page.route('**/api/v1/auth/me', async (route) => {

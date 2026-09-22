@@ -1,7 +1,20 @@
 import React from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Outlet } from 'react-router-dom';
 
-import AppLayout from '../widgets/app-shell/AppLayout';
+import AppLayout from '../App';
+import { AppLoader } from '../components/AppLoader';
+import { AuthLoadingGuard } from '../components/AuthLoadingGuard';
+import { useI18n } from '../lib/i18n';
+
+const RouteError = () => {
+  const { t } = useI18n();
+  return (
+    <div className="card" role="alert">
+      <p>{t('error.pageUnavailable')}</p>
+      <button type="button" onClick={() => window.location.reload()}>{t('common.retry')}</button>
+    </div>
+  );
+};
 
 type LazyModule = { default: React.ComponentType };
 
@@ -16,13 +29,20 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: <AppLayout />,
+    HydrateFallback: AppLoader,
+    ErrorBoundary: RouteError,
     children: [
       { index: true, lazy: lazyPage(() => import('../pages/home/HomePage')) },
 
       { path: 'login', lazy: lazyPage(() => import('../pages/login/LoginPage')) },
       { path: 'signup', lazy: lazyPage(() => import('../pages/signup/SignupPage')) },
-      { path: 'authorize', lazy: lazyPage(() => import('../pages/authorize/AuthorizePage')) },
-      { path: 'account', lazy: lazyPage(() => import('../pages/account/AccountPage')) },
+      {
+        element: <AuthLoadingGuard><Outlet /></AuthLoadingGuard>,
+        children: [
+          { path: 'authorize', lazy: lazyPage(() => import('../pages/authorize/AuthorizePage')) },
+          { path: 'account', lazy: lazyPage(() => import('../pages/account/AccountRoute')) },
+        ],
+      },
     ],
   },
 ]);

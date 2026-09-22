@@ -96,6 +96,14 @@ class SecurityHeadersMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         response = self.get_response(request)
 
+        # These responses may contain account data or OAuth credentials, even
+        # on errors. Keep them out of browser/shared caches as static TTLs grow.
+        if request.path == "/api/v1/auth" or request.path.startswith(
+            ("/api/v1/auth/", "/oauth/")
+        ):
+            response["Cache-Control"] = "private, no-store"
+            response["Pragma"] = "no-cache"
+
         # Basic security headers
         response["X-Content-Type-Options"] = "nosniff"
         response["X-Frame-Options"] = "DENY"

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from './api';
 
@@ -9,6 +9,7 @@ const jsonResponse = (body: unknown, status = 200) =>
   });
 
 describe('api contract', () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     vi.restoreAllMocks();
     window.sessionStorage.clear();
@@ -54,6 +55,22 @@ describe('api contract', () => {
     const profile = await api.profile();
     expect(profile.email).toBe('user@example.com');
     expect(profile.first_name).toBe('User');
+  });
+
+  it('aborts a stalled session check after eight seconds', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | null | undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      requestSignal = init?.signal;
+      return new Promise((_resolve, reject) => {
+        requestSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    const pending = expect(api.profile()).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(8_000);
+    await pending;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('sends X-Session-Token when session token exists', async () => {
