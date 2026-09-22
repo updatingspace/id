@@ -169,6 +169,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "app.wsgi.application"
+HEADLESS_TOKEN_STRATEGY = "accounts.session_tokens.LoadedSessionTokenStrategy"
 DB_DRIVER, DATABASES = build_database_settings(base_dir=BASE_DIR, read_env=read_env)
 if DB_DRIVER == "ydb":
     MIGRATION_MODULES = build_ydb_migration_modules(

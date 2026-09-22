@@ -208,6 +208,22 @@ def main():
             "/api/v1/auth/me", HTTP_X_SESSION_TOKEN=data["meta"]["session_token"]
         )
         assert response.status_code == 200 and response.json()["user"]["email"] == email
+        assert "app;dur=" in response["Server-Timing"]
+        assert "db;dur=" in response["Server-Timing"]
+        response = client.get(
+            "/api/v1/auth/sessions", HTTP_X_SESSION_TOKEN=data["meta"]["session_token"]
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        assert any(
+            item["current"] and not item["revoked"]
+            for item in response.json()["sessions"]
+        )
+        response = client.get(
+            "/api/v1/auth/mfa/status",
+            HTTP_X_SESSION_TOKEN=data["meta"]["session_token"],
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        assert not response.json()["has_totp"]
         from accounts.models import DataExportRequest, UserConsent
 
         owner = User.objects.get(email=email)

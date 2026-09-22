@@ -14,6 +14,7 @@ import time
 from typing import Callable
 
 from django.conf import settings
+from django.db import connection
 from django.http import HttpRequest, HttpResponse
 
 from core.logging_config import (
@@ -205,6 +206,17 @@ class RequestLoggingMiddleware:
             return self.get_response(request)
 
         start_time = time.perf_counter()
+        db_query_count = 0
+        db_duration_ms = 0.0
+
+        def measure_query(execute, sql, params, many, context):
+            nonlocal db_query_count, db_duration_ms
+            db_query_count += 1
+            query_start = time.perf_counter()
+            try:
+                return execute(sql, params, many, context)
+            finally:
+                db_duration_ms += (time.perf_counter() - query_start) * 1000
 
         # Log request (debug level)
         request_extra = sanitize_log_data(
@@ -222,9 +234,15 @@ class RequestLoggingMiddleware:
         )
 
         try:
-            response = self.get_response(request)
+            with connection.execute_wrapper(measure_query):
+                response = self.get_response(request)
 
             duration_ms = (time.perf_counter() - start_time) * 1000
+            timings = f"app;dur={duration_ms:.2f}, db;dur={db_duration_ms:.2f}"
+            previous_timings = response.get("Server-Timing")
+            response["Server-Timing"] = (
+                f"{previous_timings}, {timings}" if previous_timings else timings
+            )
 
             # Log response
             log_level = logging.INFO if response.status_code < 400 else logging.WARNING
@@ -235,6 +253,8 @@ class RequestLoggingMiddleware:
                     "request_id": getattr(request, "request_id", None),
                     "status_code": response.status_code,
                     "duration_ms": round(duration_ms, 2),
+                    "db_query_count": db_query_count,
+                    "db_duration_ms": round(db_duration_ms, 2),
                     "content_length": response.get("Content-Length", "0"),
                 }
             )
@@ -261,6 +281,8 @@ class RequestLoggingMiddleware:
                     "path": path,
                     "request_id": getattr(request, "request_id", None),
                     "duration_ms": round(duration_ms, 2),
+                    "db_query_count": db_query_count,
+                    "db_duration_ms": round(db_duration_ms, 2),
                     "exception_type": type(e).__name__,
                     "exception_message": str(e),
                 }

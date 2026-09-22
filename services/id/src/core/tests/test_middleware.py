@@ -4,8 +4,9 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.db import connection
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 from core.logging_config import get_correlation_id
 from core.middleware import (
@@ -151,3 +152,44 @@ class RequestLoggingMiddlewareTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         debug_mock.assert_not_called()
         log_mock.assert_not_called()
+
+
+class RequestTimingTests(TestCase):
+    def test_query_totals_and_server_timing_do_not_include_sql_data(self):
+        def view(request):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT %s", ["private-query-value"])
+                cursor.fetchone()
+            return HttpResponse("ok", headers={"Server-Timing": "edge;dur=1"})
+
+        middleware = RequestLoggingMiddleware(view)
+        with patch("core.middleware.logger.log") as log:
+            response = middleware(RequestFactory().get("/api/v1/auth/me"))
+        extra = log.call_args.kwargs["extra"]
+        self.assertEqual(extra["db_query_count"], 1)
+        self.assertGreaterEqual(extra["db_duration_ms"], 0)
+        self.assertGreaterEqual(extra["duration_ms"], extra["db_duration_ms"])
+        self.assertTrue(response["Server-Timing"].startswith("edge;dur=1, app;dur="))
+        self.assertIn(", db;dur=", response["Server-Timing"])
+        self.assertNotIn("private-query-value", str(extra))
+        self.assertNotIn("private-query-value", response["Server-Timing"])
+
+    def test_query_wrapper_is_removed_after_failed_request(self):
+        def view(request):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+            raise RuntimeError("test failure")
+
+        wrappers_before = list(connection.execute_wrappers)
+        with patch("core.middleware.logger.error") as log:
+            with self.assertRaises(RuntimeError):
+                RequestLoggingMiddleware(view)(RequestFactory().get("/failing"))
+        self.assertEqual(log.call_args.kwargs["extra"]["db_query_count"], 1)
+        self.assertEqual(connection.execute_wrappers, wrappers_before)
+
+    def test_response_without_existing_timing_header(self):
+        response = RequestLoggingMiddleware(lambda request: HttpResponse("ok"))(
+            RequestFactory().get("/no-database")
+        )
+        self.assertTrue(response["Server-Timing"].startswith("app;dur="))
+        self.assertIn("db;dur=0.00", response["Server-Timing"])
