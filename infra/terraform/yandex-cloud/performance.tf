@@ -4,6 +4,18 @@ resource "random_password" "cache" {
   special = false
 }
 
+data "yandex_iam_service_account" "deployer" {
+  count = var.enable_gravatar_job && var.deployment_service_account_name != "" ? 1 : 0
+  name  = var.deployment_service_account_name
+}
+
+resource "yandex_resourcemanager_folder_iam_member" "deployer_trigger_editor" {
+  count     = var.enable_gravatar_job && var.deployment_service_account_name != "" ? 1 : 0
+  folder_id = var.folder_id
+  role      = "functions.editor"
+  member    = "serviceAccount:${data.yandex_iam_service_account.deployer[0].id}"
+}
+
 resource "yandex_vpc_security_group" "cache" {
   count      = var.enable_shared_cache ? 1 : 0
   name       = "${local.name_prefix}-cache"
@@ -40,7 +52,7 @@ resource "yandex_mdb_redis_cluster" "cache" {
     maxmemory_policy = "NOEVICTION"
   }
   resources {
-    resource_preset_id = "b3-c1-m4"
+    resource_preset_id = "hm3-c2-m8"
     disk_size          = 16
   }
   host {
@@ -136,7 +148,10 @@ resource "yandex_function_trigger" "gravatar" {
     retry_attempts     = 2
     retry_interval     = 60
   }
-  depends_on = [yandex_serverless_container_iam_binding.gravatar_invoker]
+  depends_on = [
+    yandex_serverless_container_iam_binding.gravatar_invoker,
+    yandex_resourcemanager_folder_iam_member.deployer_trigger_editor,
+  ]
 }
 
 # The provider cannot import the pre-existing gateway. Keep its desired spec

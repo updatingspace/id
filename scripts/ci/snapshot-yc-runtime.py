@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--terraform-dir", required=True)
     parser.add_argument("--terraform-bin", default="terraform")
     parser.add_argument("--output", required=True)
+    parser.add_argument("--shared-cache", action="store_true", help="Resolve VPC/subnet for an explicitly enabled managed cache")
     args = parser.parse_args()
     outputs = read_json(args.terraform_bin, f"-chdir={args.terraform_dir}", "output", "-json")
     # Use the container recorded in this stack's state, not another folder service.
@@ -40,13 +41,14 @@ def main():
         "live_service_environment": revision["image"].get("environment", {}),
         "live_secret_entries": values,
     }
-    # Resolve deployment-local identifiers into the private tfvars snapshot.
-    # The standard network has subnets in all YC availability zones.
-    network = read_json("yc", "vpc", "network", "get", "--name", os.environ.get("YC_ID_NETWORK_NAME", "default"), "--format", "json")
-    subnet = read_json("yc", "vpc", "subnet", "get", "--name", os.environ.get("YC_ID_CACHE_SUBNET_NAME", "default-ru-central1-a"), "--format", "json")
-    if subnet["network_id"] != network["id"]:
-        raise RuntimeError("Cache subnet must belong to the selected backend VPC")
-    result.update(existing_network_id=network["id"], cache_subnet_id=subnet["id"])
+    # Preserve live connectivity; do not attach a VPC just for a disabled cache.
+    result["existing_network_id"] = revision.get("connectivity", {}).get("network_id", "")
+    if args.shared_cache:
+        network = read_json("yc", "vpc", "network", "get", "--name", os.environ.get("YC_ID_NETWORK_NAME", "default"), "--format", "json")
+        subnet = read_json("yc", "vpc", "subnet", "get", "--name", os.environ.get("YC_ID_CACHE_SUBNET_NAME", "default-ru-central1-a"), "--format", "json")
+        if subnet["network_id"] != network["id"]:
+            raise RuntimeError("Cache subnet must belong to the selected backend VPC")
+        result.update(existing_network_id=network["id"], cache_subnet_id=subnet["id"])
     destination = Path(args.output)
     descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.chmod(destination, 0o600)

@@ -24,8 +24,6 @@ class RolloutTests(unittest.TestCase):
                 [{"id": "active", "status": "ACTIVE", "image": {"environment": {"EMAIL_HOST": "smtp.test"}},
                   "secrets": [{"id": "lockbox", "version_id": "current", "key": "smtp", "environment_variable": "EMAIL_HOST_PASSWORD"}]}],
                 {"entries": [{"key": "smtp", "text_value": "test-secret"}, {"key": "unused", "text_value": "unused-secret"}]},
-                {"id": "network"},
-                {"id": "subnet", "network_id": "network"},
             ]
             with patch.object(snapshot, "read_json", side_effect=responses) as read, patch.object(sys, "argv", ["snapshot", "--terraform-dir", directory, "--output", str(output)]):
                 snapshot.main()
@@ -34,7 +32,35 @@ class RolloutTests(unittest.TestCase):
             self.assertEqual(saved["live_service_environment"], {"EMAIL_HOST": "smtp.test"})
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
             self.assertIn("current", read.call_args_list[2].args)
+            self.assertEqual(saved["existing_network_id"], "")
+            self.assertEqual(read.call_count, 3)
+
+    def test_snapshot_preserves_live_vpc_without_provisioning_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "live.json"
+            responses = [
+                {"backend_invoke_url": {"value": "https://container.containers.yandexcloud.net/"}, "api_gateway_id": {"value": "gateway"}},
+                [{"id": "active", "status": "ACTIVE", "image": {}, "connectivity": {"network_id": "live-network"}}],
+            ]
+            with patch.object(snapshot, "read_json", side_effect=responses) as read, patch.object(sys, "argv", ["snapshot", "--terraform-dir", directory, "--output", str(output)]):
+                snapshot.main()
+            self.assertEqual(json.loads(output.read_text())["existing_network_id"], "live-network")
+            self.assertEqual(read.call_count, 2)
+
+    def test_shared_cache_requires_explicit_network_resolution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "live.json"
+            responses = [
+                {"backend_invoke_url": {"value": "https://container.containers.yandexcloud.net/"}, "api_gateway_id": {"value": "gateway"}},
+                [{"id": "active", "status": "ACTIVE", "image": {}}],
+                {"id": "network"},
+                {"id": "subnet", "network_id": "network"},
+            ]
+            with patch.object(snapshot, "read_json", side_effect=responses), patch.object(sys, "argv", ["snapshot", "--terraform-dir", directory, "--output", str(output), "--shared-cache"]):
+                snapshot.main()
+            saved = json.loads(output.read_text())
             self.assertEqual(saved["existing_network_id"], "network")
+            self.assertEqual(saved["cache_subnet_id"], "subnet")
 
     def test_ambiguous_active_revision_does_not_write_configuration(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -182,6 +182,12 @@ variable "enable_shared_cache" {
   default = false
 }
 
+variable "deployment_service_account_name" {
+  description = "Existing CI service account to grant timer deployment permissions."
+  type        = string
+  default     = ""
+}
+
 variable "enable_gravatar_job" {
   type    = bool
   default = false
