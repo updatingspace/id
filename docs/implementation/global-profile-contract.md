@@ -17,3 +17,9 @@ The internal signature authenticates the trusted BFF caller. The existing HMAC
 format does not bind context headers; changing that protocol is outside this patch.
 The caller must supply the authenticated session's canonical user ID, never a value
 chosen directly from a public request header.
+
+Avatar URLs from private S3 storage retain their original host, path and signature.
+Only relative local-media URLs are resolved against the public ID origin. The
+managed Yandex Cloud stack keeps media private and enables signed object URLs;
+the standalone S3 storage configuration also defaults to signing. Disable
+`S3_QUERYSTRING_AUTH` only for an intentionally public media bucket.

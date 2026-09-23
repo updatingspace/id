@@ -72,6 +72,8 @@ locals {
     {
       BUILD_ID        = var.container_image_tag
       YDB_CACHE_TABLE = yandex_ydb_table.cache.path
+      # This stack's media bucket is private; browsers need signed object URLs.
+      S3_QUERYSTRING_AUTH = "true"
     },
   ) : key => value if key != "PORT" } # Injected by Serverless Containers.
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse
 from datetime import timedelta
 
 from django.conf import settings
@@ -389,19 +389,10 @@ def me(request):
             if public_base:
                 try:
                     parsed_url = urlparse(avatar_url)
-                    parsed_base = urlparse(public_base)
-                    if parsed_base.scheme and parsed_base.netloc:
-                        if parsed_url.netloc != parsed_base.netloc:
-                            avatar_url = urlunparse(
-                                (
-                                    parsed_base.scheme,
-                                    parsed_base.netloc,
-                                    parsed_url.path,
-                                    parsed_url.params,
-                                    parsed_url.query,
-                                    parsed_url.fragment,
-                                )
-                            )
+                    # A storage signature covers the original object host/path.
+                    # Only relative local-media URLs need the public ID origin.
+                    if not parsed_url.scheme and not parsed_url.netloc:
+                        avatar_url = urljoin(public_base + "/", avatar_url)
                 except Exception:
                     pass
     return {

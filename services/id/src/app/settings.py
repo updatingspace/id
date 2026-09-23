@@ -265,7 +265,7 @@ if MEDIA_STORAGE_DRIVER == "s3":
         "path" if read_env_flag("S3_FORCE_PATH_STYLE", False) else "virtual"
     )
     AWS_DEFAULT_ACL = None
-    AWS_QUERYSTRING_AUTH = read_env_flag("S3_QUERYSTRING_AUTH", False)
+    AWS_QUERYSTRING_AUTH = read_env_flag("S3_QUERYSTRING_AUTH", True)
     AWS_S3_OBJECT_PARAMETERS = {
         "CacheControl": read_env("S3_CACHE_CONTROL", "max-age=86400")
     }
