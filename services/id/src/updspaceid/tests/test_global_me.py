@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import time
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -155,3 +156,37 @@ class GlobalMeTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.json()["user"]["first_name"])
         self.assertFalse(AccountIdentity.objects.exists())
+
+    @override_settings(OIDC_PUBLIC_BASE_URL="https://id.example.test")
+    def test_signed_storage_avatar_url_keeps_its_host_path_and_signature(self):
+        account = get_user_model().objects.create_user(username="avatar-owner")
+        AccountIdentity.objects.create(
+            user=account, identity=self.user, public_subject="avatar-owner"
+        )
+        UserProfile.objects.update_or_create(
+            user=account, defaults={"avatar": "avatars/example.png"}
+        )
+        signed_url = "https://private.storage.example.test/avatars/example.png?X-Amz-Credential=test%2Fscope&X-Amz-Signature=test-signature"
+        storage = UserProfile._meta.get_field("avatar").storage
+        with patch.object(storage, "url", return_value=signed_url):
+            response = self.client.get("/api/v1/me", **self.headers())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user"]["avatar_url"], signed_url)
+
+    @override_settings(OIDC_PUBLIC_BASE_URL="https://id.example.test")
+    def test_relative_local_avatar_url_uses_public_id_origin(self):
+        account = get_user_model().objects.create_user(username="local-avatar-owner")
+        AccountIdentity.objects.create(
+            user=account, identity=self.user, public_subject="local-avatar"
+        )
+        UserProfile.objects.update_or_create(
+            user=account, defaults={"avatar": "avatars/example.png"}
+        )
+        storage = UserProfile._meta.get_field("avatar").storage
+        with patch.object(storage, "url", return_value="/media/avatars/example.png"):
+            response = self.client.get("/api/v1/me", **self.headers())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["user"]["avatar_url"],
+            "https://id.example.test/media/avatars/example.png",
+        )
