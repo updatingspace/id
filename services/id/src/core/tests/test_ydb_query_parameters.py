@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import ydb
 from allauth.account.models import EmailAddress
@@ -7,7 +8,7 @@ from django.db.models import F, Value
 from django.db.models.sql import UpdateQuery
 
 from app.cloud_runtime import _patch_ydb_query_parameters
-from accounts.models import UserConsent
+from accounts.models import AccountIdentity, UserConsent
 
 
 def _compiler(query):
@@ -40,6 +41,19 @@ def test_annotation_does_not_shift_filter_parameter():
     _, params = _compiler(query).as_sql()
     assert params["$element_1"] == "marker"
     assert params["$element_2"] == ("example", ydb.PrimitiveType.Utf8)
+
+
+def test_uuid_foreign_key_filter_keeps_type_and_literal_position():
+    identity_id = uuid4()
+    query = (
+        AccountIdentity.objects.filter(identity_id=identity_id)
+        .exclude(user_id=42)
+        .query.exists()
+    )
+    _, params = _compiler(query).as_sql()
+    assert params["$element_1"] == 1
+    assert params["$element_2"] == (identity_id, ydb.PrimitiveType.UUID)
+    assert params["$element_3"] == 42
 
 
 def test_datetime_and_null_parameters_keep_types():

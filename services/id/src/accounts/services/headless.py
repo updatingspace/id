@@ -16,12 +16,15 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from ninja.errors import HttpError
 
-from updspaceid.enums import MembershipStatus, UserStatus
+from core.security import require_internal_signature
+
+from updspaceid.enums import MembershipStatus
 from updspaceid.http import require_tenant_headers
-from updspaceid.models import TenantMembership, User as UpdspaceIdUser
-from updspaceid.services import ensure_tenant
+from updspaceid.models import TenantMembership
+from updspaceid.services import ensure_tenant, require_active_user
 
 from accounts.services.activity import ActivityService
+from accounts.services.identity import resolve_identity
 from accounts.services.preferences import ConsentService, PreferencesService
 from accounts.services.mfa import MfaService
 from accounts.services.profile import ProfileService
@@ -108,7 +111,6 @@ class HeadlessService:
                         "message": "Подтвердите email перед входом. При необходимости запросите новое письмо.",
                     },
                 )
-        record_authentication(request, user, method="password", email=email.strip())
 
         mfa_enabled = False
         mfa_used: str | None = None
@@ -179,6 +181,11 @@ class HeadlessService:
                     },
                 )
 
+        binding = resolve_identity(user)
+        if binding.identity_id:
+            require_active_user(binding.identity)
+        _sync_updspace_identity(request, user, binding=binding)
+        record_authentication(request, user, method="password", email=email.strip())
         # Bypass allauth stage controller to stay headless and avoid redirects.
         dj_login(
             request,
@@ -209,7 +216,6 @@ class HeadlessService:
                 "mfa_method": mfa_used,
             },
         )
-        _sync_updspace_identity(request, user)
         return {
             "session_token": HeadlessService.issue_session_token(request),
             "recovery_codes": recovery_codes,
@@ -360,7 +366,7 @@ class HeadlessService:
         return HeadlessService.issue_session_token(request)
 
 
-def _sync_updspace_identity(request, user) -> None:
+def _sync_updspace_identity(request, user, *, binding=None) -> None:
     email = (getattr(user, "email", "") or "").strip().lower()
     if not email:
         logger.debug(
@@ -369,13 +375,9 @@ def _sync_updspace_identity(request, user) -> None:
         )
         return
 
-    try:
-        tenant_id, tenant_slug = require_tenant_headers(request)
-    except HttpError:
-        logger.debug(
-            "Skipping UpdSpace identity sync: tenant headers unavailable",
-            extra={"user_id": getattr(user, "id", None)},
-        )
+    binding = binding or resolve_identity(user)
+    identity = binding.identity
+    if identity is None:
         return
 
     display_name = (
@@ -383,51 +385,35 @@ def _sync_updspace_identity(request, user) -> None:
     ).strip()
     if not display_name:
         display_name = getattr(user, "username", "") or email.split("@")[0]
-    is_verified = EmailAddress.objects.filter(user=user, verified=True).exists()
-    is_admin = bool(
-        getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
-    )
+    is_verified = EmailAddress.objects.filter(
+        user=user, email__iexact=email, primary=True, verified=True
+    ).exists()
+    if not is_verified:
+        return
+    is_admin = bool(user.is_staff or user.is_superuser)
     try:
-        tenant = ensure_tenant(tenant_id, tenant_slug)
         with transaction.atomic():
-            identity, created = UpdspaceIdUser.objects.get_or_create(
-                email=email,
-                defaults={
-                    "username": getattr(user, "username", "") or email.split("@")[0],
-                    "display_name": display_name,
-                    "status": UserStatus.ACTIVE,
-                    "email_verified": is_verified,
-                    "system_admin": is_admin,
-                },
-            )
-            if created:
-                logger.info(
-                    "Created UpdSpace identity",
-                    extra={
-                        "user_id": getattr(user, "id", None),
-                        "updspace_user_id": str(identity.user_id),
-                    },
-                )
-            else:
-                updated_fields: list[str] = []
-                if is_admin and not identity.system_admin:
-                    identity.system_admin = True
-                    updated_fields.append("system_admin")
-                if identity.status != UserStatus.ACTIVE:
-                    identity.status = UserStatus.ACTIVE
-                    updated_fields.append("status")
-                if is_verified and not identity.email_verified:
-                    identity.email_verified = True
-                    updated_fields.append("email_verified")
-                if display_name and identity.display_name != display_name:
-                    identity.display_name = display_name
-                    updated_fields.append("display_name")
-                username = getattr(user, "username", "")
-                if username and identity.username != username:
-                    identity.username = username
-                    updated_fields.append("username")
-                if updated_fields:
-                    identity.save(update_fields=updated_fields)
+            require_active_user(identity)
+            updated_fields: list[str] = []
+            if identity.email_verified != is_verified:
+                identity.email_verified = is_verified
+                updated_fields.append("email_verified")
+            if display_name and identity.display_name != display_name:
+                identity.display_name = display_name
+                updated_fields.append("display_name")
+            username = getattr(user, "username", "")
+            if username and identity.username != username:
+                identity.username = username
+                updated_fields.append("username")
+            if updated_fields:
+                identity.save(update_fields=updated_fields)
+
+            try:
+                tenant_id, tenant_slug = require_tenant_headers(request)
+                require_internal_signature(request)
+            except HttpError:
+                return
+            tenant = ensure_tenant(tenant_id, tenant_slug)
 
             membership, _ = TenantMembership.objects.get_or_create(
                 user=identity,
@@ -437,15 +423,6 @@ def _sync_updspace_identity(request, user) -> None:
                     "base_role": "admin" if is_admin else "member",
                 },
             )
-            membership_updates: list[str] = []
-            if membership.status != MembershipStatus.ACTIVE:
-                membership.status = MembershipStatus.ACTIVE
-                membership_updates.append("status")
-            if is_admin and membership.base_role != "admin":
-                membership.base_role = "admin"
-                membership_updates.append("base_role")
-            if membership_updates:
-                membership.save(update_fields=membership_updates)
     except Exception:
         logger.exception(
             "Failed to sync UpdSpace identity",

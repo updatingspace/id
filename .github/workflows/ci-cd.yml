@@ -195,6 +195,9 @@ jobs:
           pip install uv
           uv sync --extra dev --frozen
 
+      - name: Rehearse additive YDB identity migration
+        run: uv run --frozen python scripts/check_ydb_schema_upgrade.py
+
       - name: Run migrate_ydb dry-run
         run: uv run --frozen python src/manage.py migrate_ydb --dry-run
 
@@ -202,6 +205,7 @@ jobs:
         run: |
           uv run --frozen python src/manage.py migrate_ydb
           uv run --frozen python scripts/check_ydb_runtime.py
+          uv run --frozen python scripts/check_identity_runtime.py
 
   terraform-check:
     name: Terraform validate

@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Any
 
 from django.conf import settings
+from django.apps import apps
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpRequest, JsonResponse
@@ -122,6 +123,45 @@ def check_database() -> ComponentHealth:
             status=HealthStatus.UNHEALTHY,
             latency_ms=round(latency_ms, 2),
             message=str(e),
+        )
+
+
+def check_auth_schema() -> ComponentHealth:
+    """Compile bounded reads of the tables needed to restore and issue credentials.
+
+    This detects absent tables/columns, without reading account data. Full schema
+    compatibility remains a deployment migration gate, not a per-request scan.
+    """
+    start = time.perf_counter()
+    try:
+        labels = (
+            settings.AUTH_USER_MODEL,
+            "sessions.Session",
+            "accounts.AccountIdentity",
+            "updspaceid.TenantMembership",
+            "idp.OidcToken",
+        )
+        with connection.cursor() as cursor:
+            for label in labels:
+                model = apps.get_model(label)
+                columns = ", ".join(
+                    connection.ops.quote_name(field.column)
+                    for field in model._meta.local_concrete_fields
+                )
+                table = connection.ops.quote_name(model._meta.db_table)
+                cursor.execute(f"SELECT {columns} FROM {table} LIMIT 0")
+        return ComponentHealth(
+            name="auth_schema",
+            status=HealthStatus.HEALTHY,
+            latency_ms=round((time.perf_counter() - start) * 1000, 2),
+        )
+    except Exception:
+        logger.exception("Authentication schema health check failed")
+        return ComponentHealth(
+            name="auth_schema",
+            status=HealthStatus.UNHEALTHY,
+            latency_ms=round((time.perf_counter() - start) * 1000, 2),
+            message="Authentication schema unavailable",
         )
 
 
@@ -284,6 +324,7 @@ def run_health_check(*, include_details: bool = True) -> HealthCheckResult:
     if include_details:
         components = [
             check_database(),
+            check_auth_schema(),
             check_cache(),
             check_oidc_keys(),
             check_email_backend(),
@@ -325,6 +366,12 @@ def readiness_view(request: HttpRequest) -> JsonResponse:
     Used by Kubernetes to determine if traffic should be routed to this pod.
     """
     db_health = check_database()
+    schema_health = check_auth_schema()
+    if schema_health.status == HealthStatus.UNHEALTHY:
+        return JsonResponse(
+            {"status": "not_ready", "reason": "Authentication schema unavailable"},
+            status=503,
+        )
 
     if db_health.status == HealthStatus.UNHEALTHY:
         return JsonResponse(

@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
+from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.core.management import call_command
@@ -333,6 +334,9 @@ class OidcTokenLifecycleTests(TestCase):
         self.user = User.objects.create_user(
             username="token-user", email="tokenuser@example.com", password="secret"
         )
+        EmailAddress.objects.create(
+            user=self.user, email=self.user.email, primary=True, verified=True
+        )
         self.upd_user = UpdspaceUser.objects.create(
             email=self.user.email,
             username="token-user",
@@ -549,6 +553,9 @@ class OidcSubjectTests(TestCase):
             email="uuid-user@example.com",
             password="secret",
         )
+        EmailAddress.objects.create(
+            user=django_user, email=django_user.email, primary=True, verified=True
+        )
         upd_user = UpdspaceUser.objects.create(
             email=django_user.email,
             username="uuid-user",
@@ -569,7 +576,7 @@ class OidcSubjectTests(TestCase):
         )
         claims = _claims_for_scopes(django_user, ["openid"])
         self.assertEqual(claims["sub"], str(django_user.id))
-        self.assertEqual(claims["user_id"], str(django_user.id))
+        self.assertNotIn("user_id", claims)
 
     def test_claims_include_master_flags_from_updspace_user(self):
         User = get_user_model()
@@ -577,6 +584,9 @@ class OidcSubjectTests(TestCase):
             username="admin-user",
             email="admin@example.com",
             password="secret",
+        )
+        EmailAddress.objects.create(
+            user=django_user, email=django_user.email, primary=True, verified=True
         )
         upd_user = UpdspaceUser.objects.create(
             email=django_user.email,
