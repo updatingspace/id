@@ -99,7 +99,12 @@ class AccountDeletionService:
             revoked_at=timezone.now()
         )
         EmailAddress.objects.filter(user=user).delete()
-        SocialToken.objects.filter(account__user=user).delete()
+        # Materialize owner-scoped IDs: the pinned YDB compiler loses bind
+        # parameters for DELETE statements containing a related-table subquery.
+        account_ids = list(
+            SocialAccount.objects.filter(user=user).values_list("pk", flat=True)
+        )
+        SocialToken.objects.filter(account_id__in=account_ids).delete()
         SocialAccount.objects.filter(user=user).delete()
         try:
             from idp.models import OidcConsent, OidcToken

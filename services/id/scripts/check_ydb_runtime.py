@@ -331,8 +331,50 @@ def main():
         )
         assert response.status_code == 200, response.content.decode()[:400]
         assert response.json()["user"]["email"] == other_user.email
+        from allauth.socialaccount.models import SocialAccount, SocialApp, SocialToken
+
+        # Joined DELETE subqueries used to lose their bind parameters in YDB,
+        # causing account deletion to return 500 even with no social accounts.
+        social_app = SocialApp.objects.create(
+            provider="local-check", name="Local deletion check", client_id=run_id
+        )
+        owner_social = SocialAccount.objects.create(
+            user=owner, provider="local-check", uid="owner-" + run_id
+        )
+        other_social = SocialAccount.objects.create(
+            user=other_user, provider="local-check", uid="other-" + run_id
+        )
+        SocialToken.objects.create(
+            app=social_app, account=owner_social, token="local-owner-token"
+        )
+        preserved_token = SocialToken.objects.create(
+            app=social_app, account=other_social, token="local-other-token"
+        )
+        client = Client()
+        response = post(
+            "/api/v1/auth/login", {"email": email, "password": new_password}
+        )
+        assert response.status_code == 200
+        deletion_token = response.json()["meta"]["session_token"]
+        response = client.post(
+            "/api/v1/auth/account/delete",
+            data=json.dumps({"password": new_password}),
+            content_type="application/json",
+            HTTP_X_SESSION_TOKEN=deletion_token,
+        )
+        assert response.status_code == 200, response.content.decode()[:400]
+        owner.refresh_from_db()
+        assert not owner.is_active
+        assert not SocialAccount.objects.filter(pk=owner_social.pk).exists()
+        assert SocialToken.objects.filter(pk=preserved_token.pk).exists()
+        assert (
+            client.get(
+                "/api/v1/auth/me", HTTP_X_SESSION_TOKEN=deletion_token
+            ).status_code
+            == 401
+        )
         print(
-            "YDB auth: concurrent IDs, rollback, signup, email verification, duplicate usernames, password recovery, session revocation, profile, export and passkeys passed"
+            "YDB auth: concurrent IDs, rollback, signup, email verification, duplicate usernames, password recovery, session revocation, profile, export, passkeys and owner-scoped account deletion passed"
         )
     connections.close_all()
 
