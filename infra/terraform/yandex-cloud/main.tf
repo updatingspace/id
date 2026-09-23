@@ -150,7 +150,9 @@ resource "yandex_serverless_container" "backend" {
   }
 
   dynamic "provision_policy" {
-    for_each = nonsensitive(local.blue_backend.min_instances) > 0 ? [1] : []
+    for_each = nonsensitive(
+      local.blue_backend.min_instances > 0 || local.blue_backend.provision_policy_present
+    ) ? [1] : []
     content {
       min_instances = local.blue_backend.min_instances
     }
@@ -212,7 +214,9 @@ resource "yandex_serverless_container" "backend_green" {
   }
 
   dynamic "provision_policy" {
-    for_each = nonsensitive(local.green_backend.min_instances) > 0 ? [1] : []
+    for_each = nonsensitive(
+      local.green_backend.min_instances > 0 || local.green_backend.provision_policy_present
+    ) ? [1] : []
     content {
       min_instances = local.green_backend.min_instances
     }

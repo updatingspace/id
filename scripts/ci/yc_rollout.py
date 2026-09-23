@@ -109,6 +109,7 @@ def revision_config(revision: dict[str, Any]) -> dict[str, Any]:
     if "http" not in revision.get("runtime", {}):
         raise RuntimeError("Only HTTP backend revisions can be retained")
     resources = revision["resources"]
+    provision_policy = revision.get("provision_policy")
     endpoint_modes = {
         "ENABLED": 1,
         "DISABLED": 2,
@@ -131,9 +132,10 @@ def revision_config(revision: dict[str, Any]) -> dict[str, Any]:
         "execution_timeout": revision["execution_timeout"],
         "service_account_id": revision["service_account_id"],
         "network_id": revision.get("connectivity", {}).get("network_id", ""),
-        "min_instances": int(
-            revision.get("provision_policy", {}).get("min_instances", 0)
-        ),
+        "min_instances": int((provision_policy or {}).get("min_instances", 0)),
+        # YC emits {} for an explicitly configured zero. Removing that block
+        # would still deploy a revision to the serving slot during preparation.
+        "provision_policy_present": provision_policy is not None,
         "log_group_id": revision["log_options"]["log_group_id"],
         "log_min_level": revision["log_options"].get("min_level", "INFO"),
         "metadata_options": {
