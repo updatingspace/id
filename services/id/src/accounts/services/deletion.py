@@ -15,11 +15,14 @@ from django.utils import timezone
 
 from accounts.models import (
     AccountDeletionRequest,
+    AccountIdentity,
     UserConsent,
     UserPreferences,
     UserProfile,
 )
 from core.models import UserSessionMeta, UserSessionToken
+from updspaceid.enums import UserStatus
+from updspaceid.models import User as Identity
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -75,6 +78,19 @@ class AccountDeletionService:
             user.last_name = ""
         user.set_unusable_password()
         user.save()
+
+        # Follow the immutable owner binding only. Email is mutable and must not
+        # select another principal or provision a new one during deletion.
+        binding = AccountIdentity.objects.filter(user=user).first()
+        if binding and binding.identity_id:
+            Identity.objects.filter(pk=binding.identity_id).update(
+                username=user.username,
+                display_name="",
+                email=user.email,
+                email_verified=False,
+                system_admin=False,
+                status=UserStatus.SUSPENDED,
+            )
 
         UserProfile.objects.filter(user=user).update(
             phone_number="",

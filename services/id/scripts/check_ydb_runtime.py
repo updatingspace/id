@@ -356,6 +356,14 @@ def main():
         )
         assert response.status_code == 200
         deletion_token = response.json()["meta"]["session_token"]
+        from accounts.services.identity import resolve_identity
+        from updspaceid.models import User as Identity
+
+        with override_settings(ID_GLOBAL_IDENTITY_PROVISIONING=True):
+            owner_binding = resolve_identity(owner)
+            other_binding = resolve_identity(other_user)
+        original_subject = owner_binding.public_subject
+        other_identity_email = other_binding.identity.email
         response = client.post(
             "/api/v1/auth/account/delete",
             data=json.dumps({"password": new_password}),
@@ -365,6 +373,16 @@ def main():
         assert response.status_code == 200, response.content.decode()[:400]
         owner.refresh_from_db()
         assert not owner.is_active
+        owner_binding.refresh_from_db()
+        deleted_identity = Identity.objects.get(pk=owner_binding.identity_id)
+        preserved_identity = Identity.objects.get(pk=other_binding.identity_id)
+        assert deleted_identity.status == "suspended"
+        assert deleted_identity.email == owner.email
+        assert not deleted_identity.email_verified
+        assert not deleted_identity.system_admin
+        assert owner_binding.public_subject == original_subject
+        assert preserved_identity.status == "active"
+        assert preserved_identity.email == other_identity_email
         assert not SocialAccount.objects.filter(pk=owner_social.pk).exists()
         assert SocialToken.objects.filter(pk=preserved_token.pk).exists()
         assert (
