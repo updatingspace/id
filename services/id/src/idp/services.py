@@ -13,9 +13,11 @@ import jwt
 from jwt import InvalidTokenError
 from allauth.account.models import EmailAddress
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from ninja.errors import HttpError
 
+from accounts.services.identity import resolve_identity
 from accounts.services.preferences import PreferencesService
 from accounts.services.profile import ProfileService
 from idp.keys import (
@@ -44,6 +46,7 @@ AUTH_CODE_TTL = timedelta(minutes=5)
 ACCESS_TOKEN_TTL = timedelta(minutes=30)
 ID_TOKEN_TTL = timedelta(minutes=10)
 REFRESH_TOKEN_TTL = timedelta(days=30)
+_UNRESOLVED_IDENTITY = object()
 
 
 def _issuer() -> str:
@@ -89,21 +92,7 @@ def _apply_privacy_prefs(scopes: list[str], prefs: dict) -> list[str]:
 
 
 def _resolve_updspace_user(user) -> UpdspaceIdUser | None:
-    email = (getattr(user, "email", "") or "").strip().lower()
-    if not email:
-        return None
-    return UpdspaceIdUser.objects.filter(email=email).first()
-
-
-def _resolve_subject_id(user, upd_user: UpdspaceIdUser | None = None) -> str:
-    """
-    Prefer UpdSpace identity UUID for OIDC subjects when available.
-    """
-    if upd_user is None:
-        upd_user = _resolve_updspace_user(user)
-    if upd_user:
-        return str(upd_user.user_id)
-    return str(getattr(user, "id", ""))
+    return resolve_identity(user).identity
 
 
 def _master_flags_for_user(
@@ -130,8 +119,14 @@ def _master_flags_for_user(
     return flags
 
 
-def _ensure_user_active(user, *, upd_user: UpdspaceIdUser | None = None) -> None:
-    target = upd_user if upd_user is not None else _resolve_updspace_user(user)
+def _ensure_user_active(user, *, upd_user=_UNRESOLVED_IDENTITY) -> None:
+    if not getattr(user, "is_active", False):
+        raise HttpError(
+            403, {"code": "ACCOUNT_INACTIVE", "message": "Account is inactive"}
+        )
+    target = (
+        _resolve_updspace_user(user) if upd_user is _UNRESOLVED_IDENTITY else upd_user
+    )
     if target:
         require_active_user(target)
 
@@ -192,13 +187,18 @@ def _claims_for_scopes(
     scopes: list[str],
     request=None,
     subject_id: str | None = None,
+    binding=None,
 ) -> dict:
     profile = ProfileService._ensure_profile(user)
     prefs = PreferencesService.get(user)
     primary = EmailAddress.objects.filter(user=user, primary=True).first()
-    upd_user = _resolve_updspace_user(user)
-    subject_id = subject_id or _resolve_subject_id(user, upd_user)
-    claims: dict = {"sub": subject_id, "user_id": subject_id}
+    binding = binding or resolve_identity(user)
+    upd_user = binding.identity
+    subject_id = subject_id or binding.public_subject
+    claims: dict = {"sub": subject_id}
+    # OIDC sub is opaque. Internal consumers use this separate canonical UUID.
+    if binding.identity_id is not None:
+        claims["user_id"] = str(binding.identity_id)
     base_url = str(getattr(settings, "OIDC_PUBLIC_BASE_URL", _issuer())).rstrip("/")
     for scope in scopes:
         if scope not in SCOPES:
@@ -507,6 +507,7 @@ class OidcService:
         )
 
     @staticmethod
+    @transaction.atomic
     def refresh_tokens(payload: dict, request=None) -> dict:
         client = OidcService.authenticate_client(request, payload)
         if client.grant_types and "refresh_token" not in (client.grant_types or []):
@@ -532,7 +533,17 @@ class OidcService:
                 400,
                 {"code": "INVALID_REFRESH_TOKEN", "message": "invalid refresh token"},
             )
-        _ensure_user_active(token.user)
+        binding = resolve_identity(token.user)
+        _ensure_user_active(token.user, upd_user=binding.identity)
+        if not token.subject or token.subject != binding.public_subject:
+            # Opaque legacy refresh hashes cannot prove their original subject.
+            raise HttpError(
+                400,
+                {
+                    "code": "INVALID_REFRESH_TOKEN",
+                    "message": "fresh authorization required",
+                },
+            )
         token.revoked_at = timezone.now()
         token.save(update_fields=["revoked_at"])
         return OidcService._issue_tokens(
@@ -540,16 +551,31 @@ class OidcService:
             client=client,
             scope=token.scope,
             nonce="",
+            subject_id=token.subject,
+            binding=binding,
             request=request,
         )
 
     @staticmethod
     def _issue_tokens(
-        *, user, client: OidcClient, scope: str, nonce: str, request=None
+        *,
+        user,
+        client: OidcClient,
+        scope: str,
+        nonce: str,
+        request=None,
+        subject_id: str | None = None,
+        binding=None,
     ) -> dict:
-        _ensure_user_active(user)
+        binding = binding or resolve_identity(user)
+        _ensure_user_active(user, upd_user=binding.identity)
         scope_list = normalize_scopes(scope)
-        subject_id = _resolve_subject_id(user)
+        canonical_subject = binding.public_subject
+        if subject_id is not None and subject_id != canonical_subject:
+            raise HttpError(
+                400, {"code": "INVALID_CODE", "message": "principal subject mismatch"}
+            )
+        subject_id = canonical_subject
         keypair = load_keypair()
         now = timezone.now()
         jti = uuid.uuid4().hex
@@ -574,6 +600,7 @@ class OidcService:
             scope_list,
             request=request,
             subject_id=subject_id,
+            binding=binding,
         )
         id_payload = {
             "iss": _issuer(),
@@ -605,6 +632,7 @@ class OidcService:
             client=client,
             access_jti=jti,
             id_jti=id_jti,
+            subject=subject_id,
             refresh_token_hash=refresh_hash,
             scope=" ".join(scope_list),
             access_expires_at=now + ACCESS_TOKEN_TTL,
@@ -643,8 +671,29 @@ class OidcService:
         ).first()
         if not token:
             raise HttpError(401, {"code": "TOKEN_REVOKED", "message": "token revoked"})
-        scope_list = normalize_scopes(payload.get("scope") or "")
-        return _claims_for_scopes(token.user, scope_list, request=request)
+        binding = resolve_identity(token.user)
+        _ensure_user_active(token.user, upd_user=binding.identity)
+        if (
+            payload.get("iss") != _issuer()
+            or payload.get("aud") != token.client.client_id
+        ):
+            raise HttpError(401, {"code": "INVALID_TOKEN", "message": "invalid token"})
+        subject = payload.get("sub")
+        canonical_subject = binding.public_subject
+        if (
+            not isinstance(subject, str)
+            or subject != canonical_subject
+            or (token.subject and token.subject != subject)
+        ):
+            raise HttpError(
+                401, {"code": "INVALID_TOKEN", "message": "principal subject mismatch"}
+            )
+        # A legacy access JWT can remain usable if its authenticated subject
+        # matches the immutable binding. Do not invent an opaque refresh history.
+        scope_list = normalize_scopes(token.scope)
+        return _claims_for_scopes(
+            token.user, scope_list, request=request, subject_id=subject, binding=binding
+        )
 
     @staticmethod
     def revoke_token(token_str: str, *, client: OidcClient | None = None) -> None:

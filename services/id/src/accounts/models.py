@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone as dj_timezone
 
 
@@ -14,6 +14,45 @@ def user_avatar_upload_to(instance: UserProfile, filename: str) -> str:
     """
     ext = Path(filename).suffix or ".jpg"
     return f"avatars/user_{instance.user_id}/{uuid.uuid4().hex}{ext}"
+
+
+class AccountIdentity(models.Model):
+    """A fixed authenticated principal, master identity and public subject binding."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        primary_key=True,
+        on_delete=models.CASCADE,
+        related_name="identity_binding",
+    )
+    identity = models.OneToOneField(
+        "updspaceid.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="account_binding",
+    )
+    public_subject = models.CharField(max_length=128, unique=True, editable=False)
+    created_at = models.DateTimeField(default=dj_timezone.now)
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        previous = type(self).objects.filter(pk=self.pk).first() if self.pk else None
+        if previous and (
+            self.public_subject != previous.public_subject
+            or (previous.identity_id and self.identity_id != previous.identity_id)
+        ):
+            raise ValueError("An established identity binding cannot be reassigned")
+        others = type(self).objects.exclude(pk=self.pk)
+        # YDB does not enforce SQL secondary unique constraints. These predicate
+        # reads and the insert share a serializable transaction there.
+        if others.filter(public_subject=self.public_subject).exists() or (
+            self.identity_id and others.filter(identity_id=self.identity_id).exists()
+        ):
+            raise ValueError(
+                "Identity or public subject already belongs to another account"
+            )
+        return super().save(*args, **kwargs)
 
 
 class UserProfile(models.Model):

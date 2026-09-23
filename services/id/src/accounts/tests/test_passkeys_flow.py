@@ -6,9 +6,13 @@ from django.test import Client, TestCase, override_settings
 
 from accounts.tests.test_api import post_json
 from accounts.tests.webauthn_helpers import VirtualPasskey
+from accounts.models import AccountIdentity
+from updspaceid.enums import UserStatus
+from updspaceid.models import TenantMembership, User as Identity
 
 
 @override_settings(
+    ID_GLOBAL_IDENTITY_PROVISIONING=True,
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
@@ -112,6 +116,47 @@ class PasskeyFlowTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "INVALID_PASSKEY")
         self.assertNotIn("X-Session-Token", response.headers)
+
+    def test_legacy_passkey_login_provisions_global_identity_without_tenant_access(
+        self,
+    ):
+        key = VirtualPasskey()
+        self.assertEqual(self.complete(key.register(self.begin())).status_code, 200)
+        binding = AccountIdentity.objects.get(user=self.user)
+        identity_id = binding.identity_id
+        subject = binding.public_subject
+        # Legacy accounts could already have a passkey and opaque subject while
+        # never having visited a tenant-aware login route.
+        Identity.objects.filter(pk=identity_id).delete()
+        binding.refresh_from_db()
+        self.assertIsNone(binding.identity_id)
+        anonymous = Client()
+        begin = anonymous.post("/api/v1/auth/passkeys/login/begin")
+        assertion = key.authenticate(begin.json()["request_options"]["publicKey"])
+        response = post_json(
+            anonymous, "/api/v1/auth/passkeys/login/complete", {"credential": assertion}
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        binding.refresh_from_db()
+        self.assertIsNotNone(binding.identity_id)
+        self.assertNotEqual(binding.identity_id, identity_id)
+        self.assertEqual(binding.public_subject, subject)
+        self.assertFalse(TenantMembership.objects.exists())
+
+    def test_passkey_cannot_login_to_banned_linked_identity(self):
+        key = VirtualPasskey()
+        self.assertEqual(self.complete(key.register(self.begin())).status_code, 200)
+        binding = AccountIdentity.objects.get(user=self.user)
+        Identity.objects.filter(pk=binding.identity_id).update(status=UserStatus.BANNED)
+        anonymous = Client()
+        begin = anonymous.post("/api/v1/auth/passkeys/login/begin")
+        assertion = key.authenticate(begin.json()["request_options"]["publicKey"])
+        response = post_json(
+            anonymous, "/api/v1/auth/passkeys/login/complete", {"credential": assertion}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("X-Session-Token", response.headers)
+        self.assertNotIn("_auth_user_id", anonymous.session)
 
     def test_registration_rejects_wrong_challenge_and_origin(self):
         for bad_part in ("challenge", "origin"):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -154,7 +155,13 @@ def _patch_ydb_query_parameters() -> None:
             if field_type is None:
                 # The SDK infers literal/annotation parameter types. Keep their
                 # position rather than treating them as a neighbouring column.
-                result[placeholder] = value
+                # FK column names are absent from the upstream SELECT type map;
+                # unlike strings/ints, the SDK cannot infer a Python UUID.
+                result[placeholder] = (
+                    (value, ydb.PrimitiveType.UUID)
+                    if isinstance(value, uuid.UUID)
+                    else value
+                )
                 continue
             parameter_type = compiler._ydb_types[field_type]
             if value is None:

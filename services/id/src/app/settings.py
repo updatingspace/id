@@ -330,6 +330,11 @@ ID_FRONTEND_BASE_URL = (
 ).rstrip("/")
 ID_ACTIVATION_PATH = read_env("ID_ACTIVATION_PATH", "/activate")
 MAGIC_LINK_DEFAULT_REDIRECT = read_env("MAGIC_LINK_DEFAULT_REDIRECT", "")
+# Enable only after the frozen-subject runtime is the established rollback target.
+ID_GLOBAL_IDENTITY_PROVISIONING = read_env_flag(
+    "ID_GLOBAL_IDENTITY_PROVISIONING", False
+)
+
 ID_TOKEN_HASH_SECRET = read_env("ID_TOKEN_HASH_SECRET", SECRET_KEY)
 
 DATA_PROCESSING_CONSENT_VERSION = read_env("DATA_PROCESSING_CONSENT_VERSION", "v1")

@@ -128,6 +128,7 @@ class OidcToken(models.Model):
     client = models.ForeignKey(OidcClient, on_delete=models.CASCADE)
     access_jti = models.CharField(max_length=128, db_index=True)
     id_jti = models.CharField(max_length=128, blank=True)
+    subject = models.CharField(max_length=128, blank=True, null=True, default=None)
     refresh_token_hash = models.CharField(max_length=256, blank=True)
     scope = models.TextField()
     created_at = models.DateTimeField(default=timezone.now)

@@ -15,6 +15,7 @@ from ninja.errors import HttpError
 
 from accounts.transport.schemas import AuthenticatorOut, AuthenticatorsOut
 from accounts.services.activity import ActivityService
+from accounts.services.identity import resolve_identity
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +212,11 @@ class PasskeyService:
                         "message": "Не удалось войти с Passkey. Повторите попытку.",
                     },
                 ) from err
+            binding = resolve_identity(user)
+            if binding.identity_id:
+                from updspaceid.services import require_active_user
+
+                require_active_user(binding.identity)
             record_authentication(
                 request,
                 user,
