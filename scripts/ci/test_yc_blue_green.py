@@ -438,6 +438,9 @@ class BlueGreenTests(unittest.TestCase):
 
     def test_candidate_is_verified_only_after_database_and_cache_checks(self):
         requests = []
+        candidate = revision(identity="candidate")
+        candidate["created_at"] = rollout.datetime.now(rollout.timezone.utc).isoformat()
+        candidate["provision_policy"] = {"min_instances": "0"}
 
         class Connection:
             def __init__(self, host, timeout):
@@ -480,15 +483,16 @@ class BlueGreenTests(unittest.TestCase):
                 patch.object(
                     rollout,
                     "active_revision",
-                    return_value=revision(identity="candidate"),
+                    return_value=candidate,
                 ),
                 patch.object(
                     rollout.subprocess, "check_output", return_value="private-token"
                 ),
                 patch.object(rollout.http.client, "HTTPSConnection", Connection),
-                patch.object(rollout.time, "sleep"),
+                patch.object(rollout.time, "sleep") as sleep,
             ):
                 rollout.warm_candidate(Path("terraform"), path)
+            sleep.assert_called_once_with(3)
             self.assertEqual(
                 json.loads(path.read_text())["verified_revision_id"], "candidate"
             )
@@ -503,6 +507,48 @@ class BlueGreenTests(unittest.TestCase):
                     for _, _, headers in requests
                 )
             )
+
+    def test_capacity_settling_is_only_required_for_prepared_instances(self):
+        for policy, prepared in (
+            ({}, False),
+            ({"min_instances": 0}, False),
+            ({"min_instances": "0"}, False),
+            ({"min_instances": "1"}, True),
+        ):
+            with self.subTest(policy=policy), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "manifest.json"
+                saved = manifest()
+                saved.pop("verified_revision_id")
+                rollout.write_private(path, saved)
+                candidate = revision(identity="candidate")
+                candidate["created_at"] = rollout.datetime.now(
+                    rollout.timezone.utc
+                ).isoformat()
+                candidate["provision_policy"] = policy
+                with (
+                    patch.object(
+                        rollout,
+                        "target_identity",
+                        return_value=(
+                            "green-id", "https://green-id.containers.yandexcloud.net/"
+                        ),
+                    ),
+                    patch.object(rollout, "active_revision", return_value=candidate),
+                    patch.object(
+                        rollout.subprocess, "check_output", return_value="private-token"
+                    ),
+                    patch.object(rollout.time, "monotonic", side_effect=[0, 301]),
+                    patch.object(rollout.time, "sleep") as sleep,
+                    self.assertRaises(RuntimeError),
+                ):
+                    rollout.warm_candidate(Path("terraform"), path)
+                self.assertNotIn("verified_revision_id", json.loads(path.read_text()))
+                if prepared:
+                    sleep.assert_called_once()
+                    self.assertGreater(sleep.call_args.args[0], 290)
+                    self.assertLessEqual(sleep.call_args.args[0], 300)
+                else:
+                    sleep.assert_not_called()
 
     def test_partial_apply_slot_lookup_uses_resources_when_outputs_are_missing(self):
         state = {
