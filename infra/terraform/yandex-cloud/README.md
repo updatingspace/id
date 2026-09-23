@@ -108,6 +108,12 @@ an explicit cost decision and remains billable during idle time. Inspect both
 the plan and deployed revision; a fast warm response does not prove a fast cold
 start. Prepared capacity does not eliminate cold starts above that capacity.
 
+The rollout snapshot preserves whether the live revision has an explicit
+provision policy, including an empty API object representing zero instances.
+Terraform distinguishes that zero-valued block from an absent block. Retaining
+its shape avoids a revision update to the serving slot during preparation;
+the guard still rejects any actual serving-container change.
+
 The checked-in `production.performance.tfvars` disables managed Redis to avoid
 the fixed host cost at the current traffic level. With YDB and no `REDIS_URL`,
 the backend uses the existing serverless YDB for shared transient state.

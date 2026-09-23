@@ -194,6 +194,37 @@ class BlueGreenTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             rollout.revision_config(item)
 
+    def test_snapshot_preserves_explicit_zero_capacity_policy(self):
+        for policy, expected_count, expected_present in (
+            (None, 0, False),
+            ({}, 0, True),
+            ({"min_instances": 0}, 0, True),
+            ({"min_instances": "0"}, 0, True),
+            ({"min_instances": "1"}, 1, True),
+        ):
+            with self.subTest(policy=policy):
+                item = revision()
+                if policy is None:
+                    item.pop("provision_policy")
+                else:
+                    item["provision_policy"] = policy
+                saved = rollout.revision_config(item)
+                self.assertEqual(saved["min_instances"], expected_count)
+                self.assertEqual(
+                    saved["provision_policy_present"], expected_present
+                )
+
+    def test_prepare_still_rejects_removing_a_serving_zero_policy(self):
+        before = {"provision_policy": [{"min_instances": 0}]}
+        after = {"provision_policy": []}
+        for original in ("blue", "green"):
+            with self.subTest(original=original), self.assertRaises(RuntimeError):
+                rollout.validate_plan(
+                    plan(change(rollout.SLOTS[original], before=before, after=after)),
+                    manifest(original),
+                    "prepare",
+                )
+
     def test_prepare_rejects_serving_container_and_gateway_changes_in_both_directions(
         self,
     ):
