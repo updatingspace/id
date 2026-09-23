@@ -1,7 +1,10 @@
 """Exercise the two-phase identity contract on disposable localhost YDB only."""
 
+import hashlib
+import hmac
 import json
 import os
+import time
 import uuid
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -75,6 +78,31 @@ def main():
         assert isinstance(binding.identity_id, uuid.UUID)
         assert binding.public_subject == frozen.public_subject
         assert not TenantMembership.objects.filter(user_id=binding.identity_id).exists()
+        request_id = str(uuid.uuid4())
+        timestamp = str(int(time.time()))
+        message = "\n".join(
+            [
+                "GET",
+                "/api/v1/me",
+                hashlib.sha256(b"").hexdigest(),
+                request_id,
+                timestamp,
+            ]
+        )
+        with override_settings(BFF_INTERNAL_HMAC_SECRET="local-global-profile"):
+            response = browser.get(
+                "/api/v1/me",
+                HTTP_X_USER_ID=str(binding.identity_id),
+                HTTP_X_REQUEST_ID=request_id,
+                HTTP_X_UPDSPACE_TIMESTAMP=timestamp,
+                HTTP_X_UPDSPACE_SIGNATURE=hmac.new(
+                    b"local-global-profile", message.encode(), hashlib.sha256
+                ).hexdigest(),
+            )
+        assert response.status_code == 200, response.status_code
+        assert response.json()["user"]["email"] == user.email
+        assert response.json()["user"]["user_id"] == str(binding.identity_id)
+        assert response.json()["memberships"] == []
         tokens = OidcService._issue_tokens(
             user=user,
             client=client,

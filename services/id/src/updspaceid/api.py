@@ -14,7 +14,7 @@ from functools import wraps
 
 from core.logging_config import sanitize_log_data
 from core.security import require_internal_signature
-from updspaceid.enums import ExternalProvider, OAuthPurpose
+from updspaceid.enums import ExternalProvider, OAuthPurpose, UserStatus
 from updspaceid.errors import error_payload
 from updspaceid.http import require_context
 from updspaceid.models import Application, Tenant, TenantMembership, User
@@ -140,7 +140,7 @@ def _has_internal_signature(request) -> bool:
     )
 
 
-def _require_internal_user(request) -> User:
+def _require_internal_principal(request) -> User:
     require_internal_signature(request)
     user_id = request.headers.get("X-User-Id") or ""
     if not user_id:
@@ -156,7 +156,13 @@ def _require_internal_user(request) -> User:
     user = User.objects.filter(user_id=user_id).first()
     if not user:
         raise HttpError(401, error_payload("UNAUTHORIZED", "User not found"))
+    if user.status != UserStatus.ACTIVE:
+        raise HttpError(403, error_payload("USER_INACTIVE", "User is not active"))
+    return user
 
+
+def _require_internal_user(request) -> User:
+    user = _require_internal_principal(request)
     ctx = require_context(request)
     tenant = Tenant.objects.filter(slug=ctx.tenant_slug).first()
     if not tenant:
@@ -334,26 +340,41 @@ def auth_logout(request):
 
 @router.get(
     "/me",
-    response={200: MeOut, 401: ErrorEnvelopeOut, 403: ErrorEnvelopeOut},
+    response={
+        200: MeOut,
+        400: ErrorEnvelopeOut,
+        401: ErrorEnvelopeOut,
+        403: ErrorEnvelopeOut,
+    },
     operation_id="me",
 )
 @_with_error_envelope
 def me(request):
-    ctx = require_context(request)
-    if _has_internal_signature(request):
-        user = _require_internal_user(request)
+    # Portal needs its own profile before the user can select a community.
+    # An incomplete tenant context must never fall back to the global read.
+    tenantless = not any(
+        name in request.headers for name in ("X-Tenant-Id", "X-Tenant-Slug")
+    )
+    if tenantless:
+        user = _require_internal_principal(request)
+        memberships = TenantMembership.objects.filter(
+            user=user, status="active"
+        ).select_related("tenant")
     else:
-        user = _require_session_user(request)
-    tenant = ensure_tenant(ctx.tenant_id, ctx.tenant_slug)
-    memberships = TenantMembership.objects.filter(user=user, tenant=tenant)
+        ctx = require_context(request)
+        if _has_internal_signature(request):
+            user = _require_internal_user(request)
+        else:
+            user = _require_session_user(request)
+        tenant = ensure_tenant(ctx.tenant_id, ctx.tenant_slug)
+        memberships = TenantMembership.objects.filter(
+            user=user, tenant=tenant
+        ).select_related("tenant")
     account_profile = None
     try:
-        from django.contrib.auth import get_user_model
-        from accounts.services.auth import AuthService
+        from updspaceid.profile import read_account_profile
 
-        account_user = get_user_model().objects.filter(email=user.email).first()
-        if account_user:
-            account_profile = AuthService.profile(account_user, request=request)
+        account_profile = read_account_profile(user)
     except Exception:
         account_profile = None
     avatar_url = None
@@ -408,8 +429,8 @@ def me(request):
         },
         "memberships": [
             {
-                "tenant_id": tenant.id,
-                "tenant_slug": tenant.slug,
+                "tenant_id": m.tenant_id,
+                "tenant_slug": m.tenant.slug,
                 "status": m.status,
                 "base_role": m.base_role,
             }
