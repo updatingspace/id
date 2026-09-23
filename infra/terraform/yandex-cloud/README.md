@@ -99,11 +99,14 @@ published in the OpenTofu public registry.
 
 ## Latency and frontend releases
 
-`min_ready_instances` defaults to **1**, including in the example tfvars. Idle
-prepared instances are billed. An explicit `min_ready_instances = 0` in existing
-runtime tfvars takes precedence and retains scale-to-zero/cold starts. Inspect
-the plan and the deployed revision when rolling this change out. Prepared
-capacity does not eliminate cold starts above that capacity.
+`min_ready_instances` defaults to **0**, including in the example tfvars and
+the production profile. This avoids prepared-capacity charges at zero traffic;
+the first request after the platform stops a container can wait for a cold start.
+The platform controls how long idle, unprepared instances are retained; there is
+no configured 15/30-minute grace-period guarantee. Nonzero prepared capacity is
+an explicit cost decision and remains billable during idle time. Inspect both
+the plan and deployed revision; a fast warm response does not prove a fast cold
+start. Prepared capacity does not eliminate cold starts above that capacity.
 
 The checked-in `production.performance.tfvars` disables managed Redis to avoid
 the fixed host cost at the current traffic level. With YDB and no `REDIS_URL`,
@@ -131,7 +134,9 @@ its existing VPC and IAM administration permissions support initial provisioning
 
 Always pass `-var-file=production.performance.tfvars` after private runtime
 variables when planning production. CI does this explicitly, so an older
-`min_ready_instances = 0` in its runtime secret cannot disable prepared capacity.
+`min_ready_instances = 1` in its runtime secret cannot restore paid prepared
+capacity. To opt in later, change the production profile as an explicit cost
+decision rather than relying on a lower-precedence runtime variable.
 Before planning, `scripts/ci/snapshot-yc-runtime.py` preserves the active
 revision's environment and Lockbox values in a mode-0600 ignored tfvars file.
 This prevents rollback of manual secret rotations and loss of SMTP settings.
@@ -166,7 +171,7 @@ specification**, including after a rollback, rather than trusting a stale output
 The single release job keeps a private runtime snapshot and rollback files on its
 runner. It prepares the inactive slot, runs backward-compatible YDB migrations,
 builds the frontend, and saves the previous Object Storage `index.html`. It then
-waits for the candidate's prepared-capacity configuration to settle and checks
+waits for nonzero prepared-capacity configuration to settle when enabled and checks
 `/readyz` and form-token issuance through the private container URL using the
 CI service account. Only a verified revision can receive public gateway traffic.
 The IAM token is never forwarded to a redirect or arbitrary host.
@@ -192,9 +197,13 @@ following an expand/migrate/contract sequence.
 
 Successful public smoke is the release commit point. Failure to retire the old
 prepared capacity is reported as a failed job but does **not** roll traffic back
-to that old slot. Normal steady state has one prepared instance, with two during
-release overlap. Prepared capacity is billed, and scale-out can still cause cold
-starts. Readiness checks do not establish a user-visible 500 ms latency bound.
+to that old slot. The production profile sets the new slot to zero prepared
+instances. The serving slot retains its live configuration until retirement;
+after transition to this profile, both slots have zero prepared instances.
+Finite readiness checks still run before promotion; they do not keep an idle
+container alive after deployment.
+They also do not establish a user-visible 500 ms latency bound. If prepared
+capacity is explicitly enabled later, both slots may be billed during overlap.
 
 For recovery, retain the private snapshot, release image tag and manifest from
 the same run while invoking coordinator phases. `rollback` is only valid before

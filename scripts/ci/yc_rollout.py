@@ -396,8 +396,13 @@ def warm_candidate(terraform_dir: Path, manifest_path: Path) -> None:
     revision_id = revision["id"]
     created = datetime.fromisoformat(revision["created_at"].replace("Z", "+00:00"))
     # YC allows up to five minutes for prepared-capacity settings to take effect.
-    settle_seconds = max(
-        0, 300 - (datetime.now(timezone.utc) - created).total_seconds()
+    prepared_instances = int(
+        revision.get("provision_policy", {}).get("min_instances", 0)
+    )
+    settle_seconds = (
+        max(0, 300 - (datetime.now(timezone.utc) - created).total_seconds())
+        if prepared_instances > 0
+        else 0
     )
     if settle_seconds:
         print(

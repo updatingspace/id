@@ -21,6 +21,32 @@ docker build -t updspaceid .
 docker run -p 8001:8001 --env-file .env updspaceid
 ```
 
+The runtime image contains the locked Python environment, application code, and
+native shared libraries. Compilers, development headers, and `uv` stay in the
+build stage. Python bytecode is compiled during the build, and files are copied
+with their final ownership so a recursive `chown` does not duplicate the Python
+environment in another layer. The worker count and application startup hooks
+are unchanged.
+
+Inside the runtime container, run management commands with `python`, for example
+`python src/manage.py check`. Source-based development and CI runners continue
+to use `uv run --frozen`; `uv` is intentionally absent from the runtime image.
+
+From the repository root, verify the built image without network access or cloud
+credentials:
+
+```bash
+docker run --rm --network none --cpus=1 --memory=1g \
+  --mount "type=bind,src=${PWD}/scripts/ci/smoke_backend_image.py,dst=/tmp/smoke_backend_image.py,readonly" \
+  --entrypoint python updspaceid /tmp/smoke_backend_image.py
+```
+
+PR image validation runs this check for native crypto/image/database libraries,
+Yandex CA trust, non-root execution, fork-safe telemetry, the background-job
+entrypoint, and public API responses. Reducing image size and compilation work
+can reduce cold-start overhead; it does not guarantee a sub-500 ms first request
+when Serverless Containers scales to zero.
+
 ## OAuth2/OIDC
 OIDC endpoints are exposed outside `/api/v1`:
 - `/.well-known/openid-configuration`
