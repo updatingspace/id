@@ -129,9 +129,9 @@ variable "backend_concurrency" {
 }
 
 variable "min_ready_instances" {
-  description = "Prepared backend instances. Set 0 explicitly to trade cold-start latency for lower idle cost."
+  description = "Prepared backend instances. Defaults to 0 to avoid idle charges; nonzero capacity must be an explicit cost decision."
   type        = number
-  default     = 1
+  default     = 0
 
   validation {
     condition     = var.min_ready_instances >= 0 && floor(var.min_ready_instances) == var.min_ready_instances

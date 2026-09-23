@@ -4,8 +4,9 @@ folder_id = "replace-me"
 public_domain = "id.updspace.com"
 public_zone   = "updspace.com"
 
-# Prepared instance avoids cold starts within its capacity; idle time is billed.
-min_ready_instances = 1
+# Scale to zero at idle; the first request may wait for a cold start.
+# Nonzero prepared capacity incurs idle charges and requires an explicit budget.
+min_ready_instances = 0
 
 # container_registry_id = "crp..." # Use an existing registry for first CI bootstrap.
 # certificate_id   = "fpq..."
