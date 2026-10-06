@@ -11,9 +11,9 @@
   <main class="auth-shell">
     <section class="auth-card" aria-labelledby="login-title">
       <a class="brand" href="/">UpdSpace ID</a>
-      <h1 id="login-title">Войти в аккаунт</h1>
-      <p class="intro">Продолжите работу с вашим аккаунтом UpdSpace.</p>
-      <p id="auth-context" role="status" hidden></p>
+      <h1 id="login-title">{{LOGIN_TITLE}}</h1>
+      <p class="intro">{{LOGIN_INTRO}}</p>
+      <p id="auth-context" role="status" {{AUTH_CONTEXT_HIDDEN}}>{{AUTH_CONTEXT}}</p>
       <p id="status" role="status" aria-live="polite" hidden></p>
       <p id="error" role="alert" aria-live="assertive" hidden></p>
       <form id="login-form" method="post" action="/login">
@@ -31,7 +31,7 @@
           <label for="mfa-code">Код</label>
           <input id="mfa-code" name="mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" />
         </fieldset>
-        <button id="submit" type="submit">Войти</button>
+        <button id="submit" type="submit">{{LOGIN_ACTION}}</button>
       </form>
       {{PASSKEY_ACTION}}
       {{RECOVERY_LINK}}

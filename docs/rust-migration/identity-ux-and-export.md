@@ -168,9 +168,10 @@ until these scenarios pass. The existing immediate export remains a known gap.
 The current local home template explains the single account through the
 user's decision at an application sign-in, instead of a numbered feature
 catalogue. Chromium renders it without horizontal overflow at 320, 390 and
-1280 px; keyboard and screen-reader checks remain. The Rust login page
-distinguishes entry into another service from an ordinary visit to the
-account and says that confirming the account is not yet consent to share data.
+1280 px; keyboard and screen-reader checks remain. The Rust login page renders
+entry into another service in the initial HTML, without waiting for browser
+JavaScript, and says that confirming the account is not yet consent to share
+data.
 The Rust consent page shows the API-validated return origin, explains required
 versus optional data, and gives denial an equally visible action. Connected
 applications now show a review step naming the application before revocation,
