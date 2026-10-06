@@ -94,6 +94,14 @@ struct AdminPage<'a> {
     not_found: bool,
 }
 
+#[derive(Template)]
+#[template(path = "admin-error.html")]
+struct AdminErrorPage<'a> {
+    title: &'static str,
+    message: &'a str,
+    retry: bool,
+}
+
 #[route(GET "/admin")]
 pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     render_page(cx).await
@@ -227,17 +235,27 @@ fn redirect_to_login() -> topcoat::Result<Response> {
 }
 
 fn problem(status: u16, message: &str) -> topcoat::Result<Response> {
-    let html = format!(
-        "<!doctype html><html lang=\"ru\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>UpdSpace ID</title><main><h1>Не удалось открыть раздел</h1><p>{message}</p><a href=\"/account\">К аккаунту</a></main></html>"
-    );
+    let title = match status {
+        400 => "Проверьте номер заявки",
+        403 => "Операторский доступ недоступен",
+        _ => "Сервис временно недоступен",
+    };
+    let html = AdminErrorPage {
+        title,
+        message,
+        retry: status == 503,
+    }
+    .render()
+    .map_err(|error| topcoat::Error::msg(error.to_string()))?;
     Ok(Response::builder()
         .status(status)
         .header("Content-Type", "text/html; charset=utf-8")
         .header("Cache-Control", "no-store")
         .header("X-Content-Type-Options", "nosniff")
+        .header("Referrer-Policy", "no-referrer")
         .header(
             "Content-Security-Policy",
-            "default-src 'none'; frame-ancestors 'none'",
+            "default-src 'none'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'",
         )
         .body(Body::from(html))?)
 }
@@ -289,5 +307,18 @@ mod tests {
         assert_eq!(operation.status_label(), "Очистка завершена");
         operation.status = "failed".into();
         assert_eq!(operation.status_label(), "Нужна проверка оператора");
+    }
+
+    #[test]
+    fn error_page_escapes_message_and_offers_retry_only_when_unavailable() -> Result<()> {
+        let html = AdminErrorPage {
+            title: "Сервис временно недоступен",
+            message: "<script>bad()</script>",
+            retry: true,
+        }
+        .render()?;
+        assert!(!html.contains("<script>bad()</script>"));
+        assert!(html.contains("Повторить проверку"));
+        Ok(())
     }
 }

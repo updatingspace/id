@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>{{ title }} — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-2">
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержанию</a>
+  <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторский раздел</span></header>
+  <main id="main">
+    <nav aria-label="Навигация"><a href="/account">← Мой аккаунт</a></nav>
+    <section class="result-panel" role="alert">
+      <p class="eyebrow">Проверка заявки</p>
+      <h1>{{ title }}</h1>
+      <p>{{ message }}</p>
+      {% if retry %}<p><a href="/admin/">Повторить проверку</a></p>{% else %}<p><a href="/admin/">Вернуться к поиску</a></p>{% endif %}
+    </section>
+  </main>
+</body>
+</html>
