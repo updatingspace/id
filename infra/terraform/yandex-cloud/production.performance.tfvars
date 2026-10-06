@@ -23,10 +23,9 @@ deployment_service_account_name          = "updspace-id-github-actions"
 
 # The former blue Django container is deleted. Pin the existing green Rust API
 # to its live revision until Terraform ownership is reconciled.
-blue_green_enabled     = true
-legacy_backend_enabled = false
-rollout_active_slot    = "green"
-rollout_target_slot    = "green"
+blue_green_enabled  = true
+rollout_active_slot = "green"
+rollout_target_slot = "green"
 
 # Existing Rust production containers and exact Gateway routes. The Python
 # catch-all has been replaced; these IDs remain pinned until Terraform can

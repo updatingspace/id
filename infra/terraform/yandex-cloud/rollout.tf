@@ -1,11 +1,11 @@
 variable "blue_green_enabled" {
-  description = "Prepare an inactive backend before switching gateway traffic."
+  description = "Manage the existing Rust API green container under its historical Terraform address."
   type        = bool
   default     = false
 }
 
 variable "legacy_backend_enabled" {
-  description = "Retired Django blue container. Kept only to read historical Terraform state; it cannot be enabled again."
+  description = "Deprecated compatibility input for private tfvars. The Django resource is removed and cannot be enabled."
   type        = bool
   default     = false
 
@@ -16,22 +16,22 @@ variable "legacy_backend_enabled" {
 }
 
 variable "rollout_active_slot" {
-  description = "Backend slot receiving public gateway traffic."
+  description = "Historical active slot, retained for existing runtime tfvars; only the Rust green slot remains."
   type        = string
-  default     = "blue"
+  default     = "green"
   validation {
-    condition     = contains(["blue", "green"], var.rollout_active_slot)
-    error_message = "rollout_active_slot must be blue or green."
+    condition     = var.rollout_active_slot == "green"
+    error_message = "Only the Rust green slot remains."
   }
 }
 
 variable "rollout_target_slot" {
-  description = "Slot receiving the new image/configuration; unchanged across release phases."
+  description = "Historical target slot, retained for existing runtime tfvars; only the Rust green slot remains."
   type        = string
-  default     = "blue"
+  default     = "green"
   validation {
-    condition     = contains(["blue", "green"], var.rollout_target_slot)
-    error_message = "rollout_target_slot must be blue or green."
+    condition     = var.rollout_target_slot == "green"
+    error_message = "Only the Rust green slot remains."
   }
 }
 
@@ -85,8 +85,8 @@ variable "retained_backend_config" {
 
 locals {
   desired_backend = {
-    image_url                = "cr.yandex/${local.container_registry_id}/updatingspace-id-backend:${var.container_image_tag}"
-    environment              = sensitive(local.backend_env)
+    image_url                = "cr.yandex/${local.container_registry_id}/updatingspace-id-api:${var.rust_api_image_tag}"
+    environment              = sensitive(local.rust_api_env)
     memory                   = var.backend_memory_mb
     cores                    = var.backend_cores
     core_fraction            = 100
@@ -113,16 +113,9 @@ locals {
   retained_backend = var.retained_backend_config == null ? local.desired_backend : merge(var.retained_backend_config, {
     min_instances = var.retire_other_backend ? 0 : var.retained_backend_config.min_instances
   })
-  blue_backend  = !var.blue_green_enabled || var.rollout_target_slot == "blue" ? local.desired_backend : local.retained_backend
-  green_backend = var.legacy_backend_enabled ? (var.rollout_target_slot == "green" ? local.desired_backend : local.retained_backend) : local.retained_backend
-  backend_ids = merge(
-    var.legacy_backend_enabled ? { blue = yandex_serverless_container.backend[0].id } : {},
-    var.blue_green_enabled ? { green = yandex_serverless_container.backend_green[0].id } : {},
-  )
-  backend_urls = merge(
-    var.legacy_backend_enabled ? { blue = yandex_serverless_container.backend[0].url } : {},
-    var.blue_green_enabled ? { green = yandex_serverless_container.backend_green[0].url } : {},
-  )
+  green_backend = local.retained_backend
+  backend_ids   = var.blue_green_enabled ? { green = yandex_serverless_container.backend_green[0].id } : {}
+  backend_urls  = var.blue_green_enabled ? { green = yandex_serverless_container.backend_green[0].url } : {}
   backend_invokers = concat(
     ["serviceAccount:${yandex_iam_service_account.gateway.id}"],
     var.blue_green_enabled ? ["serviceAccount:${data.yandex_iam_service_account.deployer[0].id}"] : [],
@@ -132,24 +125,21 @@ locals {
 resource "terraform_data" "rollout_safety" {
   lifecycle {
     precondition {
+      condition     = (var.gateway_use_rust || var.gateway_rust_catchall) && (var.enable_rust_stack || var.gateway_rust_me_container_id != "")
+      error_message = "Gateway requires a Rust API container and Rust routing."
+    }
+    precondition {
       condition = !var.blue_green_enabled || (
         var.retained_backend_config != null && var.deployment_service_account_name != ""
       )
       error_message = "Blue/green rollout requires a live runtime snapshot and a deployment service account."
     }
     precondition {
-      condition     = var.blue_green_enabled || (var.rollout_active_slot == "blue" && var.rollout_target_slot == "blue")
-      error_message = "The green slot requires blue_green_enabled."
-    }
-    precondition {
-      condition = var.legacy_backend_enabled || (
-        var.blue_green_enabled &&
-        var.rollout_active_slot == "green" &&
-        var.rollout_target_slot == "green" &&
+      condition = !var.blue_green_enabled || (
         var.retained_backend_config != null &&
         var.gateway_rust_catchall
       )
-      error_message = "Retiring Django requires a live Rust green snapshot and Rust-only Gateway catch-all."
+      error_message = "The retained Rust API requires a live green snapshot and Rust-only Gateway catch-all."
     }
   }
 }

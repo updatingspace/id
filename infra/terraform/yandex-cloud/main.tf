@@ -116,70 +116,6 @@ resource "yandex_resourcemanager_folder_iam_member" "runtime_image_puller" {
   member    = "serviceAccount:${yandex_iam_service_account.runtime.id}"
 }
 
-resource "yandex_serverless_container" "backend" {
-  count              = var.legacy_backend_enabled ? 1 : 0
-  name               = "${local.name_prefix}-backend"
-  description        = "UpdSpace ID backend"
-  memory             = local.blue_backend.memory
-  cores              = local.blue_backend.cores
-  core_fraction      = local.blue_backend.core_fraction
-  concurrency        = local.blue_backend.concurrency
-  execution_timeout  = local.blue_backend.execution_timeout
-  service_account_id = local.blue_backend.service_account_id
-
-  depends_on = [
-    terraform_data.rollout_safety,
-    yandex_resourcemanager_folder_iam_member.runtime_image_puller,
-    yandex_lockbox_secret_iam_member.runtime_payload_viewer,
-    yandex_ydb_database_iam_binding.runtime_editor,
-  ]
-
-  runtime {
-    type = "http"
-  }
-
-  dynamic "connectivity" {
-    for_each = nonsensitive(local.blue_backend.network_id) != "" ? [1] : []
-    content {
-      network_id = local.blue_backend.network_id
-    }
-  }
-
-  metadata_options {
-    gce_http_endpoint    = local.blue_backend.metadata_options.gce_http_endpoint
-    aws_v1_http_endpoint = local.blue_backend.metadata_options.aws_v1_http_endpoint
-  }
-
-  dynamic "provision_policy" {
-    for_each = nonsensitive(
-      local.blue_backend.min_instances > 0 || local.blue_backend.provision_policy_present
-    ) ? [1] : []
-    content {
-      min_instances = local.blue_backend.min_instances
-    }
-  }
-
-  image {
-    url         = local.blue_backend.image_url
-    environment = local.blue_backend.environment
-  }
-
-  dynamic "secrets" {
-    for_each = nonsensitive(local.blue_backend.secrets)
-    content {
-      id                   = secrets.value.id
-      version_id           = secrets.value.version_id
-      key                  = secrets.value.key
-      environment_variable = secrets.value.environment_variable
-    }
-  }
-
-  log_options {
-    log_group_id = local.blue_backend.log_group_id
-    min_level    = local.blue_backend.log_min_level
-  }
-}
-
 resource "yandex_serverless_container" "backend_green" {
   count              = var.blue_green_enabled ? 1 : 0
   name               = "${local.name_prefix}-backend-green"
@@ -245,13 +181,6 @@ resource "yandex_serverless_container" "backend_green" {
   }
 }
 
-resource "yandex_serverless_container_iam_binding" "gateway_backend_invoker" {
-  count        = var.legacy_backend_enabled ? 1 : 0
-  container_id = yandex_serverless_container.backend[0].id
-  role         = "serverless.containers.invoker"
-  members      = local.backend_invokers
-}
-
 resource "yandex_serverless_container_iam_binding" "gateway_green_invoker" {
   count        = var.blue_green_enabled ? 1 : 0
   container_id = yandex_serverless_container.backend_green[0].id
@@ -274,7 +203,6 @@ resource "yandex_api_gateway" "id" {
   spec        = local.api_gateway_spec
 
   depends_on = [
-    yandex_serverless_container_iam_binding.gateway_backend_invoker,
     yandex_serverless_container_iam_binding.gateway_rust_api_invoker,
     yandex_serverless_container_iam_binding.gateway_rust_web_invoker,
     data.yandex_serverless_container.deployed_rust_api,

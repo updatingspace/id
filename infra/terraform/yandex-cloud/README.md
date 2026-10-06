@@ -33,6 +33,12 @@ Gateway routes, container revisions, Lockbox secret versions, IAM bindings and
 persistent resources with `yc`. The Terraform state can contain a legacy
 Django backend that was already removed manually; do not recreate it or change
 serving Rust revisions as an incidental effect of state reconciliation.
+The retired blue resource is no longer declared. Before the first apply with
+this revision, compare `tofu state list` with `yc serverless container list`.
+If state still tracks the absent blue container or its invoker binding, remove
+only those stale addresses from state after verifying their cloud IDs are gone.
+Review the planned green Rust container, Gateway, YDB, buckets and Lockbox
+changes separately.
 Review every planned change before applying. Do not apply a plan that replaces
 YDB, buckets, secrets, the Gateway, or live Rust containers unexpectedly.
 There is currently no automated live-state snapshot or plan guard in the
@@ -56,7 +62,8 @@ caches. `min_ready_instances` defaults to zero, so cold-start latency remains
 a measured part of the user experience.
 The hourly Gravatar timer requires `gravatar_rust_jobs_container_id` and calls
 the Rust jobs container. Terraform no longer contains the retired Django
-Gravatar container fallback, and `legacy_backend_enabled` rejects `true`.
+Gravatar container or blue backend resources. The historical green resource
+continues to pin the active Rust API container without replacing it.
 
 The Rust export bucket is private and separate from public frontend/media
 storage. `enable_rust_export` provisions it; `enable_rust_export_api` selects

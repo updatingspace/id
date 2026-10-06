@@ -39,8 +39,8 @@ output "container_registry_id" {
 }
 
 output "backend_invoke_url" {
-  description = "Private invoke URL for the backend serverless container."
-  value       = local.backend_urls[var.rollout_active_slot]
+  description = "Private invoke URL for the managed Rust API container, when Terraform owns it."
+  value       = var.blue_green_enabled ? yandex_serverless_container.backend_green[0].url : (var.enable_rust_stack ? yandex_serverless_container.rust_api[0].url : null)
 }
 
 output "ydb_endpoint" {
