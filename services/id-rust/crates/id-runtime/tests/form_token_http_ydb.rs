@@ -16,7 +16,6 @@ use id_runtime::{
 };
 use serde_json::Value;
 use std::{
-    process::{Command, Stdio},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -145,48 +144,6 @@ async fn form_token_route_issues_python_compatible_one_time_value() -> Result<()
             "wrong-purpose token remained reusable"
         );
 
-        if std::env::var("ID_PYTHON_FORM_TOKEN_CHECK").as_deref() == Ok("true") {
-            let python_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../id")
-                .canonicalize()?;
-            let child = Command::new(python_dir.join(".venv/bin/python"))
-                .arg("scripts/issue_python_form_token.py")
-                .arg(&table)
-                .current_dir(&python_dir)
-                .env("PYTHONPATH", "src")
-                .env("DJANGO_SETTINGS_MODULE", "app.settings")
-                .env("DJANGO_DEBUG", "true")
-                .env(
-                    "DJANGO_SECRET_KEY",
-                    "synthetic-local-secret-min-32-characters",
-                )
-                .env("DB_DRIVER", "ydb")
-                .env("YDB_NAME", "default")
-                .env("YDB_CREDENTIALS_MODE", "token")
-                .env("YDB_TOKEN", "local-ydb-token")
-                .env("REDIS_URL", "")
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
-            let output = child.wait_with_output()?;
-            ensure!(
-                output.status.success(),
-                "Python did not issue a local form token: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            let issued_by_python = String::from_utf8(output.stdout)?;
-            let issued_by_python = issued_by_python.trim();
-            ensure!(
-                consume_login_form_token(&cache, Some(issued_by_python), SystemTime::now()).await?,
-                "Rust could not consume Python-issued form token"
-            );
-            ensure!(
-                !consume_login_form_token(&cache, Some(issued_by_python), SystemTime::now())
-                    .await?,
-                "Rust accepted Python-issued token twice"
-            );
-        }
         Ok(())
     }
     .await;

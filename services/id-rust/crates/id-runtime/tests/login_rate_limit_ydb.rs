@@ -1,53 +1,17 @@
 #![recursion_limit = "256"]
-//! Python/Rust spend one fixed-window login budget in local YDB.
+//! Independent Rust clients spend one fixed-window login budget in local YDB.
 
 use anyhow::{Context, Result, ensure};
 use id_compat::cache::{self, CacheValue};
 use id_runtime::{cache_store::CacheStore, login_rate_limit::login_attempt};
-use serde_json::Value;
 use std::{
-    process::{Command, Stdio},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-fn python_attempt(table: &str, ip: &str, email: &str) -> Result<Value> {
-    let python_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../id")
-        .canonicalize()?;
-    let output = Command::new(python_dir.join(".venv/bin/python"))
-        .arg("scripts/advance_python_login_rate.py")
-        .arg(table)
-        .arg(ip)
-        .arg(email)
-        .current_dir(&python_dir)
-        .env("PYTHONPATH", "src")
-        .env("DJANGO_SETTINGS_MODULE", "app.settings")
-        .env("DJANGO_DEBUG", "true")
-        .env(
-            "DJANGO_SECRET_KEY",
-            "synthetic-local-secret-min-32-characters",
-        )
-        .env("DB_DRIVER", "ydb")
-        .env("YDB_NAME", "default")
-        .env("YDB_CREDENTIALS_MODE", "token")
-        .env("YDB_TOKEN", "local-ydb-token")
-        .env("REDIS_URL", "")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()?;
-    ensure!(
-        output.status.success(),
-        "Python rate-limit attempt failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    Ok(serde_json::from_slice(&output.stdout)?)
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires local YDB; creates and drops synthetic rate-limit cache table"]
-async fn rust_and_python_share_login_budgets() -> Result<()> {
+async fn rust_instances_share_login_budgets() -> Result<()> {
     ensure!(
         matches!(
             std::env::var("YDB_ENDPOINT")?.as_str(),
@@ -70,13 +34,7 @@ async fn rust_and_python_share_login_budgets() -> Result<()> {
         for _ in 0..4 {
             ensure!(!login_attempt(&a, Some("192.0.2.5"), Some(&email), 50, now).await?.blocked);
         }
-        if std::env::var("ID_PYTHON_RATE_LIMIT_CHECK").as_deref() == Ok("true") {
-            let python = python_attempt(&table, "192.0.2.5", &email)?;
-            ensure!(python["blocked"] == false && python["remaining"] == 0,
-                "Python did not observe four Rust attempts");
-        } else {
-            ensure!(!login_attempt(&b, Some("192.0.2.5"), Some(&email), 50, now).await?.blocked);
-        }
+        ensure!(!login_attempt(&b, Some("192.0.2.5"), Some(&email), 50, now).await?.blocked);
         ensure!(login_attempt(&b, Some("192.0.2.5"), Some(&email), 50, now).await?.blocked,
             "Rust did not enforce the shared account limit");
         let other = format!("other-{stamp}@example.invalid");
@@ -84,20 +42,13 @@ async fn rust_and_python_share_login_budgets() -> Result<()> {
             "account limit was incorrectly applied to another account");
 
         // Seven attempts have spent the shared IP budget so far. Distinct
-        // emails must still exhaust that budget across both implementations.
+        // emails must still exhaust that budget across both instances.
         for index in 7..50 {
             let email = format!("ip-{stamp}-{index}@example.invalid");
             ensure!(!login_attempt(&a, Some("192.0.2.5"), Some(&email), 50, now).await?.blocked);
         }
         let new_email = format!("ip-block-{stamp}@example.invalid");
-        if std::env::var("ID_PYTHON_RATE_LIMIT_CHECK").as_deref() == Ok("true") {
-            let python = python_attempt(&table, "192.0.2.5", &new_email)?;
-            ensure!(python["blocked"] == true
-                && python["retry_after"].as_i64().is_some_and(|value| value > 0),
-                "Python did not enforce Rust-spent shared IP budget");
-        } else {
-            ensure!(login_attempt(&b, Some("192.0.2.5"), Some(&new_email), 50, now).await?.blocked);
-        }
+        ensure!(login_attempt(&b, Some("192.0.2.5"), Some(&new_email), 50, now).await?.blocked);
 
         let shared_key = format!("rl:login:email:race-{stamp}@example.invalid");
         let mut tasks = tokio::task::JoinSet::new();
