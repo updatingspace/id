@@ -177,6 +177,12 @@ catalogue. Chromium renders it without horizontal overflow at 320, 390 and
 entry into another service in the initial HTML, without waiting for browser
 JavaScript, and says that confirming the account is not yet consent to share
 data.
+The app-entry copy distinguishes signing in to ID, completing account MFA
+only when configured, and choosing an application's permissions on the next
+page. It does not call reuse of a valid session a fresh reauthentication.
+Current OIDC supports `prompt=none` and `prompt=consent`, but not
+`prompt=login` or `max_age`; forced fresh proof remains a separate backend and
+UI task.
 The Rust consent page shows the API-validated return origin, explains required
 versus optional data, and gives denial an equally visible action. Connected
 applications now show a review step naming the application before revocation,
