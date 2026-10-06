@@ -54,6 +54,12 @@ Read-only YC inspection on 2026-10-07 confirmed that Gateway sends
 Topcoat revision has `ID_WEB_EXPORTS_ENABLED=true` but no redeem flag, and the
 active jobs revision has neither escrow snapshot nor escrow mail rollout flag.
 Changing only one container would create a misleading or broken user journey.
+The read-only `scripts/ci/check-yc-delayed-export.mjs` gate also found that
+neither active API nor jobs revision binds `ID_EXPORT_ESCROW_KEY`, and jobs has
+no public export origin. The private recovery timer is active and targets
+Rust jobs, but a timer alone cannot make the workflow available. This gate
+prints missing configuration names rather than secret values; it must pass
+on the exact tested revisions before an end-to-end production rehearsal.
 
 The Rust workspace now contains additive `id_data_export_escrow` schema,
 operation-bound address encryption and deterministic download capability

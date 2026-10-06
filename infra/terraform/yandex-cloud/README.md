@@ -73,8 +73,17 @@ continues to pin the active Rust API container without replacing it.
 
 The Rust export bucket is private and separate from public frontend/media
 storage. `enable_rust_export` provisions it; `enable_rust_export_api` selects
-the owner-scoped API; `enable_rust_export_delayed` additionally enables the
+the owner-scoped API. `enable_rust_export_delayed` additionally enables the
 24-hour escrow, notification, timed mail and fragment-token redemption path.
+It must be deployed coherently
+to the mutations API, Topcoat web and jobs. Before exposing delayed export,
+run `scripts/ci/check-yc-delayed-export.mjs` with
+`RUST_MUTATIONS_CONTAINER_ID`, `RUST_WEB_CONTAINER_ID` and
+`RUST_JOBS_CONTAINER_ID` set to the live IDs; set `EXPECTED_BUILD_ID` to the
+tested deployment SHA. The check verifies flags, the same versioned escrow
+key binding, private bucket, public origin and recovery timer without printing
+secrets. A passing configuration check still requires the full mail, storage,
+deletion and redemption rehearsal.
 Do not set the delayed flag until the corresponding jobs, SMTP, Object Storage,
 key retention, cancellation and delete-after-export scenarios have passed on
 the target environment. A live session cannot bypass the cooldown.
