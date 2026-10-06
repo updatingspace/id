@@ -32,10 +32,10 @@
   const requestedNext = new URLSearchParams(window.location.search).get("next");
   const returnPath = safeReturnPath(requestedNext);
   if (authContext && requestedNext && (returnPath.startsWith("/oauth/consent?") || returnPath.startsWith("/authorize?"))) {
-    document.getElementById("login-title").textContent = "Подтвердите вход";
-    document.querySelector(".intro").textContent = "Вы переходите из другого сервиса через UpdSpace ID.";
+    document.getElementById("login-title").textContent = "Войдите, чтобы продолжить";
+    document.querySelector(".intro").textContent = "Вы открываете другой сервис через единый аккаунт UpdSpace ID.";
     submit.textContent = "Продолжить к разрешениям";
-    authContext.textContent = "После подтверждения аккаунта мы покажем название приложения и запрошенные сведения. Сам вход ещё не даёт приложению доступ: решение вы примете на следующем шаге.";
+    authContext.textContent = "Это вход в ваш аккаунт. Затем мы покажем название приложения и запрошенные сведения. Разрешения вы выберете отдельно; без вашего решения данные приложению не передадутся.";
     authContext.hidden = false;
   }
 

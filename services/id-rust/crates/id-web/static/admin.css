@@ -23,15 +23,17 @@ header a { font-weight: 750; text-decoration: none; color: inherit; }
 header strong { color: #3154bc; }
 header span { color: #526078; font-size: .9rem; }
 main { width: min(64rem, calc(100% - 2rem)); margin: 2rem auto 5rem; }
-nav { margin-bottom: clamp(2rem, 5vw, 4rem); }
+nav { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: clamp(1.5rem, 4vw, 3rem); color: #526078; font-size: .92rem; }
 .page-heading { max-width: 43rem; }
 h1 { margin: .25rem 0 .75rem; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.15; }
 h2 { margin: 0 0 .55rem; font-size: clamp(1.25rem, 2.5vw, 1.5rem); }
 h3 { margin: 0 0 .25rem; font-size: 1rem; }
 p { margin: .4rem 0 1rem; }
 .eyebrow { color: #3154bc; font-size: .8rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-.intro, .lookup-panel > p, .scope-note { color: #526078; max-width: 65ch; }
-.lookup-panel, .result-panel {
+.intro, .lookup-panel > p, .scope-panel p, .field-help { color: #526078; max-width: 65ch; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(15rem, 19rem); align-items: start; gap: 1.5rem; margin-top: 2rem; }
+.task-column { min-width: 0; }
+.lookup-panel, .result-panel, .scope-panel {
   margin-top: 1.5rem;
   padding: clamp(1.2rem, 3vw, 2rem);
   border: 1px solid #dce2ed;
@@ -39,21 +41,25 @@ p { margin: .4rem 0 1rem; }
   background: #fff;
   box-shadow: 0 8px 28px rgb(30 48 84 / 5%);
 }
-.lookup-panel { max-width: 43rem; }
+.lookup-panel, .scope-panel { margin-top: 0; }
+.panel-step { color: #3154bc; font-size: .83rem; font-weight: 750; }
+.scope-panel { box-shadow: none; background: #f0f3fa; }
+.scope-panel p:last-child { margin-bottom: 0; }
+.scope-panel code { color: inherit; }
 form { margin-top: 1.5rem; }
 label { display: block; margin-bottom: .5rem; font-weight: 700; }
 .search-row { display: flex; gap: .75rem; }
 input { min-width: 0; flex: 1; padding: .7rem .8rem; border: 1px solid #8796ad; border-radius: .5rem; font: inherit; }
 button { min-height: 2.75rem; padding: .7rem 1.1rem; border: 0; border-radius: .5rem; background: #3154bc; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
 button:hover { background: #244497; }
-.result-panel { max-width: 43rem; }
+.field-help { margin-top: .6rem; font-size: .85rem; }
 dl { display: grid; grid-template-columns: minmax(8rem, .5fr) 1fr; gap: .8rem 1rem; margin: 1.5rem 0; }
 dt { color: #526078; }
 dd { margin: 0; overflow-wrap: anywhere; }
 .status { font-weight: 750; }
 .next-step { padding: 1rem 1.2rem; border-left: 4px solid #3154bc; background: #f3f6ff; }
 .next-step p { margin-bottom: 0; }
-.scope-note { margin-top: 2rem; font-size: .9rem; }
+@media (max-width: 48rem) { .workspace { grid-template-columns: 1fr; } }
 @media (max-width: 36rem) {
   header { flex-wrap: wrap; }
   main { margin-top: 1.25rem; }
@@ -64,7 +70,8 @@ dd { margin: 0; overflow-wrap: anywhere; }
 @media (prefers-color-scheme: dark) {
   :root { color-scheme: dark; color: #f5f7fb; background: #111827; }
   header, .lookup-panel, .result-panel { background: #1c2637; border-color: #39455a; }
-  header span, .intro, .lookup-panel > p, .scope-note, dt { color: #b5c1d4; }
+  header span, .intro, .lookup-panel > p, .scope-panel p, .field-help, dt { color: #b5c1d4; }
+  .scope-panel { background: #253351; border-color: #39455a; }
   a { color: #a8beff; }
   header strong { color: #a8beff; }
   input { background: #111827; color: #fff; border-color: #586780; }

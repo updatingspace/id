@@ -21,7 +21,7 @@
     approve.disabled = true;
     deny.disabled = true;
     error.hidden = true;
-    const scopes = Array.from(form.querySelectorAll('input[name="scope"]:checked'))
+    const scopes = Array.from(form.querySelectorAll('input[name="required-scope"], input[name="scope"]:checked'))
       .map((input) => input.value);
     const payload = approved
       ? { request_id: form.dataset.requestId, scopes, remember: document.getElementById("remember").checked }

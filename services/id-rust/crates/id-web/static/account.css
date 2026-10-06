@@ -105,6 +105,11 @@ button:disabled { cursor: not-allowed; }
 .session-row button { flex: none; }
 .review-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
 .review-actions button { min-height: 3rem; }
+.export-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; padding: 0; margin: 1.4rem 0; list-style: none; counter-reset: export-step; }
+.export-steps li { min-width: 0; padding: 1rem; border: 1px solid var(--line); border-radius: .7rem; background: var(--canvas); counter-increment: export-step; }
+.export-steps li::before { content: counter(export-step, decimal-leading-zero); display: block; margin-bottom: .7rem; color: var(--action); font-size: .82rem; font-weight: 800; }
+.export-steps strong, .export-steps span { display: block; }
+.export-steps span { margin-top: .35rem; color: var(--muted); font-size: .9rem; }
 [hidden] { display: none !important; }
 @media (max-width: 40rem) {
   header { padding: .85rem 1rem; }
@@ -115,6 +120,7 @@ button:disabled { cursor: not-allowed; }
   nav[aria-label="Разделы аккаунта"] a, .account-nav a { width: 100%; }
   .session-row { align-items: stretch; flex-direction: column; }
   .session-row button { align-self: flex-start; }
+  .export-steps { grid-template-columns: 1fr; }
 }
 @media (prefers-color-scheme: dark) {
   :root { --surface: #1c2637; --canvas: #111827; --ink: #f5f7fb; --muted: #b5c1d4; --line: #39455a; --action: #a8beff; --focus: #a8beff; }

@@ -4,29 +4,33 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Доступ к аккаунту — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/consent.css?v=ux-20261006-3" />
-  <script src="/_id/consent.js?v=ux-20261006-2" defer></script>
+  <link rel="stylesheet" href="/_id/consent.css?v=ux-20261007-1" />
+  <script src="/_id/consent.js?v=ux-20261007-1" defer></script>
 </head>
 <body>
   <main class="consent-shell">
     <section class="consent-card" aria-labelledby="consent-title">
       <a class="brand" href="/">UpdSpace ID</a>
-      <p class="context-label">Разрешения приложения</p>
+      <p class="context-label">Вход в приложение · выбор доступа</p>
       <h1 id="consent-title">Разрешить {{ client_name }} доступ к вашим сведениям?</h1>
       <p>Теперь решите, какие сведения сможет получить <strong>{{ client_name }}</strong>. После вашего выбора браузер вернётся на <strong>{{ destination }}</strong>.</p>
-      <p>Права, необходимые для входа, отмечены отдельно. Дополнительные права выключены: их можно не предоставлять.</p>
+      <p>Сейчас решаете, какие сведения получит приложение от вашего аккаунта UpdSpace ID. Обязательные для входа сведения показаны отдельно; дополнительные выключены. Этот шаг не запрашивает пароль повторно.</p>
       <form id="consent-form" data-request-id="{{ request_id }}" data-csrf-cookie="{{ csrf_cookie_name }}">
         <fieldset>
-          <legend>Запрашиваемые права</legend>
+          <legend>Какие сведения получит приложение</legend>
           {% for scope in scopes %}
+          {% if scope.required %}
+          <div class="scope required-scope">
+            <input type="hidden" name="required-scope" value="{{ scope.name }}" />
+            <span class="scope-marker" aria-hidden="true">✓</span>
+            <span><strong>{{ scope.description }}</strong><small>Необходимо для входа. Если не хотите передавать эти сведения, выберите «Вернуться без доступа».</small><span class="scope-code">{{ scope.name }}</span></span>
+          </div>
+          {% else %}
           <label class="scope">
-            {% if scope.required %}
-            <input type="checkbox" name="scope" value="{{ scope.name }}" checked disabled />
-            {% else %}
             <input type="checkbox" name="scope" value="{{ scope.name }}" />
-            {% endif %}
-            <span><strong>{{ scope.description }}</strong>{% if scope.required %} <small>Необходимо для входа</small>{% else %} <small>По вашему выбору</small>{% endif %}<span class="scope-code">{{ scope.name }}</span></span>
+            <span><strong>{{ scope.description }}</strong><small>По вашему выбору</small><span class="scope-code">{{ scope.name }}</span></span>
           </label>
+          {% endif %}
           {% endfor %}
         </fieldset>
         <label class="remember"><input id="remember" type="checkbox" />Не спрашивать снова о выбранных правах</label>

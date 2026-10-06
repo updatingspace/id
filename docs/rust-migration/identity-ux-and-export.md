@@ -198,10 +198,11 @@ until these scenarios pass. The existing immediate export remains a known gap.
 
 ### Current implementation audit
 
-The current local home template explains the single account through the
-user's decision at an application sign-in, instead of a numbered feature
-catalogue. Chromium renders it without horizontal overflow at 320, 390 and
-1280 px; keyboard and screen-reader checks remain. The Rust login page renders
+The current local home template presents ID as one point of entry and follows
+the user's decision at an application sign-in, instead of cataloguing backend
+features. Chromium renders the home, operator lookup and export pages without
+horizontal overflow at 320, 390 and 1280 px; keyboard and screen-reader checks
+remain. The Rust login page renders
 entry into another service in the initial HTML, without waiting for browser
 JavaScript, and says that confirming the account is not yet consent to share
 data.
@@ -211,8 +212,9 @@ page. It does not call reuse of a valid session a fresh reauthentication.
 Current OIDC supports `prompt=none` and `prompt=consent`, but not
 `prompt=login` or `max_age`; forced fresh proof remains a separate backend and
 UI task.
-The Rust consent page shows the API-validated return origin, explains required
-versus optional data, and gives denial an equally visible action. Connected
+The Rust consent page shows the API-validated return origin, presents required
+data as fixed information rather than disabled checked controls, leaves
+optional data unchecked, and gives denial an equally visible action. Connected
 applications now show a review step naming the application before revocation,
 with a way to keep access. These copy and layout changes are local code until
 deployed and checked through the Gateway.
@@ -226,14 +228,15 @@ home page or the account navigation; these do not replace live Gateway or
 assistive-technology checks.
 The dead link from profile editing to the removed React cabinet has been
 removed. In delayed-export mode the form now names the verified delivery
-address before submission; an unverified address shows a clear confirmation
-path and no submit control. The deletion HTTP endpoint is restricted to local
-debug YDB and
-its own source labels it incomplete. Therefore a production deletion control
-must **not** be added by merely linking a form to that endpoint. The Rust web
-has no operator console. A browser visit to production `/admin/` on 2026-10-06
-showed an unavailable page, not an operator workflow. These are open parity
-gaps, not design-complete screens.
+address, explains notice, 24-hour hold, expiry and post-deletion delivery;
+an unverified address shows a confirmation path and no submit control. The
+deletion HTTP endpoint is restricted to local debug YDB and its own source
+labels it incomplete. Therefore a production deletion control must **not**
+be added by merely linking a form to that endpoint. The Rust web has one
+read-only operator lookup for deletion requests, gated off in production;
+other admin tasks remain open parity gaps. After retiring the React Gateway
+fallback on 2026-10-07, production `/admin/` returns an honest 404 rather
+than the old React shell. The local layout is not a completed admin console.
 
 The next interface release should use one information architecture across
 pages: account overview → devices, applications, sign-in protection, personal
@@ -268,8 +271,9 @@ plain list of internals or a link to `/legacy/account` is not a replacement.
 
 ## Operator surface: screen contract
 
-The current Rust web service has **no operator console**. The public account
-pages must not be labelled an admin UI.
+The current Rust web service has one read-only operator task; it does not yet
+replace the operator console. The public account pages must not be labelled
+an admin UI.
 The replacement belongs in a separate `/admin` area with its own navigation,
 authorization and audit trail. The backend supplies typed task endpoints; web
 templates decide layout and wording without direct YDB access.

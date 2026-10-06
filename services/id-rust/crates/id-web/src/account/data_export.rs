@@ -108,7 +108,7 @@ mod tests {
         assert!(html.contains("id=\"export-mfa\""));
         assert!(html.contains("id=\"export-error\""));
         assert!(html.contains("/download\" rel=\"noreferrer\""));
-        assert!(!html.contains("не раньше чем через 24 часа"));
+        assert!(!html.contains("Подождите 24 часа"));
         Ok(())
     }
 
@@ -135,7 +135,8 @@ mod tests {
         .render()?;
         assert!(html.contains("Ссылка для получения отправлена"));
         assert!(html.contains("Адрес доставки: <strong>owner@example.invalid</strong>"));
-        assert!(html.contains("не раньше чем через 24 часа"));
+        assert!(html.contains("Подождите 24 часа"));
+        assert!(html.contains("После удаления для отмены понадобится обратиться к оператору"));
         assert!(html.contains("id=\"export-cancel-confirm\""));
         assert!(!html.contains("http-equiv=\"refresh\""));
         assert!(!html.contains("/download\""));

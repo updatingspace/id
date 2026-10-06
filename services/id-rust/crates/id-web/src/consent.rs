@@ -265,7 +265,8 @@ mod tests {
         assert!(!html.contains("<img src=x onerror=alert(1)>"));
         assert!(!html.contains("value=\"profile\" onfocus="));
         assert!(!html.contains("data-request-id=\"\" autofocus"));
-        assert!(html.contains("checked disabled"));
+        assert!(html.contains("name=\"required-scope\""));
+        assert!(!html.contains("checked disabled"));
         Ok(())
     }
 
@@ -292,7 +293,8 @@ mod tests {
             scopes: &scopes,
         }
         .render()?;
-        assert!(html.contains("value=\"openid\" checked disabled"));
+        assert!(html.contains("name=\"required-scope\" value=\"openid\""));
+        assert!(!html.contains("value=\"openid\" checked disabled"));
         assert!(html.contains("value=\"email\" />"));
         assert!(html.contains("https://example.com"));
         assert!(!html.contains("id=\"remember\" type=\"checkbox\" checked"));
