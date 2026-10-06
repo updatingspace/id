@@ -148,36 +148,72 @@ pub async fn erase_profile_history(client: &Client, id: i64) -> Result<Option<Pr
             if avatar_keys.len() > 1 || avatar_keys.into_iter().any(|key: Option<String>| key.is_some_and(|key| !key.is_empty())) {
                 return Ok(Some(ProfileCleanup { id: id.to_string(), profile_history_removed: false, cleanup_completed: false }));
             }
+            // Process at most 100 dependent rows per transaction. A full
+            // page commits as incomplete so the next job pass continues.
             let login_events = related_i64(tx,
-                "SELECT id FROM accounts_loginevent VIEW acct_login_user_idx WHERE user_id = $user_id LIMIT 1001",
+                "SELECT id FROM accounts_loginevent VIEW acct_login_user_idx WHERE user_id = $user_id LIMIT 100",
                 account_id).await?;
-            for event_id in login_events {
-                tx.exec("DELETE FROM accounts_newdevicemailoutbox WHERE event_id = $id")
-                    .param("$id", event_id).await?;
+            if !login_events.is_empty() {
+                let batch_full = login_events.len() == 100;
+                for event_id in login_events {
+                    tx.exec("DELETE FROM accounts_newdevicemailoutbox WHERE event_id = $id")
+                        .param("$id", event_id).await?;
+                    tx.exec("DELETE FROM accounts_loginevent WHERE id = $id")
+                        .param("$id", event_id).await?;
+                }
+                if batch_full { return Ok(Some(ProfileCleanup { id: id.to_string(), profile_history_removed: false, cleanup_completed: false })); }
             }
             let emails = related_i32(tx,
-                "SELECT id FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id LIMIT 1001",
+                "SELECT id FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id LIMIT 100",
                 account_id).await?;
-            for email_id in emails {
-                tx.exec("DELETE FROM account_emailconfirmation WHERE email_address_id = $id")
-                    .param("$id", email_id).await?;
+            if !emails.is_empty() {
+                let batch_full = emails.len() == 100;
+                for email_id in emails {
+                    tx.exec("DELETE FROM account_emailconfirmation WHERE email_address_id = $id")
+                        .param("$id", email_id).await?;
+                    tx.exec("DELETE FROM account_emailaddress WHERE id = $id")
+                        .param("$id", email_id).await?;
+                }
+                if batch_full { return Ok(Some(ProfileCleanup { id: id.to_string(), profile_history_removed: false, cleanup_completed: false })); }
             }
             let socials = related_i32(tx,
-                "SELECT id FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $user_id LIMIT 1001",
+                "SELECT id FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $user_id LIMIT 100",
                 account_id).await?;
-            for social_id in socials {
-                tx.exec("DELETE FROM socialaccount_socialtoken WHERE account_id = $id")
-                    .param("$id", social_id).await?;
+            if !socials.is_empty() {
+                let batch_full = socials.len() == 100;
+                for social_id in socials {
+                    tx.exec("DELETE FROM socialaccount_socialtoken WHERE account_id = $id")
+                        .param("$id", social_id).await?;
+                    tx.exec("DELETE FROM socialaccount_socialaccount WHERE id = $id")
+                        .param("$id", social_id).await?;
+                }
+                if batch_full { return Ok(Some(ProfileCleanup { id: id.to_string(), profile_history_removed: false, cleanup_completed: false })); }
             }
             let session_keys = related_strings(tx,
-                "SELECT session_key FROM core_usersessionmeta VIEW core_usersessionmeta_user_id_9dceac03 WHERE user_id = $user_id LIMIT 1001",
+                "SELECT session_key FROM core_usersessionmeta VIEW core_usersessionmeta_user_id_9dceac03 WHERE user_id = $user_id LIMIT 100",
                 account_id).await?;
+            if !session_keys.is_empty() {
+                let batch_full = session_keys.len() == 100;
+                for session_key in session_keys {
+                    tx.exec("DELETE FROM django_session WHERE session_key = $key")
+                        .param("$key", session_key.clone()).await?;
+                    tx.exec("DELETE FROM core_usersessionmeta WHERE session_key = $key AND user_id = $owner")
+                        .param("$key", session_key).param("$owner", account_id).await?;
+                }
+                if batch_full { return Ok(Some(ProfileCleanup { id: id.to_string(), profile_history_removed: false, cleanup_completed: false })); }
+            }
             let allauth_keys = related_strings(tx,
-                "SELECT session_key FROM usersessions_usersession VIEW usersessions_usersession_user_id_af5e0a6d WHERE user_id = $user_id LIMIT 1001",
+                "SELECT session_key FROM usersessions_usersession VIEW usersessions_usersession_user_id_af5e0a6d WHERE user_id = $user_id LIMIT 100",
                 account_id).await?;
-            for session_key in session_keys.into_iter().chain(allauth_keys) {
-                tx.exec("DELETE FROM django_session WHERE session_key = $key")
-                    .param("$key", session_key).await?;
+            if !allauth_keys.is_empty() {
+                let batch_full = allauth_keys.len() == 100;
+                for session_key in allauth_keys {
+                    tx.exec("DELETE FROM django_session WHERE session_key = $key")
+                        .param("$key", session_key.clone()).await?;
+                    tx.exec("DELETE FROM usersessions_usersession WHERE session_key = $key AND user_id = $owner")
+                        .param("$key", session_key).param("$owner", account_id).await?;
+                }
+                if batch_full { return Ok(Some(ProfileCleanup { id: id.to_string(), profile_history_removed: false, cleanup_completed: false })); }
             }
             for table in PROFILE_HISTORY_TABLES {
                 tx.exec(format!("DELETE FROM `{table}` WHERE user_id = $id"))

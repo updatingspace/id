@@ -93,6 +93,15 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
         .param("$expiry", now + Duration::from_secs(3600)).await?;
     client.query_client().exec("INSERT INTO core_usersessionmeta (id, user_id, session_key, user_agent, first_seen, revoked_reason) VALUES ($id, $owner, $key, 'export-delete-test', CurrentUtcDatetime(), '')")
         .param("$id", i64::from(owner)).param("$owner", owner).param("$key", session.clone()).await?;
+    // More than two cleanup pages must not strand dependent mail rows or
+    // prevent a previously accepted export from being sealed before deletion.
+    let first_event = i64::try_from(stamp)?;
+    for offset in 0..201_i64 {
+        client.query_client().exec("INSERT INTO accounts_loginevent (id, user_id, status, ip_hash, user_agent, device_id, location, is_new_device, reason, meta, created_at) VALUES ($id, $owner, 'success', '', '', '', '', false, '', Unwrap(CAST('{}' AS Json)), CurrentUtcDatetime())")
+            .param("$id", first_event + offset).param("$owner", owner).await?;
+    }
+    client.query_client().exec("INSERT INTO accounts_newdevicemailoutbox (event_id, status, attempts, next_attempt_at, claim_token, created_at) VALUES ($id, 'pending', 0, CurrentUtcDatetime(), '', CurrentUtcDatetime())")
+        .param("$id", first_event).await?;
 
     let (sender, mut receiver) = tokio::sync::mpsc::channel::<String>(2);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -410,11 +419,24 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
         id_runtime::data_export_job::clean_owner(&client, &storage, owner, 100).await?,
         "deletion could not detach sealed export"
     );
-    ensure!(
-        account_deletion_cleanup::erase_profile_history(&client, deletion_id)
+    let mut profile_complete = false;
+    for pass in 0..5 {
+        let result = account_deletion_cleanup::erase_profile_history(&client, deletion_id)
             .await?
-            .is_some_and(|result| result.profile_history_removed),
-        "profile job did not resume after export detachment"
+            .context("profile deletion operation missing")?;
+        if pass == 0 {
+            ensure!(!result.profile_history_removed, "profile cleanup skipped its bounded first batch");
+        }
+        if result.profile_history_removed {
+            profile_complete = true;
+            break;
+        }
+    }
+    ensure!(profile_complete, "profile job did not finish after bounded batches");
+    ensure!(
+        client.query_client().query_row("SELECT event_id FROM accounts_newdevicemailoutbox WHERE event_id = $id")
+            .param("$id", first_event).optional().await?.is_none(),
+        "profile cleanup left an orphaned device-mail intent"
     );
     ensure!(
         client
