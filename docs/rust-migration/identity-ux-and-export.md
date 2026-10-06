@@ -185,9 +185,13 @@ deployed and checked through the Gateway.
 
 The account overview now separates task selection from editing personal
 details. `/account?section=profile` owns the profile, avatar and email forms;
-the overview has one clear link to that page and no implicit jump to React.
-The edit page still links to the previous cabinet for settings without Rust
-equivalents. The deletion HTTP endpoint is restricted to local debug YDB and
+the overview groups tasks by access, sign-in protection and personal data.
+The public home page leads with the single-entry benefit. Local Chromium
+layout checks at 320, 390 and 1280 px showed no horizontal overflow for the
+home page or the account navigation; these do not replace live Gateway or
+assistive-technology checks.
+The dead link from profile editing to the removed React cabinet has been
+removed. The deletion HTTP endpoint is restricted to local debug YDB and
 its own source labels it incomplete. Therefore a production deletion control
 must **not** be added by merely linking a form to that endpoint. The Rust web
 has no operator console. A browser visit to production `/admin/` on 2026-10-06
@@ -227,8 +231,8 @@ plain list of internals or a link to `/legacy/account` is not a replacement.
 
 ## Operator surface: screen contract
 
-The current Rust web service has **no operator console**. A protected link to
-legacy settings and the public account pages must not be labelled an admin UI.
+The current Rust web service has **no operator console**. The public account
+pages must not be labelled an admin UI.
 The replacement belongs in a separate `/admin` area with its own navigation,
 authorization and audit trail. The backend supplies typed task endpoints; web
 templates decide layout and wording without direct YDB access.

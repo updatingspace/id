@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Аккаунт — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-1" />
   {% if features.logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
   {% if edit_mode && features.profile_enabled %}<script src="/_id/profile.js" defer></script><script src="/_id/avatar.js" defer></script>{% endif %}
   {% if edit_mode && features.email_management_enabled %}<script src="/_id/email.js" defer></script>{% endif %}
@@ -16,16 +16,38 @@
     <p class="page-intro">Здесь можно изменить данные профиля и адрес почты. Для смены адреса понадобится недавний вход.</p>
     <nav aria-label="Разделы аккаунта"><a href="/account">← К обзору аккаунта</a></nav>
     {% else %}<h1>Ваш аккаунт UpdSpace</h1>
-    <p class="page-intro">Один аккаунт для входа в сервисы UpdSpace. Проверьте, где вы вошли и каким приложениям разрешили доступ.</p>{% endif %}
+    <p class="page-intro">Здесь вы управляете входом в сервисы UpdSpace, доступом приложений и своими данными.</p>{% endif %}
     {% if features.logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
     {% if !edit_mode %}
-    <nav class="account-nav" aria-label="Что вы хотите сделать">
-      {% if features.sessions_enabled %}<a href="/account?section=sessions"><strong>Проверить устройства</strong><span>Посмотреть, где открыт аккаунт, и завершить лишние сеансы.</span></a>{% endif %}
-      {% if features.apps_enabled %}<a href="/account?section=apps"><strong>Проверить приложения</strong><span>Узнать, кому вы разрешили доступ, и отозвать его.</span></a>{% endif %}
-      {% if features.security_enabled %}<a href="/account?section=security"><strong>Защитить вход</strong><span>Управлять паролем, ключами доступа и резервными кодами.</span></a>{% endif %}
-      {% if features.exports_enabled %}<a href="/account?section=data"><strong>Получить свои данные</strong><span>Запросить приватную копию сведений аккаунта.</span></a>{% endif %}
-      {% if features.preferences_enabled %}<a href="/account?section=privacy"><strong>Настроить приватность</strong><span>Проверить личные предпочтения и согласия.</span></a>{% endif %}
-      {% if features.history_enabled %}<a href="/account?section=activity"><strong>Посмотреть историю входов</strong><span>Проверить недавние действия в аккаунте.</span></a>{% endif %}
+    <nav class="account-nav" aria-label="Управление аккаунтом">
+      {% if features.sessions_enabled || features.apps_enabled || features.history_enabled %}
+      <div class="account-nav-group">
+        <h2>Кто имеет доступ</h2>
+        <p>Проверьте устройства и приложения, которые могут пользоваться вашим аккаунтом.</p>
+        <ul>
+          {% if features.sessions_enabled %}<li><a href="/account?section=sessions"><strong>Активные устройства</strong><span>Завершить вход на потерянном или чужом устройстве.</span></a></li>{% endif %}
+          {% if features.apps_enabled %}<li><a href="/account?section=apps"><strong>Подключённые приложения</strong><span>Посмотреть разрешения и закрыть доступ приложению.</span></a></li>{% endif %}
+          {% if features.history_enabled %}<li><a href="/account?section=activity"><strong>История входов</strong><span>Проверить недавние действия.</span></a></li>{% endif %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if features.security_enabled %}
+      <div class="account-nav-group">
+        <h2>Защита входа</h2>
+        <p>Настройте способы входа и восстановления доступа.</p>
+        <ul><li><a href="/account?section=security"><strong>Пароль и способы подтверждения</strong><span>Ключи доступа, приложение с кодами и резервные коды.</span></a></li></ul>
+      </div>
+      {% endif %}
+      {% if features.preferences_enabled || features.exports_enabled %}
+      <div class="account-nav-group">
+        <h2>Ваши данные</h2>
+        <p>Проверьте настройки и решите, что сохранить для себя.</p>
+        <ul>
+          {% if features.preferences_enabled %}<li><a href="/account?section=privacy"><strong>Приватность</strong><span>Ваши настройки и согласия.</span></a></li>{% endif %}
+          {% if features.exports_enabled %}<li><a href="/account?section=data"><strong>Копия данных</strong><span>Посмотреть порядок получения и запросить архив.</span></a></li>{% endif %}
+        </ul>
+      </div>
+      {% endif %}
     </nav>
     {% endif %}
     <section aria-labelledby="profile-title">
@@ -92,7 +114,6 @@
       <p id="profile-error" role="alert" hidden></p>
     </section>
     {% endif %}
-    <p class="secondary-settings">Если нужной настройки здесь пока нет, она доступна в <a href="/legacy/account">прежнем кабинете</a>.</p>
     {% endif %}
   </main>
 </body>

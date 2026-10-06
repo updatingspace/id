@@ -28,8 +28,6 @@ use id_runtime::{
 use serde_json::{Value, json};
 use sha1::Sha1;
 use std::{
-    io::Write,
-    process::{Command, Stdio},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -98,57 +96,6 @@ async fn token(app: &Router) -> Result<(String, String)> {
         .context("invalid csrf cookie")?
         .to_owned();
     Ok((token, cookie))
-}
-
-fn python_check(
-    session: &str,
-    account_id: i32,
-    access: &str,
-    refresh: &str,
-    mfa: Option<(&str, &str)>,
-    cache_table: &str,
-    expected_login_events: usize,
-) -> Result<()> {
-    let python_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../id")
-        .canonicalize()?;
-    let child = Command::new(python_dir.join(".venv/bin/python"))
-        .arg("scripts/check_rust_session.py")
-        .current_dir(&python_dir)
-        .env("PYTHONPATH", "src")
-        .env("DJANGO_SETTINGS_MODULE", "app.settings")
-        .env("DJANGO_DEBUG", "true")
-        .env(
-            "DJANGO_SECRET_KEY",
-            "synthetic-local-secret-min-32-characters",
-        )
-        .env("DB_DRIVER", "ydb")
-        .env("YDB_NAME", "default")
-        .env("YDB_CREDENTIALS_MODE", "token")
-        .env("YDB_TOKEN", "local-ydb-token")
-        .env("YDB_CACHE_TABLE", cache_table)
-        .env("REDIS_URL", "")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let mut child = child;
-    child
-        .stdin
-        .take()
-        .context("Python stdin missing")?
-        .write_all(
-            json!({"token":session,"account_id":account_id,"access":access,"refresh":refresh,"mfa_type":mfa.map(|value| value.0),"mfa_code":mfa.map(|value| value.1),"expected_login_events":expected_login_events})
-                .to_string()
-                .as_bytes(),
-        )?;
-    let output = child.wait_with_output()?;
-    ensure!(
-        output.status.success(),
-        "Python rejected Rust HTTP login: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    Ok(())
 }
 
 fn totp_code(unix_seconds: u64) -> Result<String> {
@@ -297,7 +244,8 @@ async fn password_login_http_preserves_browser_and_python_contract() -> Result<(
             "IP budget did not include failed and successful attempts");
         ensure!(headers.get_all(header::SET_COOKIE).iter().filter_map(|value| value.to_str().ok())
             .any(|value| value.starts_with("sessionid=") && value.contains("HttpOnly")));
-        let access = body["access_token"].as_str().context("missing access JWT")?;
+        ensure!(body["access_token"].as_str().is_some_and(|value| !value.is_empty()),
+            "missing access JWT");
         let refresh = body["refresh_token"].as_str().context("missing refresh JWT")?;
         issued.push((session.to_owned(), refresh.to_owned()));
         let mut row = client.query_client().query_row(
@@ -319,9 +267,6 @@ async fn password_login_http_preserves_browser_and_python_contract() -> Result<(
         let status: String = row.remove_field_by_name("status")?.try_into()?;
         ensure!(status == "pending", "YMQ wakeup did not refer to a committed outbox intent");
         queue_server.abort();
-        if std::env::var("ID_PYTHON_LOGIN_HTTP_CHECK").as_deref() == Ok("true") {
-            python_check(session, account_id, access, refresh, None, &table, 1)?;
-        }
         let seal_key = std::env::var("ID_MFA_SEAL_KEY_B64")
             .ok()
             .map(|encoded| MfaSealKey::from_base64(&encoded))
@@ -347,10 +292,6 @@ async fn password_login_http_preserves_browser_and_python_contract() -> Result<(
         let mfa_session = body["meta"]["session_token"].as_str().context("missing MFA session")?;
         let mfa_refresh = body["refresh_token"].as_str().context("missing MFA refresh")?;
         issued.push((mfa_session.to_owned(), mfa_refresh.to_owned()));
-        if std::env::var("ID_PYTHON_LOGIN_HTTP_CHECK").as_deref() == Ok("true") {
-            python_check(mfa_session, account_id,
-                body["access_token"].as_str().context("missing MFA access")?, mfa_refresh, Some(("totp", &code)), &table, 2)?;
-        }
         let (replay_form, _) = token(&app).await?;
         let replay = json!({"email":email,"password":PASSWORD,"form_token":replay_form,"mfa_code":code});
         let (status, headers, body) = call(&app, "POST", replay, Some(&csrf_cookie), Some(csrf_value),
@@ -375,11 +316,6 @@ async fn password_login_http_preserves_browser_and_python_contract() -> Result<(
         let recovery_session = body["meta"]["session_token"].as_str().context("missing recovery session")?;
         let recovery_refresh = body["refresh_token"].as_str().context("missing recovery refresh")?;
         issued.push((recovery_session.to_owned(), recovery_refresh.to_owned()));
-        if std::env::var("ID_PYTHON_LOGIN_HTTP_CHECK").as_deref() == Ok("true") {
-            python_check(recovery_session, account_id,
-                body["access_token"].as_str().context("missing recovery access")?, recovery_refresh,
-                Some(("recovery_codes", &recovery[0])), &table, 3)?;
-        }
         let (recovery_replay_form, _) = token(&app).await?;
         let recovery_replay = json!({"email":email,"password":PASSWORD,"form_token":recovery_replay_form,"recovery_code":recovery[0]});
         let (status, headers, body) = call(&app, "POST", recovery_replay, Some(&csrf_cookie), Some(csrf_value),
@@ -434,11 +370,6 @@ async fn password_login_http_preserves_browser_and_python_contract() -> Result<(
         let migrated_session = body["meta"]["session_token"].as_str().context("missing migrated session")?;
         let migrated_refresh = body["refresh_token"].as_str().context("missing migrated refresh")?;
         issued.push((migrated_session.to_owned(), migrated_refresh.to_owned()));
-        if std::env::var("ID_PYTHON_LOGIN_HTTP_CHECK").as_deref() == Ok("true") {
-            python_check(migrated_session, account_id,
-                body["access_token"].as_str().context("missing migrated access")?, migrated_refresh,
-                Some(("recovery_codes", "87654321")), &table, 5)?;
-        }
         Ok(())
     }.await;
     for (session, refresh) in issued {

@@ -1018,9 +1018,12 @@ mod tests {
         }
         .render()?;
         assert!(html.contains("href=\"/account?section=profile\""));
-        assert!(html.contains("Проверить приложения"));
+        assert!(html.contains("Подключённые приложения"));
         assert!(!html.contains("id=\"profile-form\""));
         assert!(!html.contains("/legacy/account"));
+        assert!(html.contains("Кто имеет доступ"));
+        assert!(html.contains("Защита входа"));
+        assert!(html.contains("Ваши данные"));
         assert!(!html.contains("/_id/profile.js"));
         Ok(())
     }

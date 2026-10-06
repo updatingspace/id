@@ -1,39 +1,28 @@
 # UpdSpace ID
 
-[![CI/CD](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml)
-[![Backend Coverage Gate](https://img.shields.io/badge/backend%20coverage-line%20%E2%89%A5%2085%25%20%7C%20branch%20%E2%89%A5%2080%25-blue)](./.github/workflows/ci-cd.yml)
-[![E2E Smoke](https://img.shields.io/badge/e2e-smoke%20artifact-green)](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml?query=branch%3Amain)
-[![Compliance Matrix](https://img.shields.io/badge/compliance-matrix%20artifact-green)](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml?query=branch%3Amain)
-[![GDPR/152-FZ Controls](https://img.shields.io/badge/GDPR%2F152--FZ-controls-success)](https://github.com/updatingspace/id/actions/workflows/ci-cd.yml?query=branch%3Amain)
+UpdSpace ID — единый вход, управление доступом к приложениям и данными аккаунта.
 
-Identity-сервис UpdSpace: единая аутентификация, управление сессиями и OAuth2/OIDC контур.
+## Состав проекта
 
-## Что в проекте
+- [`services/id-rust`](services/id-rust/README.md) — Rust workspace: Axum API, отдельно развёртываемый Topcoat SSR-интерфейс, jobs и операторский CLI `idctl`.
+- [`infra/terraform/yandex-cloud`](infra/terraform/yandex-cloud/README.md) — Yandex Cloud, YDB, API Gateway, Object Storage и очереди.
+- [`services/id-rust/browser-tests`](services/id-rust/browser-tests/package.json) — небольшой Playwright runner для проверки Topcoat в браузере.
 
-- `services/id` — backend на Django + Ninja (IdP, auth, MFA, OIDC, security controls)
-- `web/id-frontend` — frontend на React + Vite (login/signup/authorize/account flows)
+Django и React больше не входят в актуальные исходники или проектные GitHub workflows. Историческая реализация и её контракты доступны в Git. Rust сохраняет чтение действующих форматов credentials и sessions, пока они нужны пользователям.
 
-## Ключевые возможности
+## Локальная проверка
 
-- Headless auth (email/password + session token), signup и logout
-- MFA: TOTP, recovery codes, passkeys (WebAuthn)
-- OAuth2/OIDC provider: authorize/token/userinfo/revoke + PKCE(S256)
-- Privacy и account controls: consents, sessions, data export/delete, security event flow
+Для Rust нужны toolchain из [`rust-toolchain.toml`](services/id-rust/rust-toolchain.toml), `libssl-dev` и `pkg-config`. Из `services/id-rust`:
 
-## Документация
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
+cargo build --locked --workspace --bins
+```
 
-- Backend overview: [`services/id/README.md`](./services/id/README.md)
-- Frontend overview: [`web/id-frontend/README.md`](./web/id-frontend/README.md)
-- Operations: [`services/id/RUNBOOK.md`](./services/id/RUNBOOK.md)
-- Troubleshooting: [`services/id/TROUBLESHOOTING.md`](./services/id/TROUBLESHOOTING.md)
-- Compliance controls matrix: [`services/id/docs/compliance/control-matrix.md`](./services/id/docs/compliance/control-matrix.md)
+Интеграционные тесты работают с локальной YDB. После её запуска выполните `idctl legacy-schema --apply` и `idctl cache-schema`; детали и команды находятся в [Rust README](services/id-rust/README.md). Тесты Topcoat используют `npm ci` в `services/id-rust/browser-tests` и настоящий браузер с Rust API.
 
-## CI/CD
+Основной [CI workflow](.github/workflows/ci-cd.yml) проверяет Rust, локальную YDB, browser-сценарии и инфраструктуру. [Расширенная проверка](.github/workflows/rust-pilot.yml) покрывает дополнительные сценарии аутентификации. [Deploy workflow](.github/workflows/deploy-yandex-cloud.yml) строит и выкладывает отдельные образы API, web и jobs.
 
-Workflow: [`.github/workflows/ci-cd.yml`](./.github/workflows/ci-cd.yml)
-
-- CI (PR/push): backend lint + tests + coverage gates, frontend lint + typecheck + unit tests, smoke E2E
-- Reports (`playwright-report`, `test-results`, compliance matrix) are published as GitHub Actions artifacts per run
-- CD (push в `main`/`master`): публикация образов в GHCR
-  - `ghcr.io/updatingspace/id-service`
-  - `ghcr.io/updatingspace/id-frontend`
+Миграция ещё не завершена: операторский web-интерфейс, включение задержанной выгрузки данных в production и итоговая приёмка всех пользовательских сценариев остаются открытыми. Удаление старых исходников не означает, что эти функции проверены или доступны пользователям.

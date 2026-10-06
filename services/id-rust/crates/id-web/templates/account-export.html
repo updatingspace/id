@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Экспорт данных — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-1" />
   <script src="/_id/export.js?v=cancel-20261006-1" defer></script>
   {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
 </head>
@@ -14,14 +14,14 @@
     <h1>Копия ваших данных</h1>
     <p class="page-intro">Узнайте, какие сведения связаны с вашим аккаунтом, и сохраните их для себя.</p>
     {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
-    <nav aria-label="Разделы аккаунта"><a href="/account">Профиль</a></nav>
+    <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
     <section aria-labelledby="export-title">
       <h2 id="export-title">Запросить копию</h2>
       {% if delayed_enabled %}
       <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Мы начнём собирать копию сразу, а ссылку отправим на подтверждённый адрес почты не раньше чем через 24 часа. Точное время появится после запроса.</p>
-      <p>Письмо о запросе придёт отдельно. Если запрос сделали не вы, откройте его состояние ниже и отзовите доступ; после удаления аккаунта обратитесь в поддержку с номером запроса из письма. Удаление аккаунта само по себе не отменит отправку подготовленной копии.</p>
+      <p>Сразу после запроса мы отправим уведомление на подтверждённый адрес. Если запрос сделали не вы, отзовите его в аккаунте до удаления. Удаление аккаунта не отменяет уже запрошенную копию: ссылка придёт на тот же адрес после периода ожидания.</p>
       {% else %}
-      <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Мы подготовим приватный архив. Доступ к нему появится здесь после завершения подготовки.</p>
+      <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Архив станет доступен здесь после подготовки. Сейчас для этого способа нет периода ожидания.</p>
       {% endif %}
       <form id="export-form" action="/account?section=data" method="post">
         <label for="export-password">Текущий пароль</label>
@@ -46,7 +46,7 @@
       <h2 id="export-status-title">Состояние экспорта</h2>
       {% if refreshing %}<p role="status">Собираем копию данных.{% if delayed_enabled %} Ссылка придёт на почту после завершения периода ожидания.{% endif %} <a href="/account?section=data&amp;export={{ result.id }}">Обновить состояние</a></p>{% endif %}
       {% if result.status == "cooldown" %}<p role="status">Копия подготовлена и хранится приватно. Ссылка пока недоступна: мы отправим её на подтверждённый адрес почты после периода ожидания.</p>{% endif %}
-      {% if result.status == "ready" %}<p role="status">Ссылка для получения отправлена на подтверждённый адрес почты. Она работает и после удаления аккаунта.</p>{% endif %}
+      {% if result.status == "ready" %}<p role="status">Ссылка для получения отправлена на подтверждённый адрес почты. Она работает и после удаления аккаунта до окончания срока доступа.</p>{% endif %}
       {% if let Some(release) = result.release_at %}
       {% if result.status == "ready" %}<p>Период ожидания завершился: <time datetime="{{ release }}">{{ release }}</time>.</p>
       {% else %}<p>Ссылка будет отправлена не раньше: <time datetime="{{ release }}">{{ release }}</time>.</p>{% endif %}

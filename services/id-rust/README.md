@@ -298,9 +298,9 @@ WebAuthn и других интерактивных действий. Веб-с�
   страница также управляет аватаром через Rust `POST/DELETE /api/v1/auth/avatar`;
   CSP разрешает изображения только с собственного origin, `data:` и точного
   Yandex Object Storage origin. API origin должен быть HTTPS (либо localhost
-  HTTP для теста). Ещё не перенесённые функции остаются в React по
-  `/legacy/account`; на SSR-странице есть ссылка на него. Ядро и `idctl`
-  не зависят от Topcoat. Cookie jar,
+  HTTP для теста). Ссылка на `/legacy/account` удалена из Topcoat: React-код
+  больше не входит в актуальную сборку, а недостающие функции кабинета остаются
+  открытыми задачами. Ядро и `idctl` не зависят от Topcoat. Cookie jar,
   альтернативной системы сессий, SSE и доступа UI к YDB нет.
   `ID_WEB_EXPORTS_ENABLED=true` отдельно добавляет `/account?section=data`:
   Topcoat на сервере загружает owner-scoped состояние операции и manifest,
@@ -718,7 +718,7 @@ cargo test --locked -p id-runtime --test form_token_http_ydb -- --ignored --noca
 cargo test --locked -p id-runtime --lib counts_collisions_across_pages_without_exposing_addresses -- --ignored --nocapture
 ```
 
-После `migrate_ydb` из Python-проекта можно проверить email-инвентаризацию:
+После `idctl legacy-schema --apply` можно проверить email-инвентаризацию:
 
 ```sh
 cargo run --locked --bin idctl -- login-email-audit --require-unambiguous
@@ -735,7 +735,7 @@ cargo run --locked --bin idctl -- cleanup-tokens
 cargo test --locked -p id-runtime --test session_store_ydb -- --ignored --nocapture
 cargo test --locked -p id-runtime --test profile_store_ydb -- --ignored --nocapture
 cargo test --locked -p id-runtime --test login_preflight_ydb -- --ignored --nocapture
-ID_PYTHON_SESSION_CHECK=true ID_AUTH_SESSIONS_PILOT_ENABLED=true DJANGO_DEBUG=true DJANGO_SECRET_KEY=synthetic-local-secret-min-32-characters cargo test --locked -p id-runtime --test session_issuer_ydb -- --ignored --nocapture
+ID_AUTH_SESSIONS_PILOT_ENABLED=true DJANGO_DEBUG=true DJANGO_SECRET_KEY=synthetic-local-secret-min-32-characters cargo test --locked -p id-runtime --test session_issuer_ydb -- --ignored --nocapture
 ID_AUTH_ME_ENABLED=true DJANGO_SECRET_KEY=synthetic-local-secret-min-32-characters MEDIA_PUBLIC_BASE_URL=https://storage.yandexcloud.net/synthetic-id-media cargo test --locked -p id-runtime --test me_http_ydb -- --ignored --nocapture
 ```
 
@@ -798,17 +798,10 @@ cargo run --locked --bin idctl -- compat-fixtures \
   crates/id-compat/tests/fixtures/django.json /tmp/rust-compat.json
 ```
 
-Затем из `services/id` с настроенным локальным Django:
-
-```sh
-.venv/bin/python scripts/check_rust_compat_roundtrip.py \
-  ../id-rust/crates/id-compat/tests/fixtures/django.json /tmp/rust-compat.json
-```
-
-Рабочая Python-версия остаётся источником эталонных контрактов. В её frozen
-окружении сейчас отсутствует `bcrypt`, хотя hasher настроен. Только генератор
-fixtures использует отдельный `bcrypt==5.0.0` из временного каталога; это не
-исправляет зависимости production и не обновляет пользовательский lockfile.
+Историческая Python-проверка обратного чтения удалена вместе с Django-кодом.
+`id-compat` и интеграционные Rust-тесты проверяют синтетические эталоны;
+действующие credentials и identity требуют отдельной сверки перед изменением
+production-маршрутов.
 
 ## Ограничения адаптеров
 

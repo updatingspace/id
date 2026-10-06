@@ -1,7 +1,7 @@
 version: 2
 updates:
-  - package-ecosystem: "pip"
-    directory: "/services/id"
+  - package-ecosystem: "cargo"
+    directory: "/services/id-rust"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -10,10 +10,10 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
-      - "backend"
+      - "rust"
 
   - package-ecosystem: "npm"
-    directory: "/web/id-frontend"
+    directory: "/services/id-rust/browser-tests"
     schedule:
       interval: "weekly"
       day: "monday"

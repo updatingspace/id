@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Сессии — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-1" />
   <script src="/_id/sessions.js" defer></script>
   {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
 </head>
@@ -13,7 +13,7 @@
   <main>
     <h1>Активные устройства</h1>
     {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
-    <nav aria-label="Разделы аккаунта"><a href="/account">Профиль</a></nav>
+    <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
     {% if preferences_enabled %}<nav aria-label="Настройки аккаунта"><a href="/account?section=privacy">Настройки и приватность</a></nav>{% endif %}
     {% if apps_enabled %}<nav aria-label="Приложения"><a href="/account?section=apps">Подключённые приложения</a></nav>{% endif %}
     <p id="session-message" role="status" aria-live="polite" hidden></p>

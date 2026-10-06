@@ -14,9 +14,7 @@ use id_runtime::{
     session_store::LEGACY_BACKENDS,
 };
 use std::{
-    io::Write,
     net::IpAddr,
-    process::{Command, Stdio},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -137,10 +135,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             "valid session could not mint an account JWT pair");
         let extra_refresh = issued_pair["refresh"].as_str().context("missing refresh")?.to_owned();
         tokens_to_clean.push((issued.token.clone(), extra_refresh.clone()));
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":issued.token,"account_id":account_id,
-                "access":issued_pair["access"],"refresh":extra_refresh}))?;
-        }
         let (status, _, _) = jwt_session_http_call(&jwt_app, Some("invalid"), Some(&issued.token), false).await?;
         ensure!(status == StatusCode::UNAUTHORIZED, "invalid header fell back to a valid cookie");
         let (status, _, _) = jwt_session_http_call(&jwt_app, None, Some(&issued.token), false).await?;
@@ -169,10 +163,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         let tracked_agent: String = user_session.remove_field_by_name("user_agent")?.try_into()?;
         ensure!(tracked_user == account_id && tracked_ip == "192.0.2.5"
             && tracked_agent == "synthetic Rust login");
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":issued.token,"account_id":account_id,
-                "access":login.access,"refresh":login.refresh}))?;
-        }
         let other = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
             &request, SystemTime::now(), lifetime).await?
             .context("second session was not issued")?;
@@ -184,22 +174,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             && before.iter().any(|row| row.id == issued.token && row.current && !row.revoked)
             && before.iter().any(|row| row.id == other.session.token && !row.current && !row.revoked),
             "Rust session list did not merge two active devices");
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            let output = python_check(serde_json::json!({"token":issued.token,
-                "account_id":account_id,"session_list":true}))?;
-            let python_rows: serde_json::Value = serde_json::from_str(&output)?;
-            let rust_rows = serde_json::json!({"sessions":before});
-            if python_rows != rust_rows {
-                let mut redacted_python = python_rows.clone();
-                let mut redacted_rust = rust_rows.clone();
-                for snapshot in [&mut redacted_python, &mut redacted_rust] {
-                    if let Some(rows) = snapshot["sessions"].as_array_mut() {
-                        for row in rows { row["id"] = serde_json::json!("<redacted>"); }
-                    }
-                }
-                anyhow::bail!("Python and Rust session-list JSON differ: Python {redacted_python}; Rust {redacted_rust}");
-            }
-        }
         let sessions_app = if std::env::var("ID_AUTH_SESSIONS_PILOT_ENABLED").as_deref() == Ok("true") {
             let config = id_runtime::sessions_http::SessionsHttpConfig::from_env(client.clone())?
                 .context("sessions HTTP pilot not configured")?;
@@ -276,10 +250,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         ensure!(id_runtime::logout_store::revoke_current_session(
             &client, codec.clone(), &other.session.token, SystemTime::now()).await?.is_some(),
             "second session did not revoke");
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":other.session.token,"account_id":account_id,
-                "refresh":other.refresh,"expect_revoked":true}))?;
-        }
         ensure!(id_runtime::session_store::restore_django_principal(
             &client, codec.clone(), &other.session.token, LEGACY_BACKENDS, SystemTime::now()).await?.is_none(),
             "revoked session still restored");
@@ -311,13 +281,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             row.id == other.session.token && row.revoked && row.expires.is_none()
             && row.revoked_reason.as_deref() == Some("logout")),
             "Rust session list lost revoked history or expiry state");
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            let output = python_check(serde_json::json!({"token":issued.token,
-                "account_id":account_id,"session_list":true}))?;
-            let python_rows: serde_json::Value = serde_json::from_str(&output)?;
-            ensure!(python_rows == serde_json::json!({"sessions":after}),
-                "Python and Rust disagree on revoked session history");
-        }
         use id_runtime::session_revoke::{Outcome, Selection, TouchContext, revoke_sessions};
         client.query_client().exec("DELETE FROM core_usersessionmeta WHERE session_key = $key")
             .param("$key", issued.token.clone()).await?;
@@ -406,10 +369,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         ensure!(matches!(single, Outcome::One { ref id, ref reason, .. }
             if id == &third.session.token && reason == "manual"),
             "single session revoke did not return its receipt");
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":third.session.token,"account_id":account_id,
-                "refresh":third.refresh,"expect_revoked":true,"keep_history":true}))?;
-        }
         let fourth = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
             &request, SystemTime::now(), lifetime).await?.context("fourth session was not issued")?;
         tokens_to_clean.push((fourth.session.token.clone(), fourth.refresh.clone()));
@@ -432,10 +391,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         ensure!(id_runtime::session_store::restore_django_principal(
             &client, codec.clone(), &issued.token, LEGACY_BACKENDS, SystemTime::now()).await?.is_some(),
             "bulk revoke killed the current session");
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":fourth.session.token,"account_id":account_id,
-                "refresh":fourth.refresh,"expect_revoked":true,"keep_history":true}))?;
-        }
         let fifth = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
             &request, SystemTime::now(), lifetime).await?.context("fifth session was not issued")?;
         tokens_to_clean.push((fifth.session.token.clone(), fifth.refresh.clone()));
@@ -453,10 +408,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             ensure!(matches!(revoke_sessions(&client, codec.clone(), &issued.token,
                 Selection::One(fifth.session.token.clone()), "manual", TouchContext::default(), SystemTime::now()).await?,
                 Outcome::One { .. }));
-        }
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":fifth.session.token,"account_id":account_id,
-                "refresh":fifth.refresh,"expect_revoked":true,"keep_history":true}))?;
         }
         let sixth = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
             &request, SystemTime::now(), lifetime).await?.context("sixth session was not issued")?;
@@ -476,10 +427,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             ensure!(matches!(outcome, Outcome::Bulk { ref revoked_ids, ref skipped_ids, .. }
                 if revoked_ids == &vec![sixth.session.token.clone()] && skipped_ids == &vec!["missing-session".to_owned()]));
         }
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":sixth.session.token,"account_id":account_id,
-                "refresh":sixth.refresh,"expect_revoked":true,"keep_history":true}))?;
-        }
         let mut active_mapping = client.query_client().query_row(
             "SELECT refresh_jti FROM core_usersessiontoken WHERE session_key = $key AND revoked_at IS NULL LIMIT 1")
             .param("$key", issued.token.clone()).await?;
@@ -488,6 +435,7 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             "SELECT token FROM token_blacklist_outstandingtoken WHERE user_id = $id AND jti = $jti LIMIT 1")
             .param("$id", account_id).param("$jti", active_jti).await?;
         let active_refresh: String = active_outstanding.remove_field_by_name("token")?.try_into()?;
+        ensure!(!active_refresh.is_empty(), "active session mapping has no refresh token");
         if let Some(app) = sessions_app.as_ref() {
             let csrf = "abcdefghijklmnopqrstuvwxyzABCDEF";
             let request = Request::builder()
@@ -505,12 +453,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             ensure!(matches!(revoke_sessions(&client, codec.clone(), &issued.token,
                 Selection::One(issued.token.clone()), "manual", TouchContext::default(), SystemTime::now()).await?,
                 Outcome::One { .. }));
-        }
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":issued.token,"account_id":account_id,
-                "refresh":active_refresh,"expect_revoked":true,"keep_history":true}))?;
-            python_check(serde_json::json!({"token":issued.token,"account_id":account_id,
-                "refresh":extra_refresh,"expect_revoked":true,"keep_history":true}))?;
         }
         let (status, _, _) = jwt_session_http_call(&jwt_app, Some(&issued.token), None, false).await?;
         ensure!(status == StatusCode::UNAUTHORIZED, "revoked session still minted account JWT");
@@ -555,10 +497,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             .param("$key", refresh_session.session.token.clone()).await?;
         let active: u64 = active.remove_field_by_name("count")?.try_into()?;
         ensure!(active == 0, "replay left descendant mappings active");
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":refresh_session.session.token,"account_id":account_id,
-                "refresh":descendant,"expect_revoked":true,"keep_history":true}))?;
-        }
         let race_session = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
             &request, SystemTime::now(), lifetime).await?
             .context("refresh race session was not issued")?;
@@ -671,10 +609,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         let recovery: serde_json::Value = serde_json::from_str(&recovery)?;
         ensure!(recovery["migrated_codes"] == serde_json::json!([]),
             "account deletion reauthentication did not consume its recovery code");
-        if std::env::var("ID_PYTHON_SESSION_CHECK").as_deref() == Ok("true") {
-            python_check(serde_json::json!({"token":delete_session.session.token,
-                "account_id":account_id,"refresh":delete_session.refresh,"expect_revoked":true}))?;
-        }
         id_runtime::passkey_index::ensure_schema(&client).await?;
         let index_digest = format!("synthetic-deletion-{account_id}");
         client.query_client().exec("INSERT INTO id_passkey_credential (digest, authenticator_id, account_id) VALUES ($digest, $authenticator, $account)")
@@ -1055,49 +989,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         .param("$id", account_id)
         .await?;
     result
-}
-
-fn python_check(payload: serde_json::Value) -> Result<String> {
-    let python_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../id")
-        .canonicalize()?;
-    let mut child = Command::new(python_dir.join(".venv/bin/python"))
-        .arg("scripts/check_rust_session.py")
-        .current_dir(&python_dir)
-        .env("PYTHONPATH", "src")
-        .env("DJANGO_SETTINGS_MODULE", "app.settings")
-        .env("DJANGO_DEBUG", "true")
-        .env(
-            "DJANGO_SECRET_KEY",
-            "synthetic-local-secret-min-32-characters",
-        )
-        .env("DB_DRIVER", "ydb")
-        .env("YDB_NAME", "default")
-        .env("YDB_CREDENTIALS_MODE", "token")
-        .env("YDB_TOKEN", "local-ydb-token")
-        .env("REDIS_URL", "")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .context("Python check stdin unavailable")?;
-    let structured = payload["session_list"] == true;
-    stdin.write_all(payload.to_string().as_bytes())?;
-    drop(stdin);
-    let output = child.wait_with_output()?;
-    ensure!(
-        output.status.success(),
-        "Python compatibility check failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8(output.stdout)?;
-    if !structured {
-        println!("{}", stdout.trim());
-    }
-    Ok(stdout.trim().to_owned())
 }
 
 async fn sessions_http_call(

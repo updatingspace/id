@@ -82,10 +82,14 @@ nav[aria-label="Разделы аккаунта"] a:hover { background: #e8eefb;
 nav[aria-label="Разделы аккаунта"] a:focus-visible { outline: 3px solid var(--focus); }
 .account-nav { align-items: stretch; }
 .account-nav a { min-height: 3rem; }
-nav.account-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; border: 0; }
-nav.account-nav a { display: flex; flex-direction: column; justify-content: center; gap: .25rem; min-height: 6.5rem; padding: 1rem 1.1rem; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+nav.account-nav { display: grid; grid-template-columns: 1fr; gap: 1.5rem; border: 0; }
+.account-nav-group { min-width: 0; }
+.account-nav-group h2 { margin-bottom: .25rem; }
+.account-nav-group > p { margin: 0 0 .75rem; color: var(--muted); }
+.account-nav-group ul { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin: 0; padding: 0; }
+nav.account-nav a { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: .25rem; min-height: 5rem; padding: .85rem 1rem; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-align: left; }
 nav.account-nav a:hover { border-color: var(--action); background: var(--surface); box-shadow: 0 3px 12px rgb(22 37 64 / 7%); }
-nav.account-nav a strong { font-size: 1.05rem; }
+nav.account-nav a strong { font-size: 1rem; }
 nav.account-nav a span { color: var(--muted); font-size: .91rem; font-weight: 400; line-height: 1.4; }
 .secondary-settings { margin: 2rem 0; font-size: .92rem; }
 dt { font-size: .9rem; }
@@ -107,7 +111,7 @@ button:disabled { cursor: not-allowed; }
   main { margin-top: 1.5rem; }
   section { padding: 1.25rem; }
   nav[aria-label="Разделы аккаунта"] { flex-direction: column; }
-  nav.account-nav { grid-template-columns: 1fr; }
+  .account-nav-group ul { grid-template-columns: 1fr; }
   nav[aria-label="Разделы аккаунта"] a, .account-nav a { width: 100%; }
   .session-row { align-items: stretch; flex-direction: column; }
   .session-row button { align-self: flex-start; }
