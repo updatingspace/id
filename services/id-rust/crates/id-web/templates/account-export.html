@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Экспорт данных — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  <script src="/_id/export.js" defer></script>
+  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+  {% if refreshing %}<meta http-equiv="refresh" content="5" />{% endif %}
+</head>
+<body>
+  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
+  <main>
+    <h1>Копия ваших данных</h1>
+    <p class="page-intro">Узнайте, какие сведения связаны с вашим аккаунтом, и сохраните их для себя.</p>
+    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    <nav aria-label="Разделы аккаунта"><a href="/account">Профиль</a></nav>
+    <section aria-labelledby="export-title">
+      <h2 id="export-title">Запросить копию</h2>
+      {% if delayed_enabled %}
+      <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Мы начнём собирать копию сразу, а ссылку отправим на подтверждённый адрес почты не раньше чем через 24 часа. Точное время появится после запроса.</p>
+      <p>Письмо о запросе придёт отдельно. Если запрос сделали не вы, обратитесь в поддержку. Удаление аккаунта после запроса не отменит отправку подготовленной копии.</p>
+      {% else %}
+      <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Мы подготовим приватный архив. Доступ к нему появится здесь после завершения подготовки.</p>
+      {% endif %}
+      <form id="export-form" action="/account?section=data" method="post">
+        <label for="export-password">Текущий пароль</label>
+        <input id="export-password" name="password" type="password" autocomplete="current-password" required />
+        {% if has_mfa %}
+        <label for="export-mfa">Код приложения или резервный код</label>
+        <input id="export-mfa" name="mfa_code" type="text" autocomplete="one-time-code" required />
+        {% endif %}
+        <button type="submit">Запросить копию данных</button>
+      </form>
+      <noscript><p>Для отправки запроса нужен JavaScript. Статус готового экспорта отображается без него.</p></noscript>
+      <p id="export-error" role="alert" hidden></p>
+    </section>
+    {% if requested && operation.is_none() %}
+    <section aria-labelledby="export-status-title">
+      <h2 id="export-status-title">Экспорт не найден</h2>
+      <p>Проверьте ссылку или создайте новый экспорт.</p>
+    </section>
+    {% endif %}
+    {% if let Some(result) = operation %}
+    <section aria-labelledby="export-status-title">
+      <h2 id="export-status-title">Состояние экспорта</h2>
+      {% if refreshing %}<p role="status">Собираем копию данных. Страница обновится автоматически.{% if delayed_enabled %} Ссылка придёт на почту после завершения периода ожидания.{% endif %}</p>{% endif %}
+      {% if result.status == "cooldown" %}<p role="status">Копия подготовлена и хранится приватно. Ссылка пока недоступна: мы отправим её на подтверждённый адрес почты после периода ожидания.</p>{% endif %}
+      {% if result.status == "ready" %}<p role="status">Ссылка для получения отправлена на подтверждённый адрес почты. Она работает и после удаления аккаунта.</p>{% endif %}
+      {% if let Some(release) = result.release_at %}
+      {% if result.status == "ready" %}<p>Период ожидания завершился: <time datetime="{{ release }}">{{ release }}</time>.</p>
+      {% else %}<p>Ссылка будет отправлена не раньше: <time datetime="{{ release }}">{{ release }}</time>.</p>{% endif %}
+      <p>Если вы удалите аккаунт, ранее запрошенная копия останется доступна по письму в течение ограниченного срока.</p>
+      {% endif %}
+      {% if result.status == "failed" %}<p role="alert">Не удалось подготовить архив. Данные по этому запросу не будут отправлены. Повторите запрос, если копия всё ещё нужна.</p>{% endif %}
+      {% if let Some(href) = download %}
+      <p>Архив готов. <a href="{{ href }}" rel="noreferrer">Скачать</a></p>
+      {% if let Some(expiry) = result.expires_at %}<p>Доступен до: {{ expiry }}</p>{% endif %}
+      {% endif %}
+      {% if let Some(manifest) = result.manifest %}
+      <h3>Состав архива</h3>
+      <p>Формат: {{ manifest.format }}; согласованность: {{ manifest.consistency }}</p>
+      <dl>
+        {% for category in manifest.categories %}<dt>{{ category.category }}</dt><dd>{{ category.records }}</dd>{% endfor %}
+      </dl>
+      {% if !manifest.excluded.is_empty() %}
+      <h3>Не включено</h3>
+      <ul>{% for excluded in manifest.excluded %}<li>{{ excluded }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% endif %}
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>

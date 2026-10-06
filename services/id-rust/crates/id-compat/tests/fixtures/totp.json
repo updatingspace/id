@@ -1,0 +1,42 @@
+{
+  "format_version": 1,
+  "synthetic": true,
+  "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+  "period": 30,
+  "digits": 6,
+  "tolerance": 0,
+  "vectors": [
+    {
+      "unix_seconds": 0,
+      "code": "755224"
+    },
+    {
+      "unix_seconds": 29,
+      "code": "755224"
+    },
+    {
+      "unix_seconds": 30,
+      "code": "287082"
+    },
+    {
+      "unix_seconds": 59,
+      "code": "287082"
+    },
+    {
+      "unix_seconds": 1111111109,
+      "code": "081804"
+    },
+    {
+      "unix_seconds": 1111111111,
+      "code": "050471"
+    },
+    {
+      "unix_seconds": 1234567890,
+      "code": "005924"
+    },
+    {
+      "unix_seconds": 2000000000,
+      "code": "279037"
+    }
+  ]
+}

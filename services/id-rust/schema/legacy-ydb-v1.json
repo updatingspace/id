@@ -1,0 +1,2961 @@
+{
+  "version": 1,
+  "origin": "Django schema_editor collected SQL, 2026-10-05",
+  "source_sha256": "216bdb8a0c4cdbb60165019767f196851925980518952d81e3739b9593805c51",
+  "tables": [
+    {
+      "name": "auth_group",
+      "sql": "CREATE TABLE `auth_group` (`id` Serial NOT NULL, `name` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "name",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "auth_user",
+      "sql": "CREATE TABLE `auth_user` (`id` Serial NOT NULL, `password` Utf8 NOT NULL, `last_login` Optional<Datetime>, `is_superuser` Bool NOT NULL, `username` Utf8 NOT NULL, `first_name` Utf8 NOT NULL, `last_name` Utf8 NOT NULL, `email` Utf8 NOT NULL, `is_staff` Bool NOT NULL, `is_active` Bool NOT NULL, `date_joined` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "password",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "last_login",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "is_superuser",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "username",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "first_name",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "last_name",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "email",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "is_staff",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "is_active",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "date_joined",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "django_content_type",
+      "sql": "CREATE TABLE `django_content_type` (`id` Serial NOT NULL, `app_label` Utf8 NOT NULL, `model` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "app_label",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "model",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "idp_oidcclient",
+      "sql": "CREATE TABLE `idp_oidcclient` (`id` BigSerial NOT NULL, `client_id` Utf8 NOT NULL, `client_secret_hash` Utf8 NOT NULL, `name` Utf8 NOT NULL, `description` Utf8 NOT NULL, `logo_url` Utf8 NOT NULL, `redirect_uris` Json NOT NULL, `allowed_scopes` Json NOT NULL, `grant_types` Json NOT NULL, `response_types` Json NOT NULL, `is_public` Bool NOT NULL, `is_first_party` Bool NOT NULL, `created_at` Datetime NOT NULL, `updated_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "client_id",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "client_secret_hash",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "name",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "description",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "logo_url",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "redirect_uris",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "allowed_scopes",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "grant_types",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "response_types",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "is_public",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "is_first_party",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "updated_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "django_session",
+      "sql": "CREATE TABLE `django_session` (`session_key` Utf8 NOT NULL, `session_data` Utf8 NOT NULL, `expire_date` Datetime NOT NULL, PRIMARY KEY (`session_key`))",
+      "primary_key": [
+        "session_key"
+      ],
+      "columns": [
+        {
+          "name": "session_key",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "session_data",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "expire_date",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "django_site",
+      "sql": "CREATE TABLE `django_site` (`id` Serial NOT NULL, `domain` Utf8 NOT NULL, `name` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "domain",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "name",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "socialaccount_socialapp",
+      "sql": "CREATE TABLE `socialaccount_socialapp` (`id` Serial NOT NULL, `provider` Utf8 NOT NULL, `provider_id` Utf8 NOT NULL, `name` Utf8 NOT NULL, `client_id` Utf8 NOT NULL, `secret` Utf8 NOT NULL, `key` Utf8 NOT NULL, `settings` Json NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "provider",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "provider_id",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "name",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "client_id",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "secret",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "key",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "settings",
+          "type": "Json",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_application",
+      "sql": "CREATE TABLE `usid_application` (`id` BigSerial NOT NULL, `tenant_slug` Utf8 NOT NULL, `payload_json` Json NOT NULL, `status` Utf8 NOT NULL, `created_at` Datetime NOT NULL, `reviewed_by_user_id` Optional<UUID>, `reviewed_at` Optional<Datetime>, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "tenant_slug",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "payload_json",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "status",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "reviewed_by_user_id",
+          "type": "Optional<UUID>",
+          "not_null": false
+        },
+        {
+          "name": "reviewed_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "usid_tenant",
+      "sql": "CREATE TABLE `usid_tenant` (`id` UUID NOT NULL, `slug` Utf8 NOT NULL, `created_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "slug",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_user",
+      "sql": "CREATE TABLE `usid_user` (`user_id` UUID NOT NULL, `username` Utf8 NOT NULL, `display_name` Utf8 NOT NULL, `email` Utf8 NOT NULL, `email_verified` Bool NOT NULL, `status` Utf8 NOT NULL, `system_admin` Bool NOT NULL, `created_at` Datetime NOT NULL, PRIMARY KEY (`user_id`))",
+      "primary_key": [
+        "user_id"
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "username",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "display_name",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "email",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "email_verified",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "status",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "system_admin",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "account_emailaddress",
+      "sql": "CREATE TABLE `account_emailaddress` (`id` Serial NOT NULL, `user_id` Int32 NOT NULL, `email` Utf8 NOT NULL, `verified` Bool NOT NULL, `primary` Bool NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "email",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "verified",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "primary",
+          "type": "Bool",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_accountdeletionrequest",
+      "sql": "CREATE TABLE `accounts_accountdeletionrequest` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `status` Utf8 NOT NULL, `requested_at` Datetime NOT NULL, `executed_at` Optional<Datetime>, `reason` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "status",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "requested_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "executed_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "reason",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_accountemaillookup",
+      "sql": "CREATE TABLE `accounts_accountemaillookup` (`user_id` Int32 NOT NULL, `email_key` Utf8 NOT NULL, PRIMARY KEY (`user_id`))",
+      "primary_key": [
+        "user_id"
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "email_key",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_accountevent",
+      "sql": "CREATE TABLE `accounts_accountevent` (`id` BigSerial NOT NULL, `user_id` Optional<Int32>, `action` Utf8 NOT NULL, `meta` Json NOT NULL, `created_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Optional<Int32>",
+          "not_null": false
+        },
+        {
+          "name": "action",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "meta",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_accountidentity",
+      "sql": "CREATE TABLE `accounts_accountidentity` (`user_id` Int32 NOT NULL, `identity_id` Optional<UUID>, `public_subject` Utf8 NOT NULL, `created_at` Datetime NOT NULL, PRIMARY KEY (`user_id`))",
+      "primary_key": [
+        "user_id"
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "identity_id",
+          "type": "Optional<UUID>",
+          "not_null": false
+        },
+        {
+          "name": "public_subject",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_dataexportrequest",
+      "sql": "CREATE TABLE `accounts_dataexportrequest` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `status` Utf8 NOT NULL, `requested_at` Datetime NOT NULL, `completed_at` Optional<Datetime>, `format` Utf8 NOT NULL, `error` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "status",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "requested_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "completed_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "format",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "error",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_loginevent",
+      "sql": "CREATE TABLE `accounts_loginevent` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `status` Utf8 NOT NULL, `ip_address` Optional<Utf8>, `ip_hash` Utf8 NOT NULL, `user_agent` Utf8 NOT NULL, `device_id` Utf8 NOT NULL, `location` Utf8 NOT NULL, `is_new_device` Bool NOT NULL, `reason` Utf8 NOT NULL, `meta` Json NOT NULL, `created_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "status",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "ip_address",
+          "type": "Optional<Utf8>",
+          "not_null": false
+        },
+        {
+          "name": "ip_hash",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "user_agent",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "device_id",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "location",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "is_new_device",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "reason",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "meta",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_userconsent",
+      "sql": "CREATE TABLE `accounts_userconsent` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `kind` Utf8 NOT NULL, `version` Utf8 NOT NULL, `granted_at` Datetime NOT NULL, `revoked_at` Optional<Datetime>, `source` Utf8 NOT NULL, `meta` Json NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "kind",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "version",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "granted_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "revoked_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "source",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "meta",
+          "type": "Json",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_userdevice",
+      "sql": "CREATE TABLE `accounts_userdevice` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `device_id` Utf8 NOT NULL, `user_agent` Utf8 NOT NULL, `first_seen` Datetime NOT NULL, `last_seen` Optional<Datetime>, `last_ip` Optional<Utf8>, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "device_id",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "user_agent",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "first_seen",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "last_seen",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "last_ip",
+          "type": "Optional<Utf8>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "accounts_userpreferences",
+      "sql": "CREATE TABLE `accounts_userpreferences` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `language` Utf8 NOT NULL, `timezone` Utf8 NOT NULL, `marketing_opt_in` Bool NOT NULL, `marketing_opt_in_at` Optional<Datetime>, `marketing_opt_out_at` Optional<Datetime>, `privacy_scope_defaults` Json NOT NULL, `created_at` Datetime NOT NULL, `updated_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "language",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "timezone",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "marketing_opt_in",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "marketing_opt_in_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "marketing_opt_out_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "privacy_scope_defaults",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "updated_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_userprofile",
+      "sql": "CREATE TABLE `accounts_userprofile` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `avatar` Optional<String>, `avatar_source` Utf8 NOT NULL, `gravatar_enabled` Bool NOT NULL, `gravatar_checked_at` Optional<Datetime>, `phone_number` Utf8 NOT NULL, `phone_verified` Bool NOT NULL, `birth_date` Optional<Date>, `created_at` Datetime NOT NULL, `updated_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "avatar",
+          "type": "Optional<String>",
+          "not_null": false
+        },
+        {
+          "name": "avatar_source",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "gravatar_enabled",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "gravatar_checked_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "phone_number",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "phone_verified",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "birth_date",
+          "type": "Optional<Date>",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "updated_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "django_admin_log",
+      "sql": "CREATE TABLE `django_admin_log` (`id` Serial NOT NULL, `action_time` Datetime NOT NULL, `user_id` Int32 NOT NULL, `content_type_id` Optional<Int32>, `object_id` Optional<Utf8>, `object_repr` Utf8 NOT NULL, `action_flag` Uint16 NOT NULL, `change_message` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "action_time",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "content_type_id",
+          "type": "Optional<Int32>",
+          "not_null": false
+        },
+        {
+          "name": "object_id",
+          "type": "Optional<Utf8>",
+          "not_null": false
+        },
+        {
+          "name": "object_repr",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "action_flag",
+          "type": "Uint16",
+          "not_null": true
+        },
+        {
+          "name": "change_message",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "auth_permission",
+      "sql": "CREATE TABLE `auth_permission` (`id` Serial NOT NULL, `name` Utf8 NOT NULL, `content_type_id` Int32 NOT NULL, `codename` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "name",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "content_type_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "codename",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "auth_user_groups",
+      "sql": "CREATE TABLE `auth_user_groups` (`id` Serial NOT NULL, `user_id` Int32 NOT NULL, `group_id` Int32 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "group_id",
+          "type": "Int32",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "core_usersessionmeta",
+      "sql": "CREATE TABLE `core_usersessionmeta` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `session_key` Utf8 NOT NULL, `session_token` Optional<Utf8>, `user_agent` Utf8 NOT NULL, `ip` Optional<Utf8>, `first_seen` Datetime NOT NULL, `last_seen` Optional<Datetime>, `revoked_at` Optional<Datetime>, `revoked_reason` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "session_key",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "session_token",
+          "type": "Optional<Utf8>",
+          "not_null": false
+        },
+        {
+          "name": "user_agent",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "ip",
+          "type": "Optional<Utf8>",
+          "not_null": false
+        },
+        {
+          "name": "first_seen",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "last_seen",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "revoked_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "revoked_reason",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "core_usersessiontoken",
+      "sql": "CREATE TABLE `core_usersessiontoken` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `session_key` Utf8 NOT NULL, `refresh_jti` Utf8 NOT NULL, `created_at` Datetime NOT NULL, `revoked_at` Optional<Datetime>, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "session_key",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "refresh_jti",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "revoked_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "idp_oidcauthorizationcode",
+      "sql": "CREATE TABLE `idp_oidcauthorizationcode` (`code` Utf8 NOT NULL, `client_id` Int64 NOT NULL, `user_id` Int32 NOT NULL, `redirect_uri` Utf8 NOT NULL, `scope` Utf8 NOT NULL, `nonce` Utf8 NOT NULL, `code_challenge` Utf8 NOT NULL, `code_challenge_method` Utf8 NOT NULL, `created_at` Datetime NOT NULL, `expires_at` Datetime NOT NULL, `used_at` Optional<Datetime>, PRIMARY KEY (`code`))",
+      "primary_key": [
+        "code"
+      ],
+      "columns": [
+        {
+          "name": "code",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "client_id",
+          "type": "Int64",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "redirect_uri",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "scope",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "nonce",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "code_challenge",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "code_challenge_method",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "expires_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "used_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "idp_oidcauthorizationrequest",
+      "sql": "CREATE TABLE `idp_oidcauthorizationrequest` (`request_id` Utf8 NOT NULL, `client_id` Int64 NOT NULL, `user_id` Int32 NOT NULL, `redirect_uri` Utf8 NOT NULL, `scope` Utf8 NOT NULL, `state` Utf8 NOT NULL, `nonce` Utf8 NOT NULL, `code_challenge` Utf8 NOT NULL, `code_challenge_method` Utf8 NOT NULL, `prompt` Utf8 NOT NULL, `created_at` Datetime NOT NULL, `expires_at` Datetime NOT NULL, PRIMARY KEY (`request_id`))",
+      "primary_key": [
+        "request_id"
+      ],
+      "columns": [
+        {
+          "name": "request_id",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "client_id",
+          "type": "Int64",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "redirect_uri",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "scope",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "state",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "nonce",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "code_challenge",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "code_challenge_method",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "prompt",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "expires_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "idp_oidcconsent",
+      "sql": "CREATE TABLE `idp_oidcconsent` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `client_id` Int64 NOT NULL, `scopes` Json NOT NULL, `created_at` Datetime NOT NULL, `updated_at` Datetime NOT NULL, `last_used_at` Optional<Datetime>, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "client_id",
+          "type": "Int64",
+          "not_null": true
+        },
+        {
+          "name": "scopes",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "updated_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "last_used_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "idp_oidctoken",
+      "sql": "CREATE TABLE `idp_oidctoken` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `client_id` Int64 NOT NULL, `access_jti` Utf8 NOT NULL, `id_jti` Utf8 NOT NULL, `subject` Optional<Utf8>, `refresh_token_hash` Utf8 NOT NULL, `refresh_family_id` Optional<Utf8>, `scope` Utf8 NOT NULL, `created_at` Datetime NOT NULL, `access_expires_at` Datetime NOT NULL, `refresh_expires_at` Optional<Datetime>, `revoked_at` Optional<Datetime>, `rotated_at` Optional<Datetime>, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "client_id",
+          "type": "Int64",
+          "not_null": true
+        },
+        {
+          "name": "access_jti",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "id_jti",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "subject",
+          "type": "Optional<Utf8>",
+          "not_null": false
+        },
+        {
+          "name": "refresh_token_hash",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "refresh_family_id",
+          "type": "Optional<Utf8>",
+          "not_null": false
+        },
+        {
+          "name": "scope",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "access_expires_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "refresh_expires_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "revoked_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "rotated_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "mfa_authenticator",
+      "sql": "CREATE TABLE `mfa_authenticator` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `type` Utf8 NOT NULL, `data` Json NOT NULL, `created_at` Datetime NOT NULL, `last_used_at` Optional<Datetime>, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "type",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "data",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "last_used_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "socialaccount_socialaccount",
+      "sql": "CREATE TABLE `socialaccount_socialaccount` (`id` Serial NOT NULL, `user_id` Int32 NOT NULL, `provider` Utf8 NOT NULL, `uid` Utf8 NOT NULL, `last_login` Datetime NOT NULL, `date_joined` Datetime NOT NULL, `extra_data` Json NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "provider",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "uid",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "last_login",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "date_joined",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "extra_data",
+          "type": "Json",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "socialaccount_socialapp_sites",
+      "sql": "CREATE TABLE `socialaccount_socialapp_sites` (`id` Serial NOT NULL, `socialapp_id` Int32 NOT NULL, `site_id` Int32 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "socialapp_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "site_id",
+          "type": "Int32",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "token_blacklist_outstandingtoken",
+      "sql": "CREATE TABLE `token_blacklist_outstandingtoken` (`id` BigSerial NOT NULL, `user_id` Optional<Int32>, `jti` Utf8 NOT NULL, `token` Utf8 NOT NULL, `created_at` Optional<Datetime>, `expires_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Optional<Int32>",
+          "not_null": false
+        },
+        {
+          "name": "jti",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "token",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "expires_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_activation_token",
+      "sql": "CREATE TABLE `usid_activation_token` (`token` Utf8 NOT NULL, `user_id` UUID NOT NULL, `tenant_id` UUID NOT NULL, `expires_at` Datetime NOT NULL, `used_at` Optional<Datetime>, `created_at` Datetime NOT NULL, PRIMARY KEY (`token`))",
+      "primary_key": [
+        "token"
+      ],
+      "columns": [
+        {
+          "name": "token",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "tenant_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "expires_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "used_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_audit_log",
+      "sql": "CREATE TABLE `usid_audit_log` (`id` BigSerial NOT NULL, `actor_user_id` Optional<UUID>, `action` Utf8 NOT NULL, `target_type` Utf8 NOT NULL, `target_id` Utf8 NOT NULL, `tenant_id` Optional<UUID>, `meta_json` Json NOT NULL, `created_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "actor_user_id",
+          "type": "Optional<UUID>",
+          "not_null": false
+        },
+        {
+          "name": "action",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "target_type",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "target_id",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "tenant_id",
+          "type": "Optional<UUID>",
+          "not_null": false
+        },
+        {
+          "name": "meta_json",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_external_identity",
+      "sql": "CREATE TABLE `usid_external_identity` (`id` BigSerial NOT NULL, `user_id` UUID NOT NULL, `provider` Utf8 NOT NULL, `subject` Utf8 NOT NULL, `tokens_json` Optional<Json>, `created_at` Datetime NOT NULL, `last_used_at` Optional<Datetime>, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "provider",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "subject",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "tokens_json",
+          "type": "Optional<Json>",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "last_used_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "usid_session",
+      "sql": "CREATE TABLE `usid_session` (`token` Utf8 NOT NULL, `user_id` UUID NOT NULL, `created_at` Datetime NOT NULL, `expires_at` Datetime NOT NULL, `revoked_at` Optional<Datetime>, `ip_hash` Utf8 NOT NULL, `ua_hash` Utf8 NOT NULL, PRIMARY KEY (`token`))",
+      "primary_key": [
+        "token"
+      ],
+      "columns": [
+        {
+          "name": "token",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "expires_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "revoked_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "ip_hash",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "ua_hash",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_magic_link_token",
+      "sql": "CREATE TABLE `usid_magic_link_token` (`token` Utf8 NOT NULL, `user_id` UUID NOT NULL, `expires_at` Datetime NOT NULL, `used_at` Optional<Datetime>, `ip_hash` Utf8 NOT NULL, `ua_hash` Utf8 NOT NULL, `skip_context_validation` Bool NOT NULL, `created_at` Datetime NOT NULL, PRIMARY KEY (`token`))",
+      "primary_key": [
+        "token"
+      ],
+      "columns": [
+        {
+          "name": "token",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "expires_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "used_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "ip_hash",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "ua_hash",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "skip_context_validation",
+          "type": "Bool",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_migration_map",
+      "sql": "CREATE TABLE `usid_migration_map` (`id` BigSerial NOT NULL, `old_system` Utf8 NOT NULL, `old_user_id` Utf8 NOT NULL, `user_id` UUID NOT NULL, `created_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "old_system",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "old_user_id",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_oauth_state",
+      "sql": "CREATE TABLE `usid_oauth_state` (`state` Utf8 NOT NULL, `nonce` Utf8 NOT NULL, `provider` Utf8 NOT NULL, `purpose` Utf8 NOT NULL, `user_id` Optional<UUID>, `tenant_id` UUID NOT NULL, `redirect_uri` Utf8 NOT NULL, `expires_at` Datetime NOT NULL, `used_at` Optional<Datetime>, `created_at` Datetime NOT NULL, PRIMARY KEY (`state`))",
+      "primary_key": [
+        "state"
+      ],
+      "columns": [
+        {
+          "name": "state",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "nonce",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "provider",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "purpose",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Optional<UUID>",
+          "not_null": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "redirect_uri",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "expires_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "used_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_outbox",
+      "sql": "CREATE TABLE `usid_outbox` (`id` BigSerial NOT NULL, `tenant_id` UUID NOT NULL, `event_type` Utf8 NOT NULL, `payload_json` Json NOT NULL, `created_at` Datetime NOT NULL, `processed_at` Optional<Datetime>, `attempts` Int32 NOT NULL, `last_error` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "tenant_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "event_type",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "payload_json",
+          "type": "Json",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "processed_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "attempts",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "last_error",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usid_tenant_membership",
+      "sql": "CREATE TABLE `usid_tenant_membership` (`id` BigSerial NOT NULL, `user_id` UUID NOT NULL, `tenant_id` UUID NOT NULL, `status` Utf8 NOT NULL, `base_role` Utf8 NOT NULL, `source` Optional<Utf8>, `created_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "tenant_id",
+          "type": "UUID",
+          "not_null": true
+        },
+        {
+          "name": "status",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "base_role",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "source",
+          "type": "Optional<Utf8>",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "usersessions_usersession",
+      "sql": "CREATE TABLE `usersessions_usersession` (`id` BigSerial NOT NULL, `user_id` Int32 NOT NULL, `created_at` Datetime NOT NULL, `ip` Utf8 NOT NULL, `last_seen_at` Datetime NOT NULL, `session_key` Utf8 NOT NULL, `user_agent` Utf8 NOT NULL, `data` Json NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "ip",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "last_seen_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "session_key",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "user_agent",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "data",
+          "type": "Json",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "account_emailconfirmation",
+      "sql": "CREATE TABLE `account_emailconfirmation` (`id` Serial NOT NULL, `email_address_id` Int32 NOT NULL, `created` Datetime NOT NULL, `sent` Optional<Datetime>, `key` Utf8 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "email_address_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "created",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "sent",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "key",
+          "type": "Utf8",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "accounts_newdevicemailoutbox",
+      "sql": "CREATE TABLE `accounts_newdevicemailoutbox` (`event_id` Int64 NOT NULL, `status` Utf8 NOT NULL, `attempts` Int32 NOT NULL, `next_attempt_at` Datetime NOT NULL, `lease_until` Optional<Datetime>, `claim_token` Utf8 NOT NULL, `sent_at` Optional<Datetime>, `created_at` Datetime NOT NULL, PRIMARY KEY (`event_id`))",
+      "primary_key": [
+        "event_id"
+      ],
+      "columns": [
+        {
+          "name": "event_id",
+          "type": "Int64",
+          "not_null": true
+        },
+        {
+          "name": "status",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "attempts",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "next_attempt_at",
+          "type": "Datetime",
+          "not_null": true
+        },
+        {
+          "name": "lease_until",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "claim_token",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "sent_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        },
+        {
+          "name": "created_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "auth_group_permissions",
+      "sql": "CREATE TABLE `auth_group_permissions` (`id` Serial NOT NULL, `group_id` Int32 NOT NULL, `permission_id` Int32 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "group_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "permission_id",
+          "type": "Int32",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "auth_user_user_permissions",
+      "sql": "CREATE TABLE `auth_user_user_permissions` (`id` Serial NOT NULL, `user_id` Int32 NOT NULL, `permission_id` Int32 NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "user_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "permission_id",
+          "type": "Int32",
+          "not_null": true
+        }
+      ]
+    },
+    {
+      "name": "socialaccount_socialtoken",
+      "sql": "CREATE TABLE `socialaccount_socialtoken` (`id` Serial NOT NULL, `app_id` Optional<Int32>, `account_id` Int32 NOT NULL, `token` Utf8 NOT NULL, `token_secret` Utf8 NOT NULL, `expires_at` Optional<Datetime>, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "Serial",
+          "not_null": true
+        },
+        {
+          "name": "app_id",
+          "type": "Optional<Int32>",
+          "not_null": false
+        },
+        {
+          "name": "account_id",
+          "type": "Int32",
+          "not_null": true
+        },
+        {
+          "name": "token",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "token_secret",
+          "type": "Utf8",
+          "not_null": true
+        },
+        {
+          "name": "expires_at",
+          "type": "Optional<Datetime>",
+          "not_null": false
+        }
+      ]
+    },
+    {
+      "name": "token_blacklist_blacklistedtoken",
+      "sql": "CREATE TABLE `token_blacklist_blacklistedtoken` (`id` BigSerial NOT NULL, `token_id` Int64 NOT NULL, `blacklisted_at` Datetime NOT NULL, PRIMARY KEY (`id`))",
+      "primary_key": [
+        "id"
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "type": "BigSerial",
+          "not_null": true
+        },
+        {
+          "name": "token_id",
+          "type": "Int64",
+          "not_null": true
+        },
+        {
+          "name": "blacklisted_at",
+          "type": "Datetime",
+          "not_null": true
+        }
+      ]
+    }
+  ],
+  "indexes": [
+    {
+      "table": "idp_oidcclient",
+      "name": "oidc_client_id_idx",
+      "columns": [
+        "client_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidcclient` ADD INDEX `oidc_client_id_idx` GLOBAL ON (`client_id`)"
+    },
+    {
+      "table": "django_session",
+      "name": "django_session_expire_date_a5c62663",
+      "columns": [
+        "expire_date"
+      ],
+      "sql": "ALTER TABLE `django_session` ADD INDEX `django_session_expire_date_a5c62663` GLOBAL ON (`expire_date`)"
+    },
+    {
+      "table": "usid_application",
+      "name": "usid_application_tenant_slug_62a7144d",
+      "columns": [
+        "tenant_slug"
+      ],
+      "sql": "ALTER TABLE `usid_application` ADD INDEX `usid_application_tenant_slug_62a7144d` GLOBAL ON (`tenant_slug`)"
+    },
+    {
+      "table": "usid_application",
+      "name": "usid_app_tenant_status_idx",
+      "columns": [
+        "tenant_slug",
+        "status"
+      ],
+      "sql": "ALTER TABLE `usid_application` ADD INDEX `usid_app_tenant_status_idx` GLOBAL ON (`tenant_slug`, `status`)"
+    },
+    {
+      "table": "usid_application",
+      "name": "usid_app_status_created_idx",
+      "columns": [
+        "status",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `usid_application` ADD INDEX `usid_app_status_created_idx` GLOBAL ON (`status`, `created_at`)"
+    },
+    {
+      "table": "usid_user",
+      "name": "usid_user_email_idx",
+      "columns": [
+        "email"
+      ],
+      "sql": "ALTER TABLE `usid_user` ADD INDEX `usid_user_email_idx` GLOBAL ON (`email`)"
+    },
+    {
+      "table": "usid_user",
+      "name": "usid_user_status_idx",
+      "columns": [
+        "status"
+      ],
+      "sql": "ALTER TABLE `usid_user` ADD INDEX `usid_user_status_idx` GLOBAL ON (`status`)"
+    },
+    {
+      "table": "account_emailaddress",
+      "name": "account_emailaddress_user_id_2c513194",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `account_emailaddress` ADD INDEX `account_emailaddress_user_id_2c513194` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "account_emailaddress",
+      "name": "account_emailaddress_email_03be32b2",
+      "columns": [
+        "email"
+      ],
+      "sql": "ALTER TABLE `account_emailaddress` ADD INDEX `account_emailaddress_email_03be32b2` GLOBAL ON (`email`)"
+    },
+    {
+      "table": "accounts_accountdeletionrequest",
+      "name": "accounts_accountdeletionrequest_user_id_6a166c52",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `accounts_accountdeletionrequest` ADD INDEX `accounts_accountdeletionrequest_user_id_6a166c52` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "accounts_accountdeletionrequest",
+      "name": "acct_delete_status_idx",
+      "columns": [
+        "status",
+        "requested_at"
+      ],
+      "sql": "ALTER TABLE `accounts_accountdeletionrequest` ADD INDEX `acct_delete_status_idx` GLOBAL ON (`status`, `requested_at`)"
+    },
+    {
+      "table": "accounts_accountemaillookup",
+      "name": "acct_email_key_idx",
+      "columns": [
+        "email_key"
+      ],
+      "sql": "ALTER TABLE `accounts_accountemaillookup` ADD INDEX `acct_email_key_idx` GLOBAL ON (`email_key`)"
+    },
+    {
+      "table": "accounts_accountevent",
+      "name": "accounts_accountevent_user_id_ec4a3aac",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `accounts_accountevent` ADD INDEX `accounts_accountevent_user_id_ec4a3aac` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "accounts_accountevent",
+      "name": "acct_event_action_idx",
+      "columns": [
+        "action",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `accounts_accountevent` ADD INDEX `acct_event_action_idx` GLOBAL ON (`action`, `created_at`)"
+    },
+    {
+      "table": "accounts_accountevent",
+      "name": "acct_event_user_idx",
+      "columns": [
+        "user_id",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `accounts_accountevent` ADD INDEX `acct_event_user_idx` GLOBAL ON (`user_id`, `created_at`)"
+    },
+    {
+      "table": "accounts_dataexportrequest",
+      "name": "accounts_dataexportrequest_user_id_5475c7b0",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `accounts_dataexportrequest` ADD INDEX `accounts_dataexportrequest_user_id_5475c7b0` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "accounts_dataexportrequest",
+      "name": "acct_export_user_idx",
+      "columns": [
+        "user_id",
+        "requested_at"
+      ],
+      "sql": "ALTER TABLE `accounts_dataexportrequest` ADD INDEX `acct_export_user_idx` GLOBAL ON (`user_id`, `requested_at`)"
+    },
+    {
+      "table": "accounts_dataexportrequest",
+      "name": "acct_export_status_idx",
+      "columns": [
+        "status",
+        "requested_at"
+      ],
+      "sql": "ALTER TABLE `accounts_dataexportrequest` ADD INDEX `acct_export_status_idx` GLOBAL ON (`status`, `requested_at`)"
+    },
+    {
+      "table": "accounts_loginevent",
+      "name": "accounts_loginevent_user_id_0b0fdf50",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `accounts_loginevent` ADD INDEX `accounts_loginevent_user_id_0b0fdf50` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "accounts_loginevent",
+      "name": "acct_login_user_idx",
+      "columns": [
+        "user_id",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `accounts_loginevent` ADD INDEX `acct_login_user_idx` GLOBAL ON (`user_id`, `created_at`)"
+    },
+    {
+      "table": "accounts_loginevent",
+      "name": "acct_login_status_idx",
+      "columns": [
+        "status",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `accounts_loginevent` ADD INDEX `acct_login_status_idx` GLOBAL ON (`status`, `created_at`)"
+    },
+    {
+      "table": "accounts_userconsent",
+      "name": "accounts_userconsent_user_id_6d8d998a",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `accounts_userconsent` ADD INDEX `accounts_userconsent_user_id_6d8d998a` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "accounts_userconsent",
+      "name": "acct_consent_user_kind_idx",
+      "columns": [
+        "user_id",
+        "kind"
+      ],
+      "sql": "ALTER TABLE `accounts_userconsent` ADD INDEX `acct_consent_user_kind_idx` GLOBAL ON (`user_id`, `kind`)"
+    },
+    {
+      "table": "accounts_userconsent",
+      "name": "acct_consent_kind_idx",
+      "columns": [
+        "kind",
+        "granted_at"
+      ],
+      "sql": "ALTER TABLE `accounts_userconsent` ADD INDEX `acct_consent_kind_idx` GLOBAL ON (`kind`, `granted_at`)"
+    },
+    {
+      "table": "accounts_userdevice",
+      "name": "accounts_userdevice_user_id_2e91dbfd",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `accounts_userdevice` ADD INDEX `accounts_userdevice_user_id_2e91dbfd` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "accounts_userdevice",
+      "name": "acct_device_user_last_idx",
+      "columns": [
+        "user_id",
+        "last_seen"
+      ],
+      "sql": "ALTER TABLE `accounts_userdevice` ADD INDEX `acct_device_user_last_idx` GLOBAL ON (`user_id`, `last_seen`)"
+    },
+    {
+      "table": "accounts_userpreferences",
+      "name": "acct_prefs_user_idx",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `accounts_userpreferences` ADD INDEX `acct_prefs_user_idx` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "accounts_userprofile",
+      "name": "acct_profile_user_idx",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `accounts_userprofile` ADD INDEX `acct_profile_user_idx` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "django_admin_log",
+      "name": "django_admin_log_user_id_c564eba6",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `django_admin_log` ADD INDEX `django_admin_log_user_id_c564eba6` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "django_admin_log",
+      "name": "django_admin_log_content_type_id_c4bce8eb",
+      "columns": [
+        "content_type_id"
+      ],
+      "sql": "ALTER TABLE `django_admin_log` ADD INDEX `django_admin_log_content_type_id_c4bce8eb` GLOBAL ON (`content_type_id`)"
+    },
+    {
+      "table": "auth_permission",
+      "name": "auth_permission_content_type_id_2f476e4b",
+      "columns": [
+        "content_type_id"
+      ],
+      "sql": "ALTER TABLE `auth_permission` ADD INDEX `auth_permission_content_type_id_2f476e4b` GLOBAL ON (`content_type_id`)"
+    },
+    {
+      "table": "auth_user_groups",
+      "name": "auth_user_groups_user_id_6a12ed8b",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `auth_user_groups` ADD INDEX `auth_user_groups_user_id_6a12ed8b` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "auth_user_groups",
+      "name": "auth_user_groups_group_id_97559544",
+      "columns": [
+        "group_id"
+      ],
+      "sql": "ALTER TABLE `auth_user_groups` ADD INDEX `auth_user_groups_group_id_97559544` GLOBAL ON (`group_id`)"
+    },
+    {
+      "table": "core_usersessionmeta",
+      "name": "core_usersessionmeta_user_id_9dceac03",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `core_usersessionmeta` ADD INDEX `core_usersessionmeta_user_id_9dceac03` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "core_usersessionmeta",
+      "name": "core_usersessionmeta_session_key_2f41cf47",
+      "columns": [
+        "session_key"
+      ],
+      "sql": "ALTER TABLE `core_usersessionmeta` ADD INDEX `core_usersessionmeta_session_key_2f41cf47` GLOBAL ON (`session_key`)"
+    },
+    {
+      "table": "core_usersessionmeta",
+      "name": "core_usersessionmeta_session_token_251d7bcc",
+      "columns": [
+        "session_token"
+      ],
+      "sql": "ALTER TABLE `core_usersessionmeta` ADD INDEX `core_usersessionmeta_session_token_251d7bcc` GLOBAL ON (`session_token`)"
+    },
+    {
+      "table": "core_usersessiontoken",
+      "name": "core_usersessiontoken_user_id_2e52e0f5",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `core_usersessiontoken` ADD INDEX `core_usersessiontoken_user_id_2e52e0f5` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "core_usersessiontoken",
+      "name": "core_usersessiontoken_session_key_b71d2665",
+      "columns": [
+        "session_key"
+      ],
+      "sql": "ALTER TABLE `core_usersessiontoken` ADD INDEX `core_usersessiontoken_session_key_b71d2665` GLOBAL ON (`session_key`)"
+    },
+    {
+      "table": "core_usersessiontoken",
+      "name": "core_usersessiontoken_refresh_jti_d7b5df37",
+      "columns": [
+        "refresh_jti"
+      ],
+      "sql": "ALTER TABLE `core_usersessiontoken` ADD INDEX `core_usersessiontoken_refresh_jti_d7b5df37` GLOBAL ON (`refresh_jti`)"
+    },
+    {
+      "table": "idp_oidcauthorizationcode",
+      "name": "idp_oidcauthorizationcode_client_id_287b65ac",
+      "columns": [
+        "client_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidcauthorizationcode` ADD INDEX `idp_oidcauthorizationcode_client_id_287b65ac` GLOBAL ON (`client_id`)"
+    },
+    {
+      "table": "idp_oidcauthorizationcode",
+      "name": "idp_oidcauthorizationcode_user_id_d521a83a",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidcauthorizationcode` ADD INDEX `idp_oidcauthorizationcode_user_id_d521a83a` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "idp_oidcauthorizationcode",
+      "name": "oidc_code_client_idx",
+      "columns": [
+        "client_id",
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `idp_oidcauthorizationcode` ADD INDEX `oidc_code_client_idx` GLOBAL ON (`client_id`, `expires_at`)"
+    },
+    {
+      "table": "idp_oidcauthorizationcode",
+      "name": "oidc_code_user_idx",
+      "columns": [
+        "user_id",
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `idp_oidcauthorizationcode` ADD INDEX `oidc_code_user_idx` GLOBAL ON (`user_id`, `expires_at`)"
+    },
+    {
+      "table": "idp_oidcauthorizationrequest",
+      "name": "idp_oidcauthorizationrequest_client_id_5f12d730",
+      "columns": [
+        "client_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidcauthorizationrequest` ADD INDEX `idp_oidcauthorizationrequest_client_id_5f12d730` GLOBAL ON (`client_id`)"
+    },
+    {
+      "table": "idp_oidcauthorizationrequest",
+      "name": "idp_oidcauthorizationrequest_user_id_f044e431",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidcauthorizationrequest` ADD INDEX `idp_oidcauthorizationrequest_user_id_f044e431` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "idp_oidcauthorizationrequest",
+      "name": "oidc_req_client_idx",
+      "columns": [
+        "client_id",
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `idp_oidcauthorizationrequest` ADD INDEX `oidc_req_client_idx` GLOBAL ON (`client_id`, `expires_at`)"
+    },
+    {
+      "table": "idp_oidcauthorizationrequest",
+      "name": "oidc_req_user_idx",
+      "columns": [
+        "user_id",
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `idp_oidcauthorizationrequest` ADD INDEX `oidc_req_user_idx` GLOBAL ON (`user_id`, `expires_at`)"
+    },
+    {
+      "table": "idp_oidcconsent",
+      "name": "idp_oidcconsent_user_id_f6d0a0ba",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidcconsent` ADD INDEX `idp_oidcconsent_user_id_f6d0a0ba` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "idp_oidcconsent",
+      "name": "idp_oidcconsent_client_id_ce72ed09",
+      "columns": [
+        "client_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidcconsent` ADD INDEX `idp_oidcconsent_client_id_ce72ed09` GLOBAL ON (`client_id`)"
+    },
+    {
+      "table": "idp_oidcconsent",
+      "name": "oidc_consent_user_idx",
+      "columns": [
+        "user_id",
+        "updated_at"
+      ],
+      "sql": "ALTER TABLE `idp_oidcconsent` ADD INDEX `oidc_consent_user_idx` GLOBAL ON (`user_id`, `updated_at`)"
+    },
+    {
+      "table": "idp_oidctoken",
+      "name": "idp_oidctoken_user_id_21b9928f",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidctoken` ADD INDEX `idp_oidctoken_user_id_21b9928f` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "idp_oidctoken",
+      "name": "idp_oidctoken_client_id_40cdbcf0",
+      "columns": [
+        "client_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidctoken` ADD INDEX `idp_oidctoken_client_id_40cdbcf0` GLOBAL ON (`client_id`)"
+    },
+    {
+      "table": "idp_oidctoken",
+      "name": "idp_oidctoken_access_jti_c38ad039",
+      "columns": [
+        "access_jti"
+      ],
+      "sql": "ALTER TABLE `idp_oidctoken` ADD INDEX `idp_oidctoken_access_jti_c38ad039` GLOBAL ON (`access_jti`)"
+    },
+    {
+      "table": "idp_oidctoken",
+      "name": "oidc_token_access_idx",
+      "columns": [
+        "access_jti"
+      ],
+      "sql": "ALTER TABLE `idp_oidctoken` ADD INDEX `oidc_token_access_idx` GLOBAL ON (`access_jti`)"
+    },
+    {
+      "table": "idp_oidctoken",
+      "name": "oidc_token_refresh_hash_idx",
+      "columns": [
+        "refresh_token_hash"
+      ],
+      "sql": "ALTER TABLE `idp_oidctoken` ADD INDEX `oidc_token_refresh_hash_idx` GLOBAL ON (`refresh_token_hash`)"
+    },
+    {
+      "table": "idp_oidctoken",
+      "name": "oidc_token_family_idx",
+      "columns": [
+        "refresh_family_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidctoken` ADD INDEX `oidc_token_family_idx` GLOBAL ON (`refresh_family_id`)"
+    },
+    {
+      "table": "idp_oidctoken",
+      "name": "oidc_token_refresh_idx",
+      "columns": [
+        "refresh_expires_at"
+      ],
+      "sql": "ALTER TABLE `idp_oidctoken` ADD INDEX `oidc_token_refresh_idx` GLOBAL ON (`refresh_expires_at`)"
+    },
+    {
+      "table": "idp_oidctoken",
+      "name": "oidc_token_user_client_idx",
+      "columns": [
+        "user_id",
+        "client_id"
+      ],
+      "sql": "ALTER TABLE `idp_oidctoken` ADD INDEX `oidc_token_user_client_idx` GLOBAL ON (`user_id`, `client_id`)"
+    },
+    {
+      "table": "mfa_authenticator",
+      "name": "mfa_authenticator_user_id_0c3a50c0",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `mfa_authenticator` ADD INDEX `mfa_authenticator_user_id_0c3a50c0` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "socialaccount_socialaccount",
+      "name": "socialaccount_socialaccount_user_id_8146e70c",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `socialaccount_socialaccount` ADD INDEX `socialaccount_socialaccount_user_id_8146e70c` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "socialaccount_socialapp_sites",
+      "name": "socialaccount_socialapp_sites_socialapp_id_97fb6e7d",
+      "columns": [
+        "socialapp_id"
+      ],
+      "sql": "ALTER TABLE `socialaccount_socialapp_sites` ADD INDEX `socialaccount_socialapp_sites_socialapp_id_97fb6e7d` GLOBAL ON (`socialapp_id`)"
+    },
+    {
+      "table": "socialaccount_socialapp_sites",
+      "name": "socialaccount_socialapp_sites_site_id_2579dee5",
+      "columns": [
+        "site_id"
+      ],
+      "sql": "ALTER TABLE `socialaccount_socialapp_sites` ADD INDEX `socialaccount_socialapp_sites_site_id_2579dee5` GLOBAL ON (`site_id`)"
+    },
+    {
+      "table": "token_blacklist_outstandingtoken",
+      "name": "token_blacklist_outstandingtoken_user_id_83bc629a",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `token_blacklist_outstandingtoken` ADD INDEX `token_blacklist_outstandingtoken_user_id_83bc629a` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "usid_activation_token",
+      "name": "usid_activation_token_user_id_b77743e0",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `usid_activation_token` ADD INDEX `usid_activation_token_user_id_b77743e0` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "usid_activation_token",
+      "name": "usid_activation_token_tenant_id_4ddf48cf",
+      "columns": [
+        "tenant_id"
+      ],
+      "sql": "ALTER TABLE `usid_activation_token` ADD INDEX `usid_activation_token_tenant_id_4ddf48cf` GLOBAL ON (`tenant_id`)"
+    },
+    {
+      "table": "usid_activation_token",
+      "name": "usid_activation_tenant_exp_idx",
+      "columns": [
+        "tenant_id",
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `usid_activation_token` ADD INDEX `usid_activation_tenant_exp_idx` GLOBAL ON (`tenant_id`, `expires_at`)"
+    },
+    {
+      "table": "usid_activation_token",
+      "name": "usid_activation_exp_idx",
+      "columns": [
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `usid_activation_token` ADD INDEX `usid_activation_exp_idx` GLOBAL ON (`expires_at`)"
+    },
+    {
+      "table": "usid_audit_log",
+      "name": "usid_audit_log_actor_user_id_80061caf",
+      "columns": [
+        "actor_user_id"
+      ],
+      "sql": "ALTER TABLE `usid_audit_log` ADD INDEX `usid_audit_log_actor_user_id_80061caf` GLOBAL ON (`actor_user_id`)"
+    },
+    {
+      "table": "usid_audit_log",
+      "name": "usid_audit_log_tenant_id_9cf969bc",
+      "columns": [
+        "tenant_id"
+      ],
+      "sql": "ALTER TABLE `usid_audit_log` ADD INDEX `usid_audit_log_tenant_id_9cf969bc` GLOBAL ON (`tenant_id`)"
+    },
+    {
+      "table": "usid_audit_log",
+      "name": "usid_audit_action_created_idx",
+      "columns": [
+        "action",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `usid_audit_log` ADD INDEX `usid_audit_action_created_idx` GLOBAL ON (`action`, `created_at`)"
+    },
+    {
+      "table": "usid_audit_log",
+      "name": "usid_audit_tenant_created_idx",
+      "columns": [
+        "tenant_id",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `usid_audit_log` ADD INDEX `usid_audit_tenant_created_idx` GLOBAL ON (`tenant_id`, `created_at`)"
+    },
+    {
+      "table": "usid_external_identity",
+      "name": "usid_external_identity_user_id_b18cc632",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `usid_external_identity` ADD INDEX `usid_external_identity_user_id_b18cc632` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "usid_external_identity",
+      "name": "usid_ext_provider_idx",
+      "columns": [
+        "provider"
+      ],
+      "sql": "ALTER TABLE `usid_external_identity` ADD INDEX `usid_ext_provider_idx` GLOBAL ON (`provider`)"
+    },
+    {
+      "table": "usid_session",
+      "name": "usid_session_user_id_a002388e",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `usid_session` ADD INDEX `usid_session_user_id_a002388e` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "usid_session",
+      "name": "usid_session_exp_idx",
+      "columns": [
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `usid_session` ADD INDEX `usid_session_exp_idx` GLOBAL ON (`expires_at`)"
+    },
+    {
+      "table": "usid_session",
+      "name": "usid_session_user_exp_idx",
+      "columns": [
+        "user_id",
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `usid_session` ADD INDEX `usid_session_user_exp_idx` GLOBAL ON (`user_id`, `expires_at`)"
+    },
+    {
+      "table": "usid_magic_link_token",
+      "name": "usid_magic_link_token_user_id_8b620e5b",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `usid_magic_link_token` ADD INDEX `usid_magic_link_token_user_id_8b620e5b` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "usid_magic_link_token",
+      "name": "usid_magic_exp_idx",
+      "columns": [
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `usid_magic_link_token` ADD INDEX `usid_magic_exp_idx` GLOBAL ON (`expires_at`)"
+    },
+    {
+      "table": "usid_migration_map",
+      "name": "usid_migration_map_user_id_6f3182ee",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `usid_migration_map` ADD INDEX `usid_migration_map_user_id_6f3182ee` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "usid_oauth_state",
+      "name": "usid_oauth_state_user_id_7737c424",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `usid_oauth_state` ADD INDEX `usid_oauth_state_user_id_7737c424` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "usid_oauth_state",
+      "name": "usid_oauth_state_tenant_id_c08ea0c8",
+      "columns": [
+        "tenant_id"
+      ],
+      "sql": "ALTER TABLE `usid_oauth_state` ADD INDEX `usid_oauth_state_tenant_id_c08ea0c8` GLOBAL ON (`tenant_id`)"
+    },
+    {
+      "table": "usid_oauth_state",
+      "name": "usid_oauth_idx",
+      "columns": [
+        "provider",
+        "purpose",
+        "expires_at"
+      ],
+      "sql": "ALTER TABLE `usid_oauth_state` ADD INDEX `usid_oauth_idx` GLOBAL ON (`provider`, `purpose`, `expires_at`)"
+    },
+    {
+      "table": "usid_outbox",
+      "name": "usid_outbox_tenant_id_8390a113",
+      "columns": [
+        "tenant_id"
+      ],
+      "sql": "ALTER TABLE `usid_outbox` ADD INDEX `usid_outbox_tenant_id_8390a113` GLOBAL ON (`tenant_id`)"
+    },
+    {
+      "table": "usid_outbox",
+      "name": "usid_outbox_type_created_idx",
+      "columns": [
+        "event_type",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `usid_outbox` ADD INDEX `usid_outbox_type_created_idx` GLOBAL ON (`event_type`, `created_at`)"
+    },
+    {
+      "table": "usid_outbox",
+      "name": "usid_outbox_tenant_created_idx",
+      "columns": [
+        "tenant_id",
+        "created_at"
+      ],
+      "sql": "ALTER TABLE `usid_outbox` ADD INDEX `usid_outbox_tenant_created_idx` GLOBAL ON (`tenant_id`, `created_at`)"
+    },
+    {
+      "table": "usid_outbox",
+      "name": "usid_outbox_processed_idx",
+      "columns": [
+        "processed_at"
+      ],
+      "sql": "ALTER TABLE `usid_outbox` ADD INDEX `usid_outbox_processed_idx` GLOBAL ON (`processed_at`)"
+    },
+    {
+      "table": "usid_tenant_membership",
+      "name": "usid_tenant_membership_user_id_fee82992",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `usid_tenant_membership` ADD INDEX `usid_tenant_membership_user_id_fee82992` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "usid_tenant_membership",
+      "name": "usid_tenant_membership_tenant_id_86edd11f",
+      "columns": [
+        "tenant_id"
+      ],
+      "sql": "ALTER TABLE `usid_tenant_membership` ADD INDEX `usid_tenant_membership_tenant_id_86edd11f` GLOBAL ON (`tenant_id`)"
+    },
+    {
+      "table": "usid_tenant_membership",
+      "name": "usid_memb_tenant_status_idx",
+      "columns": [
+        "tenant_id",
+        "status"
+      ],
+      "sql": "ALTER TABLE `usid_tenant_membership` ADD INDEX `usid_memb_tenant_status_idx` GLOBAL ON (`tenant_id`, `status`)"
+    },
+    {
+      "table": "usersessions_usersession",
+      "name": "usersessions_usersession_user_id_af5e0a6d",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `usersessions_usersession` ADD INDEX `usersessions_usersession_user_id_af5e0a6d` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "account_emailconfirmation",
+      "name": "account_emailconfirmation_email_address_id_5b7f8c58",
+      "columns": [
+        "email_address_id"
+      ],
+      "sql": "ALTER TABLE `account_emailconfirmation` ADD INDEX `account_emailconfirmation_email_address_id_5b7f8c58` GLOBAL ON (`email_address_id`)"
+    },
+    {
+      "table": "accounts_newdevicemailoutbox",
+      "name": "acct_device_mail_due_idx",
+      "columns": [
+        "status",
+        "next_attempt_at"
+      ],
+      "sql": "ALTER TABLE `accounts_newdevicemailoutbox` ADD INDEX `acct_device_mail_due_idx` GLOBAL ON (`status`, `next_attempt_at`)"
+    },
+    {
+      "table": "auth_group_permissions",
+      "name": "auth_group_permissions_group_id_b120cbf9",
+      "columns": [
+        "group_id"
+      ],
+      "sql": "ALTER TABLE `auth_group_permissions` ADD INDEX `auth_group_permissions_group_id_b120cbf9` GLOBAL ON (`group_id`)"
+    },
+    {
+      "table": "auth_group_permissions",
+      "name": "auth_group_permissions_permission_id_84c5c92e",
+      "columns": [
+        "permission_id"
+      ],
+      "sql": "ALTER TABLE `auth_group_permissions` ADD INDEX `auth_group_permissions_permission_id_84c5c92e` GLOBAL ON (`permission_id`)"
+    },
+    {
+      "table": "auth_user_user_permissions",
+      "name": "auth_user_user_permissions_user_id_a95ead1b",
+      "columns": [
+        "user_id"
+      ],
+      "sql": "ALTER TABLE `auth_user_user_permissions` ADD INDEX `auth_user_user_permissions_user_id_a95ead1b` GLOBAL ON (`user_id`)"
+    },
+    {
+      "table": "auth_user_user_permissions",
+      "name": "auth_user_user_permissions_permission_id_1fbb5f2c",
+      "columns": [
+        "permission_id"
+      ],
+      "sql": "ALTER TABLE `auth_user_user_permissions` ADD INDEX `auth_user_user_permissions_permission_id_1fbb5f2c` GLOBAL ON (`permission_id`)"
+    },
+    {
+      "table": "socialaccount_socialtoken",
+      "name": "socialaccount_socialtoken_app_id_636a42d7",
+      "columns": [
+        "app_id"
+      ],
+      "sql": "ALTER TABLE `socialaccount_socialtoken` ADD INDEX `socialaccount_socialtoken_app_id_636a42d7` GLOBAL ON (`app_id`)"
+    },
+    {
+      "table": "socialaccount_socialtoken",
+      "name": "socialaccount_socialtoken_account_id_951f210e",
+      "columns": [
+        "account_id"
+      ],
+      "sql": "ALTER TABLE `socialaccount_socialtoken` ADD INDEX `socialaccount_socialtoken_account_id_951f210e` GLOBAL ON (`account_id`)"
+    }
+  ]
+}

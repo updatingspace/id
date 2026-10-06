@@ -1,0 +1,25 @@
+FROM rust:1.98.1-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates/ crates/
+COPY schema/ schema/
+RUN --mount=type=cache,id=id-rust-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=id-rust-target,target=/src/target \
+    cargo build --locked --release -p id-runtime --bin id-jobs \
+    && mkdir -p /out \
+    && cp /src/target/release/id-jobs /out/id-jobs
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY certs/YandexInternalRootCA-*.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+COPY --from=builder /out/id-jobs /usr/local/bin/id-jobs
+COPY --from=builder /src/crates/id-runtime/data/DJANGO-LICENSE /usr/share/doc/id-jobs/DJANGO-LICENSE
+USER 65532:65532
+ENV ID_JOBS_HTTP_ENABLED=true PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/id-jobs", "--serve"]

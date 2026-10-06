@@ -1,0 +1,6 @@
+.signup-card { width: min(100%, 34rem); }
+.check { display: flex; gap: .75rem; align-items: flex-start; font-weight: 400; line-height: 1.4; }
+.check input { width: 1.2rem; height: 1.2rem; flex: none; margin: .1rem 0 0; }
+.signup-card fieldset { border: 1px solid #384151; border-radius: .7rem; margin: 1rem 0; padding: 1rem; }
+.signup-card fieldset[hidden] { display: none; }
+.signup-card legend { padding: 0 .4rem; }

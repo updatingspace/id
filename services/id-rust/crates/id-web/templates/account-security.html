@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Безопасность — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  {% if show_totp_setup %}<script src="/_id/totp.js" defer></script>{% endif %}
+  {% if show_totp_disable %}<script src="/_id/totp-disable.js" defer></script>{% endif %}
+  {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js" defer></script>{% endif %}
+  {% if show_passkey_script %}<script src="/_id/passkeys.js" defer></script>{% endif %}
+  {% if password_change_enabled %}<script src="/_id/password-change.js" defer></script>{% endif %}
+  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+</head>
+<body>
+  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
+  <main>
+    <h1>Безопасность</h1>
+    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    <nav aria-label="Разделы аккаунта"><a href="/account">Профиль</a></nav>
+    <section aria-labelledby="mfa-title">
+      <h2 id="mfa-title">Способы защиты</h2>
+      <dl>
+        <dt>Приложение с одноразовыми кодами</dt><dd>{{ totp_status }}</dd>
+        <dt>Ключи доступа</dt><dd>{{ passkeys_status }}</dd>
+        <dt>Резервные коды</dt><dd>{{ recovery_status }}</dd>
+        <dt>Осталось резервных кодов</dt><dd>{{ recovery_left }}</dd>
+      </dl>
+      {% if show_totp_setup %}
+      <div id="totp-setup">
+        <button id="totp-begin" type="button">Настроить приложение с кодами</button>
+        <div id="totp-pending" hidden>
+          <p>Отсканируйте QR-код приложением-аутентификатором или введите секрет вручную. Секрет больше не будет показан после подтверждения.</p>
+          <img id="totp-qr" alt="QR-код для приложения-аутентификатора" />
+          <p>Секрет: <code id="totp-secret"></code></p>
+          <form id="totp-confirm-form">
+            <label for="totp-code">Шестизначный код из приложения</label>
+            <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required />
+            <button type="submit">Подтвердить и включить</button>
+          </form>
+        </div>
+        <div id="totp-recovery" hidden>
+          <h3>Резервные коды</h3>
+          <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
+          <ul id="totp-recovery-codes"></ul>
+        </div>
+        <p id="totp-message" role="status" aria-live="polite" hidden></p>
+        <p id="totp-error" role="alert" hidden></p>
+      </div>
+      {% endif %}
+      {% if show_totp_disable %}
+      <div id="totp-disable-panel">
+        <p>При отключении приложения с кодами его секрет перестанет действовать. Если других способов MFA нет, резервные коды также будут удалены.</p>
+        <button id="totp-disable" type="button">Отключить приложение с кодами</button>
+        <p id="totp-disable-error" role="alert" hidden></p>
+      </div>
+      {% endif %}
+      {% if show_recovery_rotation %}
+      <div id="recovery-rotation">
+        <h3>Резервные коды</h3>
+        <p>При обновлении все прежние резервные коды перестанут работать. Новый набор будет показан только здесь.</p>
+        <button id="recovery-rotate" type="button">Обновить резервные коды</button>
+        <div id="recovery-rotation-result" hidden>
+          <p>Сохраните новые коды отдельно от устройства для входа. Каждый код используется один раз.</p>
+          <ul id="recovery-rotation-codes"></ul>
+        </div>
+        <p id="recovery-rotation-error" role="alert" hidden></p>
+      </div>
+      {% endif %}
+    </section>
+    <section aria-labelledby="passkeys-title">
+      <h2 id="passkeys-title">Ключи доступа</h2>
+      {% if passkey_registration_enabled %}
+      <div id="passkey-registration">
+        <label for="passkey-name">Название нового ключа</label>
+        <input id="passkey-name" name="passkey_name" maxlength="80" value="Мой ключ доступа" />
+        <button id="passkey-register" type="button">Добавить ключ доступа</button>
+        <p id="passkey-register-message" role="status" aria-live="polite" hidden></p>
+        <div id="passkey-recovery" hidden>
+          <h3>Резервные коды</h3>
+          <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
+          <ul id="passkey-recovery-codes"></ul>
+        </div>
+      </div>
+      {% endif %}
+      {% if passkeys.is_empty() %}<p>Ключей доступа нет.</p>{% endif %}
+      <ul class="session-list">
+        {% for key in passkeys %}
+        <li class="session-row"><div>
+          <strong>{{ key.name }}</strong>
+          {% if key.is_passwordless %}<small>Подходит для входа без пароля</small>{% endif %}
+        </div>
+        {% if key.can_manage %}<div>
+          <button type="button" data-passkey-rename="{{ key.id }}">Переименовать</button>
+          <button type="button" data-passkey-delete="{{ key.id }}">Удалить</button>
+        </div>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% if show_passkey_script %}<p id="passkey-error" role="alert" hidden></p>{% endif %}
+    </section>
+    {% if password_change_enabled %}
+    <section aria-labelledby="password-title">
+      <h2 id="password-title">Смена пароля</h2>
+      <p>После смены пароля вход потребуется на всех устройствах.</p>
+      <form id="password-change-form">
+        <label for="current-password">Текущий пароль</label>
+        <input id="current-password" name="current_password" type="password" autocomplete="current-password" required />
+        <label for="new-password">Новый пароль</label>
+        <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="10" required />
+        <button type="submit">Сменить пароль</button>
+      </form>
+      <p id="password-change-message" role="status" aria-live="polite" hidden></p>
+      <p id="password-change-error" role="alert" hidden></p>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>

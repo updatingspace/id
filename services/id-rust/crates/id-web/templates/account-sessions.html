@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Сессии — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  <script src="/_id/sessions.js" defer></script>
+  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+</head>
+<body>
+  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
+  <main>
+    <h1>Активные устройства</h1>
+    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    <nav aria-label="Разделы аккаунта"><a href="/account">Профиль</a></nav>
+    {% if preferences_enabled %}<nav aria-label="Настройки аккаунта"><a href="/account?section=privacy">Настройки и приватность</a></nav>{% endif %}
+    {% if apps_enabled %}<nav aria-label="Приложения"><a href="/account?section=apps">Подключённые приложения</a></nav>{% endif %}
+    <p id="session-message" role="status" aria-live="polite" hidden></p>
+    <p id="session-error" role="alert" hidden></p>
+    <section aria-label="Сессии">
+      {% if sessions.is_empty() %}<p>Активных сессий нет.</p>{% endif %}
+      <ul class="session-list">
+        {% for session in sessions %}
+        <li class="session-row">
+          <div>
+            <strong>{{ session.user_agent }}</strong>
+            <small>{{ session.ip }}</small>
+            {% if session.current %}<span>Текущая сессия</span>{% endif %}
+            {% if session.revoked %}<span>Доступ отозван</span>{% endif %}
+          </div>
+          {% if !session.current && !session.revoked %}<button type="button" data-revoke-session="{{ session.id }}">Завершить</button>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% if has_other %}<button id="revoke-others" type="button">Завершить другие сессии</button>{% endif %}
+    </section>
+  </main>
+</body>
+</html>

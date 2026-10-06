@@ -1,0 +1,54 @@
+{
+  "format_version": 1,
+  "synthetic": true,
+  "vectors": [
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoibnVsbCJ9LCJ2ZXJzaW9uIjoxfQ==",
+      "name": "none"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoiYm9vbCIsInYiOnRydWV9LCJ2ZXJzaW9uIjoxfQ==",
+      "name": "bool"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoiaW50IiwidiI6Ii00Mjk0OTY3Mjk2In0sInZlcnNpb24iOjF9",
+      "name": "int"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoiZmxvYXQiLCJ2IjoxLjI1fSwidmVyc2lvbiI6MX0=",
+      "name": "float"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0Ijoic3RyIiwidiI6ItCf0L7Qu9GM0LfQvtCy0LDRgtC10LvRjCDwn5SQIn0sInZlcnNpb24iOjF9",
+      "name": "str"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoiYnl0ZXMiLCJ2IjoiQVA5MFpYTjAifSwidmVyc2lvbiI6MX0=",
+      "name": "bytes"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoiYnl0ZWFycmF5IiwidiI6IkFIUmxjM1E9In0sInZlcnNpb24iOjF9",
+      "name": "bytearray"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoibGlzdCIsInYiOlt7InQiOiJmbG9hdCIsInYiOjEuMjV9LHsidCI6ImludCIsInYiOiItNyJ9LHsidCI6InN0ciIsInYiOiJ0b2tlbiJ9XX0sInZlcnNpb24iOjF9",
+      "name": "list"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoidHVwbGUiLCJ2IjpbeyJ0Ijoic3RyIiwidiI6ImNvb2tpZSJ9LHsidCI6ImJvb2wiLCJ2IjpmYWxzZX1dfSwidmVyc2lvbiI6MX0=",
+      "name": "tuple"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoibWFwIiwidiI6W1siY2xpZW50X2lwIix7InQiOiJudWxsIn1dLFsiZXhwaXJlc19hdCIseyJ0IjoiaW50IiwidiI6IjE3NzAwMDA5MDAifV0sWyJpc3N1ZWRfYXQiLHsidCI6ImludCIsInYiOiIxNzcwMDAwMDAwIn1dLFsicHVycG9zZSIseyJ0Ijoic3RyIiwidiI6ImxvZ2luIn1dLFsidXNlZCIseyJ0IjoiYm9vbCIsInYiOmZhbHNlfV0sWyJ1c2VyX2FnZW50Iix7InQiOiJzdHIiLCJ2IjoiU3ludGhldGljIEJyb3dzZXIifV1dfSwidmVyc2lvbiI6MX0=",
+      "name": "form_token"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoibWFwIiwidiI6W1siY291bnQiLHsidCI6ImludCIsInYiOiI1In1dLFsicmVzZXRfYXQiLHsidCI6ImludCIsInYiOiIxNzcwMDAwMDYwIn1dXX0sInZlcnNpb24iOjF9",
+      "name": "rate_limit"
+    },
+    {
+      "encoded_b64": "VVNJRC1DQUNIRQEKeyJ2YWx1ZSI6eyJ0IjoibWFwIiwidiI6W1siaXNzdWVkX2F0Iix7InQiOiJzdHIiLCJ2IjoiMjAyNi0wMi0wMlQwMDowMDowMCswMDowMCJ9XSxbIm1hc3Rlcl9mbGFncyIseyJ0IjoibWFwIiwidiI6W1siZW1haWxfdmVyaWZpZWQiLHsidCI6ImJvb2wiLCJ2Ijp0cnVlfV0sWyJzeXN0ZW1fYWRtaW4iLHsidCI6ImJvb2wiLCJ2IjpmYWxzZX1dXX1dLFsidHRsX3NlY29uZHMiLHsidCI6ImludCIsInYiOiIzNjAwIn1dLFsidXNlcl9pZCIseyJ0Ijoic3RyIiwidiI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDA0MiJ9XV19LCJ2ZXJzaW9uIjoxfQ==",
+      "name": "exchange"
+    }
+  ]
+}

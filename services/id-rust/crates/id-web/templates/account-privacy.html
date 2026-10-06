@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Настройки — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  <script src="/_id/preferences.js" defer></script>
+  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+</head>
+<body>
+  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
+  <main>
+    <h1>Настройки и приватность</h1>
+    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    <nav aria-label="Разделы аккаунта"><a href="/account">Профиль</a>
+      {% if sessions_enabled %}<a href="/account?section=sessions">Активные устройства</a>{% endif %}
+      {% if apps_enabled %}<a href="/account?section=apps">Подключённые приложения</a>{% endif %}
+    </nav>
+    <section aria-labelledby="preferences-title">
+      <h2 id="preferences-title">Предпочтения</h2>
+      <form id="preferences-form">
+        <label for="preferences-language">Язык</label>
+        <select id="preferences-language" name="language">
+          <option value="ru" {% if language_ru %}selected{% endif %}>Русский</option>
+          <option value="en" {% if language_en %}selected{% endif %}>English</option>
+        </select>
+        <label for="preferences-timezone">Часовой пояс</label>
+        <select id="preferences-timezone" name="timezone">
+          <option value="" {% if timezone_empty %}selected{% endif %}>Не выбран</option>
+          {% for zone in timezones %}<option value="{{ zone.name }}" {% if zone.selected %}selected{% endif %}>{{ zone.display_name }}</option>{% endfor %}
+        </select>
+        <label for="preferences-marketing">Маркетинговые сообщения</label>
+        <input id="preferences-marketing" name="marketing_opt_in" type="checkbox" {% if marketing_opt_in %}checked{% endif %} />
+        <fieldset>
+          <legend>Доступ приложений к данным</legend>
+          {% for scope in scopes %}
+          <label for="scope-{{ scope.name }}">{{ scope.label }}</label>
+          <select id="scope-{{ scope.name }}" name="scope-{{ scope.name }}">
+            <option value="allow" {% if scope.allow %}selected{% endif %}>Разрешать</option>
+            <option value="ask" {% if scope.ask %}selected{% endif %}>Спрашивать</option>
+            <option value="deny" {% if scope.deny %}selected{% endif %}>Запрещать</option>
+          </select>
+          {% endfor %}
+        </fieldset>
+        <button type="submit">Сохранить настройки</button>
+      </form>
+      <p id="preferences-message" role="status" aria-live="polite" hidden></p>
+      <p id="preferences-error" role="alert" hidden></p>
+    </section>
+    {% if consents_enabled %}
+    <section aria-labelledby="consents-title">
+      <h2 id="consents-title">Согласия</h2>
+      {% if consents.is_empty() %}<p>Сохранённых согласий нет.</p>{% endif %}
+      {% for consent in consents %}
+      <article class="list-row">
+        <strong>{{ consent.kind }}</strong>
+        <span>{{ consent.version }}</span>
+        <time>{{ consent.granted_at }}</time>
+        {% if consent.revoked %}<span>Отозвано</span>{% else if consent.revocable %}
+        <button type="button" class="consent-revoke" data-kind="marketing">Отозвать</button>{% endif %}
+      </article>
+      {% endfor %}
+      <p id="consents-message" role="status" aria-live="polite" hidden></p>
+      <p id="consents-error" role="alert" hidden></p>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>

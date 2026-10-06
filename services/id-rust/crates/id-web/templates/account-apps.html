@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Приложения — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  <script src="/_id/apps.js?v=ux-20261006-2" defer></script>
+  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+</head>
+<body>
+  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
+  <main>
+    <h1>Подключённые приложения</h1>
+    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    <nav aria-label="Разделы аккаунта"><a href="/account">Профиль</a>
+      {% if sessions_enabled %}<a href="/account?section=sessions">Активные устройства</a>{% endif %}
+      {% if preferences_enabled %}<a href="/account?section=privacy">Настройки и приватность</a>{% endif %}
+    </nav>
+    <p id="apps-message" role="status" aria-live="polite" hidden></p>
+    <p id="apps-error" role="alert" hidden></p>
+    <section id="revoke-app-review" aria-labelledby="revoke-app-title" hidden>
+      <h2 id="revoke-app-title">Отозвать доступ приложения?</h2>
+      <p id="revoke-app-description"></p>
+      <div class="review-actions">
+        <button id="revoke-app-confirm" type="button">Отозвать доступ</button>
+        <button id="revoke-app-cancel" type="button">Оставить доступ</button>
+      </div>
+    </section>
+    <section aria-labelledby="apps-title">
+      <h2 id="apps-title">Доступ к аккаунту</h2>
+      {% if apps.is_empty() %}<p>Подключённых приложений нет.</p>{% endif %}
+      <ul class="session-list">
+        {% for app in apps %}
+        <li class="session-row">
+          <div>
+            <strong>{{ app.name }}</strong>
+            <small>{{ app.scopes }}</small>
+            <small>Последнее использование: {{ app.last_used_at }}</small>
+          </div>
+          <button type="button" data-revoke-app="{{ app.client_id }}">Проверить отзыв</button>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

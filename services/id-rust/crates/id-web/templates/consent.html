@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Доступ к аккаунту — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/consent.css?v=ux-20261006-2" />
+  <script src="/_id/consent.js?v=ux-20261006-2" defer></script>
+</head>
+<body>
+  <main class="consent-shell">
+    <section class="consent-card" aria-labelledby="consent-title">
+      <a class="brand" href="/">UpdSpace ID</a>
+      <p class="context-label">Продолжение входа в приложение</p>
+      <h1 id="consent-title">Какие данные получит {{ client_name }}?</h1>
+      <p>Вы входите в приложение <strong>{{ client_name }}</strong>. После выбора мы вернём вас на <strong>{{ destination }}</strong>. Проверьте адрес, прежде чем продолжить.</p>
+      <p>Обязательные сведения нужны для входа. Дополнительные можно оставить закрытыми; это не помешает вам вернуться в приложение.</p>
+      <form id="consent-form" data-request-id="{{ request_id }}" data-csrf-cookie="{{ csrf_cookie_name }}">
+        <fieldset>
+          <legend>Запрашиваемые права</legend>
+          {% for scope in scopes %}
+          <label class="scope">
+            {% if scope.required %}
+            <input type="checkbox" name="scope" value="{{ scope.name }}" checked disabled />
+            {% else %}
+            <input type="checkbox" name="scope" value="{{ scope.name }}" />
+            {% endif %}
+            <span><strong>{{ scope.name }}</strong>{% if scope.required %} (необходимо для входа){% endif %} — {{ scope.description }}</span>
+          </label>
+          {% endfor %}
+        </fieldset>
+        <label class="remember"><input id="remember" type="checkbox" />Запомнить разрешения для следующих входов</label>
+        <p id="consent-error" role="alert" hidden></p>
+        <div class="actions">
+          <button id="deny" type="button">Вернуться без доступа</button>
+          <button id="approve" type="submit">Продолжить с выбранными данными</button>
+        </div>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

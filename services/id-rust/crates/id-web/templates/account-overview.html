@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Аккаунт — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+  {% if features.logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+  {% if features.profile_enabled %}<script src="/_id/profile.js" defer></script><script src="/_id/avatar.js" defer></script>{% endif %}
+  {% if features.email_management_enabled %}<script src="/_id/email.js" defer></script>{% endif %}
+</head>
+<body>
+  <header><a href="/">UpdSpace ID</a>{% if features.logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
+  <main>
+    <h1>Ваш аккаунт UpdSpace</h1>
+    <p class="page-intro">Здесь вы управляете тем, как входите в сервисы, и проверяете, кому открыт доступ к вашему аккаунту.</p>
+    {% if features.logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    <nav class="account-nav" aria-label="Что вы хотите сделать">
+      {% if features.sessions_enabled %}<a href="/account?section=sessions"><strong>Проверить устройства</strong><span>Посмотреть, где открыт аккаунт, и завершить лишние сеансы.</span></a>{% endif %}
+      {% if features.apps_enabled %}<a href="/account?section=apps"><strong>Проверить приложения</strong><span>Узнать, кому вы разрешили доступ, и отозвать его.</span></a>{% endif %}
+      {% if features.security_enabled %}<a href="/account?section=security"><strong>Защитить вход</strong><span>Управлять паролем, ключами доступа и резервными кодами.</span></a>{% endif %}
+      {% if features.exports_enabled %}<a href="/account?section=data"><strong>Получить свои данные</strong><span>Запросить приватную копию сведений аккаунта.</span></a>{% endif %}
+      {% if features.preferences_enabled %}<a href="/account?section=privacy"><strong>Настроить приватность</strong><span>Проверить личные предпочтения и согласия.</span></a>{% endif %}
+      {% if features.history_enabled %}<a href="/account?section=activity"><strong>Посмотреть историю входов</strong><span>Проверить недавние действия в аккаунте.</span></a>{% endif %}
+    </nav>
+    <section aria-labelledby="profile-title">
+      <h2 id="profile-title">Ваши сведения</h2>
+      <p>Аккаунт: <strong>{{ display_name }}</strong></p>
+      <dl>
+        <dt>Адрес почты</dt><dd>{{ user.email }}</dd>
+        <dt>Подтверждение почты</dt><dd>{{ email_label }}</dd>
+        <dt>Дополнительная защита входа</dt><dd>{{ mfa_status }}</dd>
+      </dl>
+    </section>
+    {% if let Some(email) = email_management %}
+    <section aria-labelledby="email-title">
+      <h2 id="email-title">Адрес почты</h2>
+      <p>Основной адрес: <strong>{{ email.email }}</strong></p>
+      {% if email.verified %}<p>Адрес подтверждён.</p>{% else %}
+      <p>Адрес ещё не подтверждён. Для подтверждения отправим одноразовую ссылку.</p>
+      <button id="email-verify-request" type="button" data-email="{{ email.email }}">Отправить письмо с подтверждением</button>
+      {% endif %}
+      {% if let Some(pending) = email.pending_email %}
+      <p>Ожидает подтверждения: <strong>{{ pending }}</strong></p>
+      <button id="email-change-cancel" type="button">Отменить смену адреса</button>
+      {% endif %}
+      <form id="email-change-form">
+        <label for="new-email">Новый адрес почты</label>
+        <input id="new-email" name="new_email" type="email" autocomplete="email" maxlength="254" required />
+        <button type="submit">Изменить адрес</button>
+      </form>
+      <p>Для смены адреса требуется недавний вход. Мы отправим ссылку на новый адрес.</p>
+      <p id="email-message" role="status" aria-live="polite" hidden></p>
+      <p id="email-error" role="alert" hidden></p>
+    </section>
+    {% endif %}
+    {% if features.profile_enabled %}
+    <section aria-labelledby="avatar-title">
+      <h2 id="avatar-title">Аватар</h2>
+      <div class="avatar-preview">
+        {% if has_avatar %}<img id="avatar-image" src="{{ avatar_url }}" alt="Текущий аватар" referrerpolicy="no-referrer" />
+        <span id="avatar-placeholder" hidden>Аватар не установлен</span>{% else %}
+        <img id="avatar-image" alt="Текущий аватар" referrerpolicy="no-referrer" hidden />
+        <span id="avatar-placeholder">Аватар не установлен</span>{% endif %}
+      </div>
+      <form id="avatar-form">
+        <label for="avatar-file">Выберите изображение JPEG, PNG или WebP до 6 МБ</label>
+        <input id="avatar-file" name="avatar" type="file" accept="image/jpeg,image/png,image/webp" required />
+        <button type="submit">Загрузить аватар</button>
+      </form>
+      <button id="avatar-delete" type="button" {% if !has_avatar %}disabled{% endif %}>Удалить аватар</button>
+      <p id="avatar-message" role="status" aria-live="polite" hidden></p>
+      <p id="avatar-error" role="alert" hidden></p>
+    </section>
+    <section aria-labelledby="profile-edit-title">
+      <h2 id="profile-edit-title">Редактировать профиль</h2>
+      <form id="profile-form">
+        <label for="first-name">Имя</label><input id="first-name" name="first_name" autocomplete="given-name" value="{{ first_name }}" />
+        <label for="last-name">Фамилия</label><input id="last-name" name="last_name" autocomplete="family-name" value="{{ last_name }}" />
+        <label for="phone-number">Телефон</label><input id="phone-number" name="phone_number" autocomplete="tel" value="{{ phone_number }}" />
+        <label for="birth-date">Дата рождения</label><input id="birth-date" name="birth_date" type="date" value="{{ birth_date }}" />
+        <button type="submit">Сохранить</button>
+      </form>
+      <p id="profile-message" role="status" aria-live="polite" hidden></p>
+      <p id="profile-error" role="alert" hidden></p>
+    </section>
+    {% endif %}
+    <p class="secondary-settings">Некоторые настройки пока доступны в прежней версии кабинета. <a href="/legacy/account">Открыть прежний кабинет</a></p>
+  </main>
+</body>
+</html>

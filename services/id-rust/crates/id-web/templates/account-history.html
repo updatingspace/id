@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>История входов — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
+</head>
+<body>
+  <header><a href="/">UpdSpace ID</a></header>
+  <main>
+    <h1>История входов</h1>
+    <nav aria-label="Разделы аккаунта"><a href="/account">Профиль</a></nav>
+    <section aria-label="Последние входы">
+      <p>Показаны последние 100 событий входа.</p>
+      {% if events.is_empty() %}<p>Событий пока нет.</p>{% endif %}
+      <ol class="session-list">
+        {% for event in events %}
+        <li class="session-row">
+          <div>
+            <strong>{{ event.status_label }}</strong>
+            <time datetime="{{ event.created_at }}">{{ event.created_at }}</time>
+            <small>{{ event.user_agent }}</small>
+            <small>{{ event.ip }}</small>
+            {% if event.is_new_device %}<span>Новое устройство</span>{% endif %}
+            {% if let Some(reason) = event.reason %}<small>{{ reason }}</small>{% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+  </main>
+</body>
+</html>

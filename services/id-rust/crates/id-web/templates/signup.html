@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Регистрация — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/login.css" />
+  <link rel="stylesheet" href="/_id/signup.css" />
+  <script src="/_id/signup.js" defer></script>
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="auth-card signup-card" aria-labelledby="signup-title">
+      <a class="brand" href="/">UpdSpace ID</a>
+      <h1 id="signup-title">Создать аккаунт</h1>
+      <p class="intro">После регистрации подтвердите адрес письмом, затем войдите в аккаунт.</p>
+      <p id="status" role="status" aria-live="polite" hidden></p>
+      <p id="error" role="alert" aria-live="assertive" hidden></p>
+      <form id="signup-form" method="post" action="/signup">
+        <label for="username">Имя пользователя</label>
+        <input id="username" name="username" type="text" autocomplete="username" maxlength="150" />
+        <label for="email">Электронная почта</label>
+        <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required />
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="4096" required />
+        <label for="confirmation">Повторите пароль</label>
+        <input id="confirmation" name="confirmation" type="password" autocomplete="new-password" minlength="10" maxlength="4096" required />
+        <label for="language">Язык</label>
+        <select id="language" name="language">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+        </select>
+        <label for="birth-date">Дата рождения (необязательно)</label>
+        <input id="birth-date" name="birth-date" type="date" />
+        <label class="check" for="is-minor">
+          <input id="is-minor" name="is-minor" type="checkbox" />
+          <span>Мне меньше 18 лет</span>
+        </label>
+        <fieldset id="guardian-fields" hidden>
+          <legend>Согласие родителя или опекуна</legend>
+          <label for="guardian-email">Электронная почта родителя или опекуна</label>
+          <input id="guardian-email" name="guardian-email" type="email" autocomplete="email" maxlength="254" />
+          <label class="check" for="guardian-consent">
+            <input id="guardian-consent" name="guardian-consent" type="checkbox" />
+            <span>Родитель или опекун согласен с регистрацией</span>
+          </label>
+        </fieldset>
+        <label class="check" for="consent-data">
+          <input id="consent-data" name="consent-data" type="checkbox" required />
+          <span>Я согласен на обработку персональных данных.</span>
+        </label>
+        <label class="check" for="consent-marketing">
+          <input id="consent-marketing" name="consent-marketing" type="checkbox" />
+          <span>Я хочу получать маркетинговые сообщения (необязательно).</span>
+        </label>
+        <button id="submit" type="submit">Создать аккаунт</button>
+      </form>
+      <noscript>Для регистрации включите JavaScript.</noscript>
+      <p class="help">Уже есть аккаунт? <a href="/login">Войти</a></p>
+    </section>
+  </main>
+</body>
+</html>

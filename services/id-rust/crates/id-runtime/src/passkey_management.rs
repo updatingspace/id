@@ -1,0 +1,177 @@
+//! Transactional management of existing WebAuthn credentials.
+
+use crate::{
+    passkey_index, security_mail,
+    session_store::{LEGACY_BACKENDS, restore_django_session_tx},
+    totp_setup::{factors, recent_auth, session_data},
+    tx_retry::retry_known_abort,
+};
+use anyhow::Result;
+use id_compat::session::SessionCodec;
+use serde_json::Value;
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use uuid::Uuid;
+use ydb::{Client, Transaction, TxMode, closure};
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Renamed,
+    Deleted(usize),
+    Unauthorized,
+    ReauthRequired,
+    NotFound,
+}
+
+async fn owned_passkey(
+    tx: &mut Transaction,
+    user_id: i32,
+    id: i64,
+) -> ydb::YdbResultWithCustomerErr<Option<Value>> {
+    let mut stream = tx.query("SELECT user_id, type, CAST(data AS Utf8) AS data FROM mfa_authenticator WHERE id = $id")
+        .param("$id", id).await?;
+    let mut result = None;
+    while let Some(rows) = stream.next_result_set().await? {
+        for mut row in rows {
+            let owner: i32 = row.remove_field_by_name("user_id")?.try_into()?;
+            let kind: String = row.remove_field_by_name("type")?.try_into()?;
+            let data: String = row.remove_field_by_name("data")?.try_into()?;
+            if owner == user_id && kind == "webauthn" {
+                let parsed = serde_json::from_str::<Value>(&data)
+                    .map_err(ydb::YdbOrCustomerError::from_err)?;
+                if !parsed.is_object() {
+                    return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other(
+                        "invalid passkey data",
+                    )));
+                }
+                result = Some(parsed);
+            }
+        }
+    }
+    stream.close().await?;
+    Ok(result)
+}
+
+pub async fn rename(
+    client: &Client,
+    codec: Arc<SessionCodec>,
+    token: &str,
+    id: i64,
+    name: &str,
+    now: SystemTime,
+) -> Result<Outcome> {
+    let token = token.to_owned();
+    let name = name.to_owned();
+    let backends = LEGACY_BACKENDS
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect::<Vec<String>>();
+    retry_known_abort(|| {
+        let (codec, token, name, backends) = (codec.clone(), token.clone(), name.clone(), backends.clone());
+        async {
+            client.query_client().retry_tx(closure!([codec, token, name, backends], async |tx: &mut Transaction| {
+                let Some(session) = restore_django_session_tx(tx, codec.as_ref(), token, backends, now).await? else {
+                    return Ok(Outcome::Unauthorized)
+                };
+                let user_id = i32::try_from(session.principal.account_id.get()).map_err(ydb::YdbOrCustomerError::from_err)?;
+                let factor_set = factors(tx, user_id).await?;
+                if factor_set.any && !session.mfa_verified { return Ok(Outcome::Unauthorized) }
+                let data = session_data(tx, codec.as_ref(), token).await?;
+                if !recent_auth(&data, now) { return Ok(Outcome::ReauthRequired) }
+                let Some(mut credential) = owned_passkey(tx, user_id, id).await? else { return Ok(Outcome::NotFound) };
+                let Some(object) = credential.as_object_mut() else {
+                    return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("invalid passkey data")))
+                };
+                object.insert("name".into(), Value::String(name.to_owned()));
+                let serialized = serde_json::to_string(&credential).map_err(ydb::YdbOrCustomerError::from_err)?;
+                tx.exec("UPDATE mfa_authenticator SET data = Unwrap(CAST($data AS Json)) WHERE id = $id")
+                    .param("$data", serialized).param("$id", id).await?;
+                tx.exec("INSERT INTO accounts_accountevent (user_id, action, meta, created_at) VALUES ($user_id, 'mfa_passkey_renamed', Unwrap(CAST('{}' AS Json)), CAST($now AS Datetime))")
+                    .param("$user_id", user_id).param("$now", now).await?;
+                Ok(Outcome::Renamed)
+            })).with_mode(TxMode::SerializableReadWrite).idempotent(false)
+                .timeout(Duration::from_secs(10)).await
+        }
+    }).await
+}
+
+pub async fn delete(
+    client: &Client,
+    codec: Arc<SessionCodec>,
+    token: &str,
+    ids: &[i64],
+    now: SystemTime,
+) -> Result<Outcome> {
+    let token = token.to_owned();
+    let ids = ids.to_vec();
+    let backends = LEGACY_BACKENDS
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect::<Vec<String>>();
+    let now_secs = now.duration_since(UNIX_EPOCH)?.as_secs();
+    let mail_id = Uuid::new_v4().to_string();
+    retry_known_abort(|| {
+        let (codec, token, ids, backends, mail_id) = (codec.clone(), token.clone(), ids.clone(), backends.clone(), mail_id.clone());
+        async {
+            client.query_client().retry_tx(closure!([codec, token, ids, backends, mail_id], async |tx: &mut Transaction| {
+                let Some(session) = restore_django_session_tx(tx, codec.as_ref(), token, backends, now).await? else {
+                    return Ok(Outcome::Unauthorized)
+                };
+                let user_id = i32::try_from(session.principal.account_id.get()).map_err(ydb::YdbOrCustomerError::from_err)?;
+                let factor_set = factors(tx, user_id).await?;
+                if factor_set.any && !session.mfa_verified { return Ok(Outcome::Unauthorized) }
+                let mut data = session_data(tx, codec.as_ref(), token).await?;
+                if !recent_auth(&data, now) { return Ok(Outcome::ReauthRequired) }
+                let mut indexed = Vec::with_capacity(ids.len());
+                for id in ids.iter() {
+                    let Some(credential) = owned_passkey(tx, user_id, *id).await? else { return Ok(Outcome::NotFound) };
+                    let digest = passkey_index::digest_of_record(&credential)
+                        .map_err(|_| ydb::YdbOrCustomerError::from_err(std::io::Error::other("invalid passkey credential ID")))?;
+                    if let Some((indexed_id, indexed_owner)) = passkey_index::lookup_tx(tx, &digest).await?
+                        && (indexed_id != *id || indexed_owner != user_id) {
+                        return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("passkey index mismatch")));
+                    }
+                    indexed.push(digest);
+                }
+                for (id, digest) in ids.iter().zip(indexed.iter()) {
+                    tx.exec("DELETE FROM `id_passkey_credential` WHERE digest = $digest AND authenticator_id = $id AND account_id = $owner")
+                        .param("$digest", digest.clone()).param("$id", *id).param("$owner", user_id).await?;
+                    tx.exec("DELETE FROM mfa_authenticator WHERE id = $id").param("$id", *id).await?;
+                }
+                let removed = ids.iter().copied().collect::<HashSet<_>>();
+                let last_primary = !factor_set.totp && factor_set.passkey_ids.iter().all(|id| removed.contains(id));
+                if last_primary {
+                    if let Some(recovery_id) = factor_set.recovery_id {
+                        tx.exec("DELETE FROM mfa_authenticator WHERE id = $id").param("$id", recovery_id).await?;
+                    }
+                    data.remove("id_mfa_verified_user_id");
+                    if let Some(methods) = data.get_mut("account_authentication_methods") {
+                        let Some(methods) = methods.as_array_mut() else {
+                            return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("invalid authentication methods")))
+                        };
+                        methods.retain(|method| method.get("method").and_then(Value::as_str) != Some("mfa"));
+                    }
+                    let signed = codec.encode(&data, i64::try_from(now_secs).map_err(ydb::YdbOrCustomerError::from_err)?, true)
+                        .map_err(ydb::YdbOrCustomerError::from_err)?;
+                    tx.exec("UPDATE django_session SET session_data = $data WHERE session_key = $key")
+                        .param("$data", signed).param("$key", token.clone()).await?;
+                }
+                tx.exec("INSERT INTO accounts_accountevent (user_id, action, meta, created_at) VALUES ($user_id, 'mfa_passkeys_deleted', Unwrap(CAST('{}' AS Json)), CAST($now AS Datetime))")
+                    .param("$user_id", user_id).param("$now", now).await?;
+                let Some(mut account) = tx.query_row("SELECT email FROM auth_user WHERE id = $user_id")
+                    .param("$user_id", user_id).optional().await? else {
+                    return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("passkey owner disappeared")));
+                };
+                let recipient: String = account.remove_field_by_name("email")?.try_into()?;
+                if security_mail::valid_recipient(&recipient) {
+                    security_mail::enqueue_tx(tx, mail_id, user_id, &recipient, "passkey_removed", now).await?;
+                }
+                Ok(Outcome::Deleted(ids.len()))
+            })).with_mode(TxMode::SerializableReadWrite).idempotent(false)
+                .timeout(Duration::from_secs(10)).await
+        }
+    }).await
+}
