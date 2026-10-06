@@ -109,24 +109,6 @@ data "yandex_serverless_container" "deployed_rust_web" {
   }
 }
 
-data "yandex_serverless_container" "deployed_gravatar" {
-  count        = var.enable_gravatar_job && var.gravatar_rust_jobs_container_id == "" ? 1 : 0
-  container_id = yandex_serverless_container.gravatar[0].id
-  depends_on   = [yandex_serverless_container.gravatar]
-
-  lifecycle {
-    postcondition {
-      condition = try(
-        self.revision_id != null && self.revision_id != "" &&
-        self.image[0].url == "cr.yandex/${local.container_registry_id}/updatingspace-id-backend:${var.container_image_tag}" &&
-        tomap(self.image[0].environment) == tomap(merge(local.backend_env, { GRAVATAR_BATCH_LIMIT = "25" })),
-        false,
-      )
-      error_message = "YC did not deploy the requested Gravatar revision. Inspect deployment warnings before enabling the timer."
-    }
-  }
-}
-
 data "yandex_serverless_container" "deployed_rust_mail_job" {
   count        = var.enable_rust_mail_job ? 1 : 0
   container_id = yandex_serverless_container.rust_mail_job[0].id

@@ -54,6 +54,9 @@ uses private trigger/timer routes. `/_id/*` is served with explicit CSS/JS MIME
 types; account, authentication and OAuth responses must not enter shared
 caches. `min_ready_instances` defaults to zero, so cold-start latency remains
 a measured part of the user experience.
+The hourly Gravatar timer requires `gravatar_rust_jobs_container_id` and calls
+the Rust jobs container. Terraform no longer contains the retired Django
+Gravatar container fallback, and `legacy_backend_enabled` rejects `true`.
 
 The Rust export bucket is private and separate from public frontend/media
 storage. `enable_rust_export` provisions it; `enable_rust_export_api` selects

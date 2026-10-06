@@ -5,9 +5,14 @@ variable "blue_green_enabled" {
 }
 
 variable "legacy_backend_enabled" {
-  description = "Keep the retired Django blue container in Terraform-managed environments. Disable only after the public Gateway no longer references it."
+  description = "Retired Django blue container. Kept only to read historical Terraform state; it cannot be enabled again."
   type        = bool
-  default     = true
+  default     = false
+
+  validation {
+    condition     = !var.legacy_backend_enabled
+    error_message = "The Django backend was retired; deploy the Rust API containers instead."
+  }
 }
 
 variable "rollout_active_slot" {

@@ -77,63 +77,6 @@ resource "yandex_iam_service_account" "scheduler" {
   name  = "${local.name_prefix}-scheduler"
 }
 
-resource "yandex_serverless_container" "gravatar" {
-  count              = var.enable_gravatar_job && var.gravatar_rust_jobs_container_id == "" ? 1 : 0
-  name               = "${local.name_prefix}-gravatar"
-  description        = "Bounded Gravatar refresh outside the authentication path"
-  memory             = 512
-  cores              = 1
-  core_fraction      = 100
-  concurrency        = 1
-  execution_timeout  = "600s"
-  service_account_id = yandex_iam_service_account.runtime.id
-
-  depends_on = [
-    yandex_resourcemanager_folder_iam_member.runtime_image_puller,
-    yandex_lockbox_secret_iam_member.runtime_payload_viewer,
-    yandex_ydb_database_iam_binding.runtime_editor,
-  ]
-
-  runtime {
-    type = "http"
-  }
-  dynamic "connectivity" {
-    for_each = local.backend_network_id != "" ? [1] : []
-    content {
-      network_id = local.backend_network_id
-    }
-  }
-  metadata_options {
-    gce_http_endpoint = 1
-  }
-  image {
-    url         = "cr.yandex/${local.container_registry_id}/updatingspace-id-backend:${var.container_image_tag}"
-    command     = ["gunicorn"]
-    args        = ["app.jobs:application", "--bind", "0.0.0.0:8080", "--workers", "1", "--timeout", "590", "--access-logfile", "-", "--error-logfile", "-"]
-    environment = merge(local.backend_env, { GRAVATAR_BATCH_LIMIT = "25" })
-  }
-  dynamic "secrets" {
-    for_each = nonsensitive(toset(keys(local.runtime_secret_entries)))
-    content {
-      id                   = yandex_lockbox_secret.runtime.id
-      version_id           = yandex_lockbox_secret_version.runtime.id
-      key                  = secrets.key
-      environment_variable = secrets.key
-    }
-  }
-  log_options {
-    log_group_id = yandex_logging_group.id.id
-    min_level    = "INFO"
-  }
-}
-
-resource "yandex_serverless_container_iam_binding" "gravatar_invoker" {
-  count        = var.enable_gravatar_job && var.gravatar_rust_jobs_container_id == "" ? 1 : 0
-  container_id = yandex_serverless_container.gravatar[0].id
-  role         = "serverless.containers.invoker"
-  members      = ["serviceAccount:${yandex_iam_service_account.scheduler[0].id}"]
-}
-
 resource "yandex_serverless_container_iam_binding" "gravatar_rust_invoker" {
   count        = var.enable_gravatar_job && var.gravatar_rust_jobs_container_id != "" ? 1 : 0
   container_id = var.gravatar_rust_jobs_container_id
@@ -149,17 +92,15 @@ resource "yandex_function_trigger" "gravatar" {
     cron_expression = "17 * * * ? *"
   }
   container {
-    id                 = var.gravatar_rust_jobs_container_id != "" ? var.gravatar_rust_jobs_container_id : yandex_serverless_container.gravatar[0].id
+    id                 = var.gravatar_rust_jobs_container_id
     path               = "/refresh-gravatars"
     service_account_id = yandex_iam_service_account.scheduler[0].id
     retry_attempts     = 2
     retry_interval     = 60
   }
   depends_on = [
-    yandex_serverless_container_iam_binding.gravatar_invoker,
     yandex_serverless_container_iam_binding.gravatar_rust_invoker,
     yandex_resourcemanager_folder_iam_member.deployer_trigger_editor,
-    data.yandex_serverless_container.deployed_gravatar,
   ]
 }
 
@@ -180,9 +121,7 @@ resource "terraform_data" "existing_gateway_spec" {
     }
   }
   depends_on = [
-    data.yandex_serverless_container.deployed_backend,
     data.yandex_serverless_container.deployed_green,
-    yandex_serverless_container_iam_binding.gateway_backend_invoker,
     yandex_serverless_container_iam_binding.gateway_rust_api_invoker,
     yandex_serverless_container_iam_binding.gateway_rust_web_invoker,
     data.yandex_serverless_container.deployed_rust_api,

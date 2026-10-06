@@ -837,13 +837,18 @@ variable "enable_gravatar_job" {
 }
 
 variable "gravatar_rust_jobs_container_id" {
-  description = "Existing private Rust jobs container to receive the hourly Gravatar timer. Empty keeps the legacy Django Gravatar container."
+  description = "Existing private Rust jobs container to receive the hourly Gravatar timer. Required when the timer is enabled."
   type        = string
   default     = ""
 
   validation {
     condition     = var.gravatar_rust_jobs_container_id == "" || can(regex("^[a-z0-9]{20}$", var.gravatar_rust_jobs_container_id))
     error_message = "gravatar_rust_jobs_container_id must be empty or a YC container ID."
+  }
+
+  validation {
+    condition     = !var.enable_gravatar_job || var.gravatar_rust_jobs_container_id != ""
+    error_message = "Gravatar timer requires a Rust jobs container; the Django job container was retired."
   }
 }
 
