@@ -1,14 +1,14 @@
 #![recursion_limit = "256"]
-//! Synthetic account rows only, in an explicitly local YDB with Django schema.
+//! Synthetic account rows only, in an explicitly local YDB with Rust schema.
 
 use anyhow::{Result, bail, ensure};
 use id_runtime::login_preflight::{LoginDecision, LoginPreflight};
 use std::{
-    process::Command,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
+use ydb::{Client, Transaction, TxMode, closure};
 
 const PASSWORD: &str = "Synthetic пароль 🔐 with unicode and more than 72 bytes Synthetic пароль 🔐 with unicode and more than 72 bytes ";
 const PASSWORD_HASH: &str = "argon2$argon2id$v=19$m=102400,t=2,p=8$U3ludGhldGljR29sZGVuU2FsdDEyMw$Q/uhIlhHnraeVEMP4b/SvQx5Gjb04zC0bEmIq6OPnUo";
@@ -25,15 +25,34 @@ async fn check_concurrent_lookup(verifier: &LoginPreflight, email: &str) -> Resu
     Ok(())
 }
 
+async fn move_email(client: &Client, user_id: i32, email: &str) -> Result<()> {
+    let email = email.to_owned();
+    let key = email.to_lowercase();
+    client.query_client().retry_tx(closure!([email, key], async |tx: &mut Transaction| {
+        tx.exec("UPDATE auth_user SET email = $email WHERE id = $id")
+            .param("$email", email.clone()).param("$id", user_id).await?;
+        tx.exec("UPDATE account_emailaddress SET email = $email WHERE user_id = $id AND primary = true")
+            .param("$email", email.clone()).param("$id", user_id).await?;
+        tx.exec("UPDATE accounts_accountemaillookup SET email_key = $key WHERE user_id = $id")
+            .param("$key", key.clone()).param("$id", user_id).await?;
+        Ok(())
+    })).with_mode(TxMode::SerializableReadWrite).idempotent(false).await?;
+    Ok(())
+}
+
 #[tokio::test]
-#[ignore = "requires local YDB after migrate_ydb; writes only synthetic negative-ID rows"]
+#[ignore = "requires Rust-bootstrapped local YDB; writes only synthetic negative-ID rows"]
 async fn password_preflight_preserves_login_gates() -> Result<()> {
+    let endpoint = std::env::var("YDB_ENDPOINT")?;
+    let fixed_local = matches!(
+        endpoint.as_str(),
+        "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
+    );
+    let disposable_local = std::env::var("ID_DISPOSABLE_YDB").as_deref() == Ok("true")
+        && (endpoint.starts_with("grpc://localhost:") || endpoint.starts_with("grpc://127.0.0.1:"));
     ensure!(
-        matches!(
-            std::env::var("YDB_ENDPOINT")?.as_str(),
-            "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
-        ) && std::env::var("YDB_DATABASE")? == "/local",
-        "login preflight test requires local YDB on port 2136"
+        (fixed_local || disposable_local) && std::env::var("YDB_DATABASE")? == "/local",
+        "login preflight test requires local YDB"
     );
     let client = Arc::new(id_runtime::connect_ydb().await?);
     let verifier = LoginPreflight::new(client.clone(), 1)?;
@@ -80,46 +99,27 @@ async fn password_preflight_preserves_login_gates() -> Result<()> {
             && ready.public_subject.as_str() == format!("stable-login-subject-{stamp}")
             && ready.password_hash() == PASSWORD_HASH, "preflight changed account identity or hash");
 
-        // A separate Django process changes auth_user, the derived lookup and
-        // verified email in one transaction while two Rust clients read.
+        // A separate Rust client changes the account, derived lookup and
+        // verified email in one transaction while two clients read.
         let alternate_email = format!("Rust-Login-Alternate-{stamp}@Example.invalid");
         let other_client = Arc::new(id_runtime::connect_ydb().await?);
         let other_verifier = LoginPreflight::new(other_client, 1)?;
-        let python_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../id")
-            .canonicalize()?;
+        let writer_client = id_runtime::connect_ydb().await?;
         let writer_email = email.clone();
         let writer_alternate = alternate_email.clone();
-        let writer = tokio::task::spawn_blocking(move || {
-            Command::new(python_dir.join(".venv/bin/python"))
-                .arg("scripts/check_email_lookup_race.py")
-                .arg(user_id.to_string())
-                .arg(writer_email)
-                .arg(writer_alternate)
-                .arg("--rounds")
-                .arg("100")
-                .current_dir(python_dir)
-                .env("PYTHONPATH", "src")
-                .env("DJANGO_SETTINGS_MODULE", "app.settings")
-                .env("DJANGO_DEBUG", "true")
-                .env("DJANGO_SECRET_KEY", "synthetic-local-secret-min-32-characters")
-                .env("DB_DRIVER", "ydb")
-                .env("YDB_NAME", "default")
-                .env("YDB_CREDENTIALS_MODE", "token")
-                .env("YDB_TOKEN", "local-ydb-token")
-                .env("REDIS_URL", "")
-                .output()
+        let writer = tokio::spawn(async move {
+            for _ in 0..50 {
+                move_email(&writer_client, user_id, &writer_alternate).await?;
+                tokio::task::yield_now().await;
+                move_email(&writer_client, user_id, &writer_email).await?;
+            }
+            Ok::<(), anyhow::Error>(())
         });
         let (original_reads, alternate_reads) = tokio::join!(
             check_concurrent_lookup(&verifier, &email),
             check_concurrent_lookup(&other_verifier, &alternate_email)
         );
-        let output = writer.await??;
-        ensure!(
-            output.status.success(),
-            "transition Django email writer failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        writer.await??;
         original_reads?;
         alternate_reads?;
         ensure!(
