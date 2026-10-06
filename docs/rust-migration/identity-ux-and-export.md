@@ -197,7 +197,10 @@ layout checks at 320, 390 and 1280 px showed no horizontal overflow for the
 home page or the account navigation; these do not replace live Gateway or
 assistive-technology checks.
 The dead link from profile editing to the removed React cabinet has been
-removed. The deletion HTTP endpoint is restricted to local debug YDB and
+removed. In delayed-export mode the form now names the verified delivery
+address before submission; an unverified address shows a clear confirmation
+path and no submit control. The deletion HTTP endpoint is restricted to local
+debug YDB and
 its own source labels it incomplete. Therefore a production deletion control
 must **not** be added by merely linking a form to that endpoint. The Rust web
 has no operator console. A browser visit to production `/admin/` on 2026-10-06

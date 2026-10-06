@@ -15,6 +15,8 @@ struct ExportPage<'a> {
     refreshing: bool,
     requested: bool,
     has_mfa: bool,
+    delivery_email: &'a str,
+    email_verified: bool,
     operation: Option<&'a ExportStatus>,
     download: Option<&'a str>,
 }
@@ -24,6 +26,8 @@ pub(super) async fn page(
     operation: Option<ExportStatus>,
     requested: bool,
     has_mfa: bool,
+    delivery_email: &str,
+    email_verified: bool,
     cookies: Vec<String>,
 ) -> topcoat::Result<Response> {
     let api = app_context::<AccountApi>(cx);
@@ -45,6 +49,8 @@ pub(super) async fn page(
         refreshing,
         requested,
         has_mfa,
+        delivery_email,
+        email_verified,
         operation: operation.as_ref(),
         download: download.as_deref(),
     }
@@ -90,6 +96,8 @@ mod tests {
             refreshing: false,
             requested: true,
             has_mfa: true,
+            delivery_email: "owner@example.invalid",
+            email_verified: true,
             operation: Some(&operation),
             download: Some("/api/v1/auth/data/exports/0123456789abcdef0123456789abcdef/download"),
         }
@@ -119,15 +127,39 @@ mod tests {
             refreshing: false,
             requested: true,
             has_mfa: false,
+            delivery_email: "owner@example.invalid",
+            email_verified: true,
             operation: Some(&operation),
             download: None,
         }
         .render()?;
         assert!(html.contains("Ссылка для получения отправлена"));
+        assert!(html.contains("Адрес доставки: <strong>owner@example.invalid</strong>"));
         assert!(html.contains("не раньше чем через 24 часа"));
         assert!(html.contains("id=\"export-cancel-confirm\""));
         assert!(!html.contains("http-equiv=\"refresh\""));
         assert!(!html.contains("/download\""));
+        Ok(())
+    }
+
+    #[test]
+    fn unverified_email_cannot_start_delayed_export() -> Result<(), askama::Error> {
+        let html = ExportPage {
+            logout_enabled: true,
+            delayed_enabled: true,
+            refreshing: false,
+            requested: false,
+            has_mfa: false,
+            delivery_email: "<script>bad()</script>@example.invalid",
+            email_verified: false,
+            operation: None,
+            download: None,
+        }
+        .render()?;
+        assert!(html.contains("Сначала подтвердите адрес"));
+        assert!(html.contains("href=\"/account?section=profile\""));
+        assert!(!html.contains("id=\"export-form\""));
+        assert!(!html.contains("<script>bad()</script>@example.invalid"));
         Ok(())
     }
 }

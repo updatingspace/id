@@ -295,8 +295,16 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
             },
             None => None,
         };
-        return data_export::page(cx, operation, operation_id.is_some(), user.has_2fa, cookies)
-            .await;
+        return data_export::page(
+            cx,
+            operation,
+            operation_id.is_some(),
+            user.has_2fa,
+            &user.email,
+            user.email_verified,
+            cookies,
+        )
+        .await;
     }
     let full_name = [user.first_name.as_deref(), user.last_name.as_deref()]
         .into_iter()

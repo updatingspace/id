@@ -19,10 +19,13 @@
       <h2 id="export-title">Запросить копию</h2>
       {% if delayed_enabled %}
       <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Мы начнём собирать копию сразу, а ссылку отправим на подтверждённый адрес почты не раньше чем через 24 часа. Точное время появится после запроса.</p>
+      {% if email_verified %}<p>Адрес доставки: <strong>{{ delivery_email }}</strong>. Проверьте, что вы можете получить письмо на него до отправки запроса.</p>
+      {% else %}<p role="alert">Сначала подтвердите адрес <strong>{{ delivery_email }}</strong> в разделе <a href="/account?section=profile">«Личные сведения»</a>. Без подтверждения мы не можем отправить архив.</p>{% endif %}
       <p>Сразу после запроса мы отправим уведомление на подтверждённый адрес. Если запрос сделали не вы, отзовите его в аккаунте до удаления. Удаление аккаунта не отменяет уже запрошенную копию: ссылка придёт на тот же адрес после периода ожидания.</p>
       {% else %}
       <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Архив станет доступен здесь после подготовки. Сейчас для этого способа нет периода ожидания.</p>
       {% endif %}
+      {% if !delayed_enabled || email_verified %}
       <form id="export-form" action="/account?section=data" method="post">
         <label for="export-password">Текущий пароль</label>
         <input id="export-password" name="password" type="password" autocomplete="current-password" required />
@@ -33,6 +36,7 @@
         <button type="submit">Запросить копию данных</button>
       </form>
       <noscript><p>Для отправки запроса нужен JavaScript. Статус готового экспорта отображается без него.</p></noscript>
+      {% endif %}
       <p id="export-error" role="alert" hidden></p>
     </section>
     {% if requested && operation.is_none() %}
