@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Подтверждение почты — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/login.css?v=ux-20261006-2">
+  <script src="/_id/recovery.js" defer></script>
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="auth-card" aria-labelledby="verify-title">
+      <a class="brand" href="/">UpdSpace ID</a>
+      <h1 id="verify-title">Подтвердить адрес почты</h1>
+      <p class="intro">Подтверждённый адрес нужен для восстановления доступа и уведомлений о важных действиях. Если вы открыли письмо со ссылкой, подтвердите адрес ниже.</p>
+      <p id="status" role="status" aria-live="polite" hidden></p>
+      <p id="error" role="alert" aria-live="assertive" hidden></p>
+      <form id="verify-form" method="post" action="/verify-email" hidden>
+        <button id="submit" type="submit">Подтвердить адрес</button>
+      </form>
+      <form id="verify-request-form" method="post" action="/verify-email">
+        <label for="email">Не получили письмо? Отправить ссылку повторно</label>
+        <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
+        <button id="resend-submit" type="submit">Отправить письмо</button>
+      </form>
+      <noscript>Для подтверждения адреса нужен JavaScript.</noscript>
+      <p class="help"><a href="/login">Вернуться ко входу</a></p>
+    </section>
+  </main>
+</body>
+</html>

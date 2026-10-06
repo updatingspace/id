@@ -24,8 +24,11 @@ templates: browser scripts use those hooks. Do not use `safe` or string
 replacement for API-provided values.
 
 The account SSR handler calls `id-api` with the request cookie and renders its
-response; it does not implement identity business rules. Recovery pages still
-use Topcoat `view!` in Rust and need the same frontend ownership treatment.
+response; it does not implement identity business rules. Recovery and email
+verification pages are static HTML templates with browser behavior in
+`static/recovery.js`; their Rust handlers only select the document and set
+security headers. Frontend authors can change their layout and copy without
+editing API or router code, while keeping the form IDs used by the script.
 The opt-in `/admin/` page is a read-only deletion-request lookup. It verifies
 the operator session through `id-api` before rendering and does not query YDB.
 Its template and stylesheet are frontend-owned; the API owns authorization and
