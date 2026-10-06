@@ -26,6 +26,10 @@ replacement for API-provided values.
 The account SSR handler calls `id-api` with the request cookie and renders its
 response; it does not implement identity business rules. Recovery pages still
 use Topcoat `view!` in Rust and need the same frontend ownership treatment.
+The opt-in `/admin/` page is a read-only deletion-request lookup. It verifies
+the operator session through `id-api` before rendering and does not query YDB.
+Its template and stylesheet are frontend-owned; the API owns authorization and
+the request state. Other operator tasks are not yet available in this UI.
 
 Run from `services/id-rust`:
 

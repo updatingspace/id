@@ -48,6 +48,13 @@ async fn main() -> Result<()> {
     {
         app = app.merge(id_runtime::internal_identity_http::router(config));
     }
+    let admin_read_enabled =
+        if let Some(config) = id_runtime::admin_http::AdminReadConfig::from_env(client.clone())? {
+            app = app.merge(id_runtime::admin_http::router(config));
+            true
+        } else {
+            false
+        };
     if let Some(config) = id_runtime::exchange_http::ExchangeHttpConfig::from_env(client.clone())? {
         app = app.merge(id_runtime::exchange_http::router(config));
     }
@@ -240,6 +247,7 @@ async fn main() -> Result<()> {
     tracing::info!(
         port,
         me_enabled,
+        admin_read_enabled,
         form_token_enabled,
         login_pilot_enabled,
         account_jwt_session_pilot_enabled,

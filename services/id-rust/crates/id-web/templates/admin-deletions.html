@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Заявки на удаление — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-2">
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержанию</a>
+  <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторский раздел</span></header>
+  <main id="main">
+    <nav aria-label="Навигация"><a href="/account">← Мой аккаунт</a></nav>
+    <div class="page-heading">
+      <p class="eyebrow">Заявки · только просмотр</p>
+      <h1>Проверка удаления аккаунта</h1>
+      <p class="intro">Узнайте, завершилась ли очистка по конкретной заявке. Поиск по номеру не раскрывает сведения владельца и ничего не меняет.</p>
+    </div>
+    <section class="lookup-panel" aria-labelledby="lookup-title">
+      <h2 id="lookup-title">Найти заявку</h2>
+      <p>Номер возьмите из операторского сообщения. По имени или адресу почты здесь поиск недоступен.</p>
+      <form action="/admin/" method="get">
+        <label for="deletion-id">Номер заявки</label>
+        <div class="search-row">
+          <input id="deletion-id" name="deletion" inputmode="numeric" pattern="[0-9]+" maxlength="18" value="{{ lookup_id }}" required>
+          <button type="submit">Проверить состояние</button>
+        </div>
+      </form>
+    </section>
+    {% if not_found %}<section class="result-panel" role="status"><h2>Заявка не найдена</h2><p>Проверьте номер и повторите поиск. Если номер верный, воспользуйтесь операторским журналом.</p></section>{% endif %}
+    {% if let Some(item) = operation %}
+    <section class="result-panel" aria-labelledby="operation-title">
+      <p class="eyebrow">Результат проверки</p>
+      <h2 id="operation-title">Заявка № {{ item.id }}</h2>
+      <dl><dt>Состояние</dt><dd><strong class="status">{{ item.status_label() }}</strong></dd><dt>Очистка данных</dt><dd>{% if item.cleanup_completed %}Завершена и подтверждена{% else %}Очистка ещё не подтверждена{% endif %}</dd></dl>
+      <div class="next-step"><h3>Что делать дальше</h3><p>{{ item.next_step() }}</p></div>
+    </section>
+    {% endif %}
+    <p class="scope-note">Этот экран показывает только состояние заявки. Для расследования ошибок, повторной обработки и других операторских задач используйте утверждённые команды и журнал.</p>
+  </main>
+</body>
+</html>

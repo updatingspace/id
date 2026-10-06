@@ -89,7 +89,7 @@ locals {
     rust_api_container_id                = var.gateway_rust_me || var.gateway_rust_form_token || var.gateway_rust_jwks || var.gateway_rust_login_api || var.gateway_rust_passkey_login || var.gateway_rust_passkey_registration || var.gateway_rust_totp_management || var.gateway_rust_passkey_rename || var.gateway_rust_passkey_delete || var.gateway_rust_email_verify_api || var.gateway_rust_signup_api || var.gateway_rust_password_reset_api || var.gateway_rust_health || var.gateway_rust_oauth_providers || var.gateway_rust_internal_identity || var.gateway_rust_exchange || var.gateway_rust_magic_link || var.gateway_rust_portal_me ? (var.gateway_rust_me_container_id != "" ? var.gateway_rust_me_container_id : yandex_serverless_container.rust_api[0].id) : ""
     rust_sessions_container_id           = var.gateway_rust_sessions_container_id != "" ? var.gateway_rust_sessions_container_id : (var.gateway_rust_me_container_id != "" ? var.gateway_rust_me_container_id : (var.enable_rust_stack ? yandex_serverless_container.rust_api[0].id : ""))
     rust_sessions_mutations_container_id = var.gateway_rust_sessions_mutations_container_id != "" ? var.gateway_rust_sessions_mutations_container_id : (var.enable_rust_stack ? yandex_serverless_container.rust_api[0].id : "")
-    web_container_id                     = var.gateway_use_rust || var.gateway_rust_login || var.gateway_rust_account || var.gateway_rust_recovery_pages || var.gateway_rust_signup_page || var.gateway_rust_home_page || var.gateway_rust_oidc ? (var.gateway_rust_web_container_id != "" ? var.gateway_rust_web_container_id : yandex_serverless_container.rust_web[0].id) : ""
+    web_container_id                     = var.gateway_use_rust || var.gateway_rust_login || var.gateway_rust_account || var.gateway_rust_admin || var.gateway_rust_recovery_pages || var.gateway_rust_signup_page || var.gateway_rust_home_page || var.gateway_rust_oidc ? (var.gateway_rust_web_container_id != "" ? var.gateway_rust_web_container_id : yandex_serverless_container.rust_web[0].id) : ""
     gateway_use_rust                     = var.gateway_use_rust
     gateway_rust_me                      = var.gateway_rust_me
     gateway_rust_form_token              = var.gateway_rust_form_token
@@ -146,6 +146,7 @@ locals {
     ], var.gateway_rust_email_status ? ["/api/v1/auth/email"] : [])
     gateway_rust_login          = var.gateway_rust_login
     gateway_rust_account        = var.gateway_rust_account
+    gateway_rust_admin          = var.gateway_rust_admin
     gateway_rust_recovery_pages = var.gateway_rust_recovery_pages
     enable_rust_password_reset  = var.enable_rust_password_reset
     enable_rust_email_verify    = var.enable_rust_email_verify

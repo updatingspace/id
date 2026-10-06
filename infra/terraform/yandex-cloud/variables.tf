@@ -557,13 +557,27 @@ variable "gateway_rust_login" {
 }
 
 variable "gateway_rust_account" {
-  description = "Route the Topcoat account page while retaining the React cabinet at /legacy/account."
+  description = "Route the Topcoat account page through the existing Gateway."
   type        = bool
   default     = false
 
   validation {
     condition     = !var.gateway_rust_account || var.enable_rust_stack || var.gateway_rust_web_container_id != ""
     error_message = "gateway_rust_account requires either enable_rust_stack or gateway_rust_web_container_id."
+  }
+}
+
+variable "gateway_rust_admin" {
+  description = "Enable the MFA-protected Rust operator lookup and route /admin to Topcoat."
+  type        = bool
+  default     = false
+
+  validation {
+    condition = !var.gateway_rust_admin || (
+      (var.gateway_rust_catchall || var.gateway_use_rust) &&
+      (var.enable_rust_stack || (var.gateway_rust_me_container_id != "" && var.gateway_rust_web_container_id != ""))
+    )
+    error_message = "Rust admin requires Rust API catch-all and verified API/web containers."
   }
 }
 

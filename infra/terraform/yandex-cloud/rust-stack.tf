@@ -2,6 +2,7 @@ locals {
   rust_api_env = merge(local.backend_env, {
     BUILD_ID                                   = var.rust_api_image_tag
     ID_AUTH_ME_ENABLED                         = "true"
+    ID_AUTH_ADMIN_READ_ENABLED                 = var.gateway_rust_admin ? "true" : "false"
     ID_AUTH_FORM_TOKEN_ENABLED                 = "true"
     ID_AUTH_LOGIN_PILOT_ENABLED                = "true"
     ID_AUTH_SESSIONS_READ_ENABLED              = "true"
@@ -52,6 +53,7 @@ locals {
     ID_WEB_EMAIL_VERIFY_PILOT_ENABLED    = var.enable_rust_email_verify ? "true" : "false"
     ID_WEB_SIGNUP_PILOT_ENABLED          = var.enable_rust_signup || var.gateway_rust_signup_page ? "true" : "false"
     ID_WEB_ACCOUNT_PILOT_ENABLED         = "true"
+    ID_WEB_ADMIN_ENABLED                 = var.gateway_rust_admin ? "true" : "false"
     ID_WEB_SESSIONS_PILOT_ENABLED        = "true"
     ID_WEB_LOGOUT_PILOT_ENABLED          = "true"
     ID_WEB_PROFILE_PILOT_ENABLED         = "true"

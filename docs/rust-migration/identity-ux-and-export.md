@@ -21,6 +21,27 @@ Verify desktop and 390/320 px layouts, keyboard order and visible focus,
 screen-reader headings/labels, network failure, back/forward, reload and a
 complete login → consent → return flow with a real relying party.
 
+The operator UI is being rebuilt around tasks rather than a dump of internal
+models. The first read-only Rust slice checks one deletion request by opaque
+number. It shows a human-readable state and the next safe operator step; it
+does not expose account identifiers, email or a misleading "delete succeeded"
+message before cleanup is confirmed. Access requires an active staff and
+superuser session with bound MFA proof. `gateway_rust_admin` is off by default.
+This is **not** parity with the old admin: user, client, consent, export, audit,
+retry and bootstrap tasks still need dedicated screens or documented `idctl`
+procedures. A fresh-authentication requirement for privileged mutations must
+be designed before any write action is added to the browser UI.
+
+UI acceptance for each flow is a browser test at 320, 390 and desktop widths,
+without horizontal overflow, with keyboard-only operation and visible focus;
+the same flow must explain what is being authorised, what happens next, how to
+cancel or recover, and what remains pending. A successful HTTP response alone
+is not sufficient. For cross-service sign-in, verify that the user sees the
+destination, chooses optional data explicitly and returns to the actual
+relying party. For export, verify notice, cooldown, cancellation, delivery and
+post-deletion redemption as one journey. For the operator screen, verify guest,
+non-operator, missing request, pending, running, failed and completed states.
+
 ## Export and deletion contract to implement
 
 **Production behavior does not meet this contract.** The deployed export still

@@ -11,6 +11,7 @@ pub mod account_deletion_http;
 pub mod account_jwt_http;
 pub mod account_jwt_refresh;
 pub mod account_jwt_session;
+pub mod admin_http;
 pub mod authorized_apps_http;
 pub mod authorized_apps_store;
 pub mod avatar_delete;

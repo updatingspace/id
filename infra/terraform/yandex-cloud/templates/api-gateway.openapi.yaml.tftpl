@@ -696,6 +696,22 @@ paths:
         service_account_id: ${gateway_service_account_id}
 %{ endif ~}
 
+%{ if gateway_rust_admin ~}
+  /admin:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /admin/:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
 %{ if gateway_rust_recovery_pages && !gateway_use_rust ~}
   /forgot-password:
     get:

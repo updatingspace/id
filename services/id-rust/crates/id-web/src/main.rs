@@ -1,4 +1,5 @@
 mod account;
+mod admin;
 mod consent;
 mod export_redeem;
 mod home;
@@ -69,6 +70,13 @@ async fn main() -> anyhow::Result<()> {
         router = router
             .route(export_redeem::page)
             .route(export_redeem::script);
+    }
+    if std::env::var("ID_WEB_ADMIN_ENABLED").as_deref() == Ok("true") {
+        router = router
+            .app_context(admin::AdminApi::from_env()?)
+            .route(admin::page)
+            .route(admin::page_slash)
+            .route(admin::style);
     }
     if std::env::var("ID_WEB_CONSENT_PILOT_ENABLED").as_deref() == Ok("true") {
         router = router
