@@ -20,6 +20,7 @@ use topcoat::{
 #[derive(Template)]
 #[template(path = "account-overview.html")]
 struct AccountOverview<'a> {
+    edit_mode: bool,
     features: OverviewFeatures,
     user: &'a api::User,
     display_name: &'a str,
@@ -313,7 +314,11 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     } else {
         "Не подтверждена"
     };
-    let email_management = if api.email_management_enabled {
+    let edit_mode = request::uri(cx).query().is_some_and(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .any(|(key, value)| key == "section" && value == "profile")
+    });
+    let email_management = if edit_mode && api.email_management_enabled {
         match email_status(api, cookie).await {
             Ok(status) => Some(status),
             Err(_) => return error_page("Не удалось загрузить состояние почты. Попробуйте позже."),
@@ -327,6 +332,7 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         "Не включена"
     };
     let html = AccountOverview {
+        edit_mode,
         features: OverviewFeatures::from(api),
         user: &user,
         display_name,
@@ -345,7 +351,7 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     page_response(
         html,
         cookies,
-        api.logout_enabled || api.profile_enabled || api.email_management_enabled,
+        api.logout_enabled || (edit_mode && (api.profile_enabled || api.email_management_enabled)),
     )
 }
 
@@ -917,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn overview_template_escapes_profile_and_preserves_form_hooks() -> Result<(), askama::Error> {
+    fn profile_edit_template_escapes_data_and_preserves_form_hooks() -> Result<(), askama::Error> {
         let user = api::User {
             username: "owner".into(),
             email: "<script>alert(1)</script>@example.invalid".into(),
@@ -935,6 +941,7 @@ mod tests {
             pending_email: Some("pending@example.invalid".into()),
         };
         let html = AccountOverview {
+            edit_mode: true,
             features: OverviewFeatures {
                 logout_enabled: true,
                 profile_enabled: true,
@@ -965,9 +972,56 @@ mod tests {
         assert!(html.contains("id=\"avatar-form\""));
         assert!(html.contains("id=\"email-change-form\""));
         assert!(html.contains("id=\"email-change-cancel\""));
-        assert!(html.contains("/account?section=sessions"));
+        assert!(html.contains("href=\"/account\""));
         assert!(html.contains("/_id/profile.js"));
         assert!(!html.contains("a=1&b=2"));
+        Ok(())
+    }
+
+    #[test]
+    fn overview_has_clear_tasks_without_edit_forms_or_legacy_jump() -> Result<(), askama::Error> {
+        let user = api::User {
+            username: "owner".into(),
+            email: "owner@example.invalid".into(),
+            first_name: None,
+            last_name: None,
+            phone_number: None,
+            birth_date: None,
+            email_verified: true,
+            has_2fa: false,
+            avatar_url: None,
+        };
+        let html = AccountOverview {
+            edit_mode: false,
+            features: OverviewFeatures {
+                logout_enabled: true,
+                profile_enabled: true,
+                email_management_enabled: true,
+                sessions_enabled: true,
+                preferences_enabled: true,
+                exports_enabled: true,
+                apps_enabled: true,
+                security_enabled: true,
+                history_enabled: true,
+            },
+            user: &user,
+            display_name: "owner",
+            email_label: "Подтверждена",
+            mfa_status: "Не включена",
+            email_management: None,
+            first_name: "",
+            last_name: "",
+            phone_number: "",
+            birth_date: "",
+            avatar_url: "",
+            has_avatar: false,
+        }
+        .render()?;
+        assert!(html.contains("href=\"/account?section=profile\""));
+        assert!(html.contains("Проверить приложения"));
+        assert!(!html.contains("id=\"profile-form\""));
+        assert!(!html.contains("/legacy/account"));
+        assert!(!html.contains("/_id/profile.js"));
         Ok(())
     }
 

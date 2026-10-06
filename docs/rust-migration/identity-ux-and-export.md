@@ -177,14 +177,16 @@ applications now show a review step naming the application before revocation,
 with a way to keep access. These copy and layout changes are local code until
 deployed and checked through the Gateway.
 
-The account overview still exposes a labelled link to the previous React
-cabinet because the Rust pages lack a deletion journey and some settings. The
-deletion HTTP endpoint is restricted to local debug YDB and its own source
-labels it incomplete. Therefore a production deletion control must **not** be
-added by merely linking a form to that endpoint. The Rust web has no operator
-console. A browser visit to production `/admin/` on 2026-10-06 showed an
-unavailable page, not an operator workflow. These are open parity gaps, not
-design-complete screens.
+The account overview now separates task selection from editing personal
+details. `/account?section=profile` owns the profile, avatar and email forms;
+the overview has one clear link to that page and no implicit jump to React.
+The edit page still links to the previous cabinet for settings without Rust
+equivalents. The deletion HTTP endpoint is restricted to local debug YDB and
+its own source labels it incomplete. Therefore a production deletion control
+must **not** be added by merely linking a form to that endpoint. The Rust web
+has no operator console. A browser visit to production `/admin/` on 2026-10-06
+showed an unavailable page, not an operator workflow. These are open parity
+gaps, not design-complete screens.
 
 The next interface release should use one information architecture across
 pages: account overview → devices, applications, sign-in protection, personal

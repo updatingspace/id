@@ -11,7 +11,11 @@ fieldset { border: 0; border-top: 1px solid #dce2ed; padding: 1.25rem 0 0; margi
 legend { font-weight: 650; margin-bottom: .6rem; }
 .scope { display: flex; gap: .7rem; align-items: start; margin: .7rem 0; }
 .scope input { margin-top: .25rem; }
+.scope > span { display: grid; gap: .15rem; }
+.scope small { color: #51627e; font-size: .78rem; }
+.scope-code { color: #64748b; font-size: .74rem; overflow-wrap: anywhere; }
 .remember { display: flex; gap: .6rem; align-items: center; }
+.choice-note { color: #51627e; font-size: .87rem; }
 .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: 1.5rem; }
 button { min-height: 2.75rem; border: 1px solid #3154bc; border-radius: .55rem; background: #fff; color: #3154bc; font: inherit; font-weight: 650; padding: .7rem 1rem; cursor: pointer; }
 #approve { background: #3154bc; color: #fff; }

@@ -4,17 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Доступ к аккаунту — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/consent.css?v=ux-20261006-2" />
+  <link rel="stylesheet" href="/_id/consent.css?v=ux-20261006-3" />
   <script src="/_id/consent.js?v=ux-20261006-2" defer></script>
 </head>
 <body>
   <main class="consent-shell">
     <section class="consent-card" aria-labelledby="consent-title">
       <a class="brand" href="/">UpdSpace ID</a>
-      <p class="context-label">Продолжение входа в приложение</p>
-      <h1 id="consent-title">Какие данные получит {{ client_name }}?</h1>
-      <p>Вы входите в приложение <strong>{{ client_name }}</strong>. После выбора мы вернём вас на <strong>{{ destination }}</strong>. Проверьте адрес, прежде чем продолжить.</p>
-      <p>Обязательные сведения нужны для входа. Дополнительные можно оставить закрытыми; это не помешает вам вернуться в приложение.</p>
+      <p class="context-label">Разрешения приложения</p>
+      <h1 id="consent-title">Разрешить {{ client_name }} доступ к вашим сведениям?</h1>
+      <p>Теперь решите, какие сведения сможет получить <strong>{{ client_name }}</strong>. После вашего выбора браузер вернётся на <strong>{{ destination }}</strong>.</p>
+      <p>Права, необходимые для входа, отмечены отдельно. Дополнительные права выключены: их можно не предоставлять.</p>
       <form id="consent-form" data-request-id="{{ request_id }}" data-csrf-cookie="{{ csrf_cookie_name }}">
         <fieldset>
           <legend>Запрашиваемые права</legend>
@@ -25,11 +25,12 @@
             {% else %}
             <input type="checkbox" name="scope" value="{{ scope.name }}" />
             {% endif %}
-            <span><strong>{{ scope.name }}</strong>{% if scope.required %} (необходимо для входа){% endif %} — {{ scope.description }}</span>
+            <span><strong>{{ scope.description }}</strong>{% if scope.required %} <small>Необходимо для входа</small>{% else %} <small>По вашему выбору</small>{% endif %}<span class="scope-code">{{ scope.name }}</span></span>
           </label>
           {% endfor %}
         </fieldset>
-        <label class="remember"><input id="remember" type="checkbox" />Запомнить разрешения для следующих входов</label>
+        <label class="remember"><input id="remember" type="checkbox" />Не спрашивать снова о выбранных правах</label>
+        <p class="choice-note">Вы сможете пересмотреть разрешения в разделе «Приложения» своего аккаунта. Отказ вернёт вас в приложение без доступа к аккаунту.</p>
         <p id="consent-error" role="alert" hidden></p>
         <div class="actions">
           <button id="deny" type="button">Вернуться без доступа</button>

@@ -6,15 +6,19 @@
   <title>Аккаунт — UpdSpace ID</title>
   <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
   {% if features.logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
-  {% if features.profile_enabled %}<script src="/_id/profile.js" defer></script><script src="/_id/avatar.js" defer></script>{% endif %}
-  {% if features.email_management_enabled %}<script src="/_id/email.js" defer></script>{% endif %}
+  {% if edit_mode && features.profile_enabled %}<script src="/_id/profile.js" defer></script><script src="/_id/avatar.js" defer></script>{% endif %}
+  {% if edit_mode && features.email_management_enabled %}<script src="/_id/email.js" defer></script>{% endif %}
 </head>
 <body>
   <header><a href="/">UpdSpace ID</a>{% if features.logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
   <main>
-    <h1>Ваш аккаунт UpdSpace</h1>
-    <p class="page-intro">Здесь вы управляете тем, как входите в сервисы, и проверяете, кому открыт доступ к вашему аккаунту.</p>
+    {% if edit_mode %}<h1>Личные сведения</h1>
+    <p class="page-intro">Здесь можно изменить данные профиля и адрес почты. Для смены адреса понадобится недавний вход.</p>
+    <nav aria-label="Разделы аккаунта"><a href="/account">← К обзору аккаунта</a></nav>
+    {% else %}<h1>Ваш аккаунт UpdSpace</h1>
+    <p class="page-intro">Один аккаунт для входа в сервисы UpdSpace. Проверьте, где вы вошли и каким приложениям разрешили доступ.</p>{% endif %}
     {% if features.logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    {% if !edit_mode %}
     <nav class="account-nav" aria-label="Что вы хотите сделать">
       {% if features.sessions_enabled %}<a href="/account?section=sessions"><strong>Проверить устройства</strong><span>Посмотреть, где открыт аккаунт, и завершить лишние сеансы.</span></a>{% endif %}
       {% if features.apps_enabled %}<a href="/account?section=apps"><strong>Проверить приложения</strong><span>Узнать, кому вы разрешили доступ, и отозвать его.</span></a>{% endif %}
@@ -23,15 +27,18 @@
       {% if features.preferences_enabled %}<a href="/account?section=privacy"><strong>Настроить приватность</strong><span>Проверить личные предпочтения и согласия.</span></a>{% endif %}
       {% if features.history_enabled %}<a href="/account?section=activity"><strong>Посмотреть историю входов</strong><span>Проверить недавние действия в аккаунте.</span></a>{% endif %}
     </nav>
+    {% endif %}
     <section aria-labelledby="profile-title">
-      <h2 id="profile-title">Ваши сведения</h2>
+      <h2 id="profile-title">{% if edit_mode %}Текущие сведения{% else %}Ваши сведения{% endif %}</h2>
       <p>Аккаунт: <strong>{{ display_name }}</strong></p>
       <dl>
         <dt>Адрес почты</dt><dd>{{ user.email }}</dd>
         <dt>Подтверждение почты</dt><dd>{{ email_label }}</dd>
         <dt>Дополнительная защита входа</dt><dd>{{ mfa_status }}</dd>
       </dl>
+      {% if !edit_mode && (features.profile_enabled || features.email_management_enabled) %}<p><a href="/account?section=profile">Изменить личные сведения</a></p>{% endif %}
     </section>
+    {% if edit_mode %}
     {% if let Some(email) = email_management %}
     <section aria-labelledby="email-title">
       <h2 id="email-title">Адрес почты</h2>
@@ -85,7 +92,8 @@
       <p id="profile-error" role="alert" hidden></p>
     </section>
     {% endif %}
-    <p class="secondary-settings">Некоторые настройки пока доступны в прежней версии кабинета. <a href="/legacy/account">Открыть прежний кабинет</a></p>
+    <p class="secondary-settings">Если нужной настройки здесь пока нет, она доступна в <a href="/legacy/account">прежнем кабинете</a>.</p>
+    {% endif %}
   </main>
 </body>
 </html>
