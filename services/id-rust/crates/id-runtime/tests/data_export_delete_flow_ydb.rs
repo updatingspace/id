@@ -209,6 +209,63 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
             .contains(&format!("{id}:notice"))
     );
 
+    // A second request exercises the public owner cancellation route without
+    // changing the export that must survive the following account deletion.
+    let cancellable = export
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/data/exports")
+                .header("x-session-token", &session)
+                .header("idempotency-key", format!("cancel-export-{stamp}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(format!(r#"{{"password":"{password}"}}"#)))?,
+        )
+        .await?;
+    ensure!(cancellable.status() == StatusCode::ACCEPTED);
+    let cancellable_receipt: serde_json::Value =
+        serde_json::from_slice(&to_bytes(cancellable.into_body(), 4096).await?)?;
+    let cancelled_id = cancellable_receipt["id"]
+        .as_str()
+        .context("cancellable export ID")?
+        .to_owned();
+    let csrf_rejected = export
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/auth/data/exports/{cancelled_id}"))
+                .header("cookie", format!("sessionid={session}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    ensure!(csrf_rejected.status() == StatusCode::FORBIDDEN);
+    let cancelled = export
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/auth/data/exports/{cancelled_id}"))
+                .header("x-session-token", &session)
+                .body(Body::empty())?,
+        )
+        .await?;
+    ensure!(cancelled.status() == StatusCode::ACCEPTED);
+    let cancelled_body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(cancelled.into_body(), 4096).await?)?;
+    ensure!(cancelled_body["status"] == "cancelled" && cancelled_body["cleanup_pending"] == false);
+    ensure!(
+        data_export_escrow::release_at(&client, &cancelled_id, owner)
+            .await?
+            .is_none()
+    );
+    ensure!(
+        data_export_escrow::release_at(&client, &id, owner)
+            .await?
+            .is_some()
+    );
+
     let deletion = AccountDeletion::new(
         client.clone(),
         codec.clone(),
@@ -587,6 +644,23 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
         .exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
         .param("$id", deletion_id)
         .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM id_data_export_escrow WHERE id = $id")
+        .param("$id", cancelled_id.clone())
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM id_data_export_operation WHERE id = $id")
+        .param("$id", cancelled_id.clone())
+        .await?;
+    for kind in ["notice", "delivery"] {
+        client
+            .query_client()
+            .exec("DELETE FROM id_data_export_mail WHERE id = $id")
+            .param("$id", format!("{cancelled_id}:{kind}"))
+            .await?;
+    }
     Ok(())
 }
 

@@ -300,7 +300,9 @@ async fn accepted_escrow_snapshots_after_account_access_is_revoked() -> Result<(
         match *request.method() {
             axum::http::Method::PUT => {
                 assert!(request.uri().path().starts_with("/private-exports/exports/escrow/"));
-                let body = to_bytes(request.into_body(), 1024 * 1024).await.expect("bounded archive");
+                let Ok(body) = to_bytes(request.into_body(), 1024 * 1024).await else {
+                    return (StatusCode::PAYLOAD_TOO_LARGE, String::new());
+                };
                 assert!(String::from_utf8_lossy(&body).contains("deleted-export-subject"));
                 assert!(!String::from_utf8_lossy(&body).contains("secret-hash"));
                 (StatusCode::OK, String::new())

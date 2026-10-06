@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Экспорт данных — UpdSpace ID</title>
   <link rel="stylesheet" href="/_id/account.css?v=ux-20261006-4" />
-  <script src="/_id/export.js" defer></script>
+  <script src="/_id/export.js?v=cancel-20261006-1" defer></script>
   {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
-  {% if refreshing %}<meta http-equiv="refresh" content="5" />{% endif %}
 </head>
 <body>
   <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
@@ -20,7 +19,7 @@
       <h2 id="export-title">Запросить копию</h2>
       {% if delayed_enabled %}
       <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Мы начнём собирать копию сразу, а ссылку отправим на подтверждённый адрес почты не раньше чем через 24 часа. Точное время появится после запроса.</p>
-      <p>Письмо о запросе придёт отдельно. Если запрос сделали не вы, обратитесь в поддержку. Удаление аккаунта после запроса не отменит отправку подготовленной копии.</p>
+      <p>Письмо о запросе придёт отдельно. Если запрос сделали не вы, откройте его состояние ниже и отзовите доступ; после удаления аккаунта обратитесь в поддержку с номером запроса из письма. Удаление аккаунта само по себе не отменит отправку подготовленной копии.</p>
       {% else %}
       <p>Для защиты данных подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Мы подготовим приватный архив. Доступ к нему появится здесь после завершения подготовки.</p>
       {% endif %}
@@ -38,14 +37,14 @@
     </section>
     {% if requested && operation.is_none() %}
     <section aria-labelledby="export-status-title">
-      <h2 id="export-status-title">Экспорт не найден</h2>
-      <p>Проверьте ссылку или создайте новый экспорт.</p>
+      <h2 id="export-status-title">Запрос недоступен</h2>
+      <p>Он мог быть отозван или срок доступа истёк. Проверьте номер запроса в письме либо создайте новый, если аккаунт ещё действует.</p>
     </section>
     {% endif %}
     {% if let Some(result) = operation %}
     <section aria-labelledby="export-status-title">
       <h2 id="export-status-title">Состояние экспорта</h2>
-      {% if refreshing %}<p role="status">Собираем копию данных. Страница обновится автоматически.{% if delayed_enabled %} Ссылка придёт на почту после завершения периода ожидания.{% endif %}</p>{% endif %}
+      {% if refreshing %}<p role="status">Собираем копию данных.{% if delayed_enabled %} Ссылка придёт на почту после завершения периода ожидания.{% endif %} <a href="/account?section=data&amp;export={{ result.id }}">Обновить состояние</a></p>{% endif %}
       {% if result.status == "cooldown" %}<p role="status">Копия подготовлена и хранится приватно. Ссылка пока недоступна: мы отправим её на подтверждённый адрес почты после периода ожидания.</p>{% endif %}
       {% if result.status == "ready" %}<p role="status">Ссылка для получения отправлена на подтверждённый адрес почты. Она работает и после удаления аккаунта.</p>{% endif %}
       {% if let Some(release) = result.release_at %}
@@ -68,6 +67,19 @@
       <h3>Не включено</h3>
       <ul>{% for excluded in manifest.excluded %}<li>{{ excluded }}</li>{% endfor %}</ul>
       {% endif %}
+      {% endif %}
+      {% if delayed_enabled && result.status != "failed" && result.status != "expired" && result.status != "cancelled" %}
+      <div class="export-cancel" data-export-id="{{ result.id }}">
+        <h3>Запросили копию не вы?</h3>
+        <p>Отзовите запрос: ссылка перестанет работать. Письмо, которое уже отправляется, ещё может прийти, но получить по нему архив не получится. Удаление подготовленного файла может занять время.</p>
+        <button id="export-cancel-start" type="button">Отозвать запрос</button>
+        <div id="export-cancel-review" hidden>
+          <p>Отозвать именно этот запрос на копию данных?</p>
+          <button id="export-cancel-confirm" type="button">Да, отозвать запрос</button>
+          <button id="export-cancel-keep" type="button">Оставить запрос</button>
+        </div>
+        <p id="export-cancel-error" role="alert" hidden></p>
+      </div>
       {% endif %}
     </section>
     {% endif %}

@@ -125,6 +125,8 @@ mod tests {
         .render()?;
         assert!(html.contains("Ссылка для получения отправлена"));
         assert!(html.contains("не раньше чем через 24 часа"));
+        assert!(html.contains("id=\"export-cancel-confirm\""));
+        assert!(!html.contains("http-equiv=\"refresh\""));
         assert!(!html.contains("/download\""));
         Ok(())
     }

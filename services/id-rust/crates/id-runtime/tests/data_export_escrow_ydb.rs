@@ -11,7 +11,8 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use id_compat::session::SessionCodec;
 use id_runtime::data_export_escrow::{
-    COOLDOWN, DELIVERY_WINDOW, ExportEscrowKey, ensure_schema, insert_request_tx, seal_snapshot_tx,
+    COOLDOWN, DELIVERY_WINDOW, ExportEscrowKey, cancel_owned, ensure_schema, insert_request_tx,
+    seal_snapshot_tx,
 };
 use id_runtime::data_export_mail;
 use id_runtime::data_export_operation;
@@ -28,6 +29,118 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tower::ServiceExt;
 use uuid::Uuid;
 use ydb::{Transaction, TxMode, closure};
+
+#[tokio::test]
+#[ignore = "requires disposable local /local YDB"]
+async fn owner_cancellation_revokes_mail_and_capability_without_cross_account_access() -> Result<()>
+{
+    ensure!(
+        matches!(
+            std::env::var("YDB_ENDPOINT")?.as_str(),
+            "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
+        ) && std::env::var("YDB_DATABASE")? == "/local",
+        "test requires local YDB"
+    );
+    let client = Arc::new(id_runtime::connect_ydb().await?);
+    data_export_operation::ensure_schema(&client).await?;
+    ensure_schema(&client).await?;
+    data_export_mail::ensure_schema(&client).await?;
+    let id = Uuid::new_v4().simple().to_string();
+    let owner = 42;
+    let now = SystemTime::now();
+    let key = ExportEscrowKey::from_base64(&STANDARD.encode([0x63; 32]))?;
+    let recipient = key.seal_recipient(&id, "cancel-export@example.invalid")?;
+    let tx_id = id.clone();
+    client
+        .query_client()
+        .retry_tx(closure!(
+            [tx_id, recipient],
+            async |tx: &mut Transaction| {
+                insert_request_tx(tx, tx_id, owner, recipient, now).await?;
+                data_export_mail::insert_request_tx(tx, tx_id, now).await
+            }
+        ))
+        .with_mode(TxMode::SerializableReadWrite)
+        .idempotent(false)
+        .await?;
+    let object_key = format!("exports/escrow/{id}/attempt.ndjson");
+    let tx_id = id.clone();
+    let tx_key = object_key.clone();
+    client
+        .query_client()
+        .retry_tx(closure!([tx_id, tx_key], async |tx: &mut Transaction| {
+            seal_snapshot_tx(tx, tx_id, owner, tx_key, "{}", now).await
+        }))
+        .with_mode(TxMode::SerializableReadWrite)
+        .idempotent(false)
+        .await?;
+    client.query_client().exec("INSERT INTO id_data_export_operation (id, user_id, status, attempts, next_attempt_at, claim_token, object_key, manifest, created_at) VALUES ($id, $owner, 'cooldown', 1, CAST($now AS Datetime), '', $key, '{}', CAST($now AS Datetime))")
+        .param("$id", id.clone()).param("$owner", owner).param("$now", now)
+        .param("$key", object_key.clone()).await?;
+    ensure!(cancel_owned(&client, &id, owner + 1).await?.is_none());
+    client
+        .query_client()
+        .exec("UPDATE id_data_export_operation SET user_id = $other WHERE id = $id")
+        .param("$id", id.clone())
+        .param("$other", owner + 1)
+        .await?;
+    ensure!(cancel_owned(&client, &id, owner).await?.is_none());
+    client
+        .query_client()
+        .exec("UPDATE id_data_export_operation SET user_id = $owner WHERE id = $id")
+        .param("$id", id.clone())
+        .param("$owner", owner)
+        .await?;
+    ensure!(
+        id_runtime::data_export_escrow::release_at(&client, &id, owner)
+            .await?
+            .is_some(),
+        "another owner changed the request"
+    );
+    ensure!(cancel_owned(&client, &id, owner).await? == Some(object_key.clone()));
+    ensure!(cancel_owned(&client, &id, owner).await?.is_none());
+    let capability = key.capability(&id)?;
+    ensure!(
+        id_runtime::data_export_escrow::downloadable_key(
+            &client,
+            &key,
+            &id,
+            &capability,
+            now + COOLDOWN,
+        )
+        .await?
+        .is_none(),
+        "cancelled capability still downloaded"
+    );
+    for kind in ["notice", "delivery"] {
+        let mut row = client
+            .query_client()
+            .query_row("SELECT state FROM id_data_export_mail WHERE id = $id")
+            .param("$id", format!("{id}:{kind}"))
+            .await?;
+        let state: String = row.remove_field_by_name("state")?.try_into()?;
+        ensure!(state == "cancelled", "mail intent survived cancellation");
+    }
+    ensure!(id_runtime::data_export_escrow::forget_cancelled(&client, &id, &object_key).await?);
+    client
+        .query_client()
+        .exec("DELETE FROM id_data_export_escrow WHERE id = $id")
+        .param("$id", id.clone())
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM id_data_export_operation WHERE id = $id")
+        .param("$id", id.clone())
+        .await?;
+    for kind in ["notice", "delivery"] {
+        client
+            .query_client()
+            .exec("DELETE FROM id_data_export_mail WHERE id = $id")
+            .param("$id", format!("{id}:{kind}"))
+            .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test]
 #[ignore = "requires disposable local /local YDB"]
@@ -581,7 +694,7 @@ async fn send_one_mail(
         server.abort();
         anyhow::bail!("mail was not sent: {result:?}");
     }
-    Ok(tokio::time::timeout(Duration::from_secs(5), server).await???)
+    tokio::time::timeout(Duration::from_secs(5), server).await??
 }
 
 async fn empty_owner_s3() -> Result<(
@@ -598,9 +711,9 @@ async fn empty_owner_s3() -> Result<(
                 .unwrap_or("")
                 .contains("prefix=exports%2Fuser_42%2F")
         );
-        Response::builder().status(StatusCode::OK)
-            .body(Body::from("<ListBucketResult><Name>private-exports</Name><Prefix>exports/user_42/</Prefix><IsTruncated>false</IsTruncated></ListBucketResult>"))
-            .expect("valid S3 fixture response")
+        Response::new(Body::from(
+            "<ListBucketResult><Name>private-exports</Name><Prefix>exports/user_42/</Prefix><IsTruncated>false</IsTruncated></ListBucketResult>",
+        ))
     }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();

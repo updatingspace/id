@@ -523,6 +523,19 @@ paths:
         type: serverless_containers
         container_id: ${rust_sessions_mutations_container_id}
         service_account_id: ${gateway_service_account_id}
+%{ if gateway_rust_export_delayed ~}
+    delete:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
     options:
       parameters:
         - name: id

@@ -501,14 +501,40 @@ pub async fn forget_expired(
 /// The object key is returned for deletion outside the transaction; repeating
 /// this call after an uncertain S3 result returns the same key.
 pub async fn cancel(client: &Client, id: &str) -> Result<Option<String>> {
+    cancel_scoped(client, id, None).await
+}
+
+/// An authenticated owner may revoke an unexpected request without waiting
+/// for an operator. After revocation, owner-scoped reads intentionally return
+/// no operation: the receipt contains no personal data or archive link.
+pub async fn cancel_owned(client: &Client, id: &str, owner: i32) -> Result<Option<String>> {
+    ensure!(owner > 0, "invalid export owner");
+    cancel_scoped(client, id, Some(owner)).await
+}
+
+async fn cancel_scoped(
+    client: &Client,
+    id: &str,
+    expected_owner: Option<i32>,
+) -> Result<Option<String>> {
     validate_id(id)?;
     let id = id.to_owned();
-    client.query_client().retry_tx(ydb::closure!([id], async |tx: &mut Transaction| {
-        let Some(mut row) = tx.query_row(format!("SELECT state, object_key FROM `{TABLE}` WHERE id = $id"))
+    client.query_client().retry_tx(ydb::closure!([id, expected_owner], async |tx: &mut Transaction| {
+        let expected_owner = *expected_owner;
+        let Some(mut row) = tx.query_row(format!("SELECT user_id, state, object_key FROM `{TABLE}` WHERE id = $id"))
             .param("$id", id.clone()).optional().await? else { return Ok(None); };
+        let owner: i32 = row.remove_field_by_name("user_id")?.try_into()?;
         let state: String = row.remove_field_by_name("state")?.try_into()?;
         let object_key: String = row.remove_field_by_name("object_key")?.try_into()?;
-        if state == "expired" { return Ok(None); }
+        if state == "expired" || expected_owner.is_some_and(|expected| owner != expected) {
+            return Ok(None);
+        }
+        if let Some(expected) = expected_owner {
+            let Some(mut operation) = tx.query_row("SELECT user_id FROM id_data_export_operation WHERE id = $id")
+                .param("$id", id.clone()).optional().await? else { return Ok(None); };
+            let operation_owner: i32 = operation.remove_field_by_name("user_id")?.try_into()?;
+            if operation_owner != expected { return Ok(None); }
+        }
         if state != "cancelled" {
             if !matches!(state.as_str(), "accepted" | "sealed" | "released" | "failed") {
                 return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("unknown export escrow state")));

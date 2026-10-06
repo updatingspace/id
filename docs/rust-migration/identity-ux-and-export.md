@@ -98,15 +98,20 @@ forever for an archive that could not be prepared. The exact retry budget and
 failure notification timing still need operational tuning under real storage
 outages.
 
-An unexpected request can be revoked by an operator using the opaque request
-ID shown in the notification. `idctl data-export-cancel <id>` is read-only;
+An authenticated owner can now revoke a delayed request from its status page;
+the Rust API checks the owner and CSRF, cancels both mail intents and revokes
+the capability in one YDB transaction, then deletes the private object. A
+failed object deletion stays private and is retried by expiry jobs. After
+account deletion, the owner session no longer exists, so an unexpected
+request can still be revoked by an operator using the opaque request ID shown
+in the notification. `idctl data-export-cancel <id>` is read-only;
 `idctl data-export-cancel <id> --apply` atomically revokes mail and download
 access, then deletes the private object and clears its reference. If Object
 Storage deletion fails, the command reports that the link is already revoked
 and must be retried; lifecycle and the expiry worker remain fallback cleanup.
 An SMTP send already in flight may still deliver a now-useless link. Operator
 authentication and request verification are operational controls for this
-CLI; a user-facing self-service cancellation flow is not implemented yet.
+CLI. A recovery channel for cancellation after account deletion remains open.
 
 Target flow:
 

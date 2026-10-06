@@ -179,7 +179,7 @@ pub fn router(config: Arc<ExportHttpConfig>) -> Router {
         .route("/api/v1/auth/data/exports", post(create).options(preflight))
         .route(
             "/api/v1/auth/data/exports/{id}",
-            get(status).options(preflight),
+            get(status).delete(cancel).options(preflight),
         )
         .route(
             "/api/v1/auth/data/exports/{id}/download",
@@ -449,6 +449,65 @@ async fn status(
     response
 }
 
+async fn cancel(
+    State(config): State<Arc<ExportHttpConfig>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let mut result = cancel_inner(&config, &id, &headers).await;
+    add_cors(result.headers_mut(), &headers, &config.trusted_origins);
+    result
+}
+
+async fn cancel_inner(config: &ExportHttpConfig, id: &str, headers: &HeaderMap) -> Response {
+    if config.escrow_key.is_none() {
+        return error(StatusCode::NOT_FOUND, "NOT_FOUND");
+    }
+    let (token, explicit) = match credential(config, headers) {
+        Ok(Some(value)) => value,
+        Ok(None) => return error(StatusCode::UNAUTHORIZED, "UNAUTHORIZED"),
+        Err(()) => return error(StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN"),
+    };
+    if !explicit && !csrf_allowed(headers, &config.csrf_cookie_name, &config.trusted_origins) {
+        return error(StatusCode::FORBIDDEN, "CSRF_FAILED");
+    }
+    let owner = match owner(config, &token).await {
+        Ok(Some(value)) => value,
+        Ok(None) => return error(StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN"),
+        Err(status) => return error(status, "SERVICE_UNAVAILABLE"),
+    };
+    let key = match data_export_escrow::cancel_owned(&config.client, id, owner).await {
+        Ok(Some(key)) => key,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "NOT_FOUND"),
+        Err(failure) => {
+            tracing::warn!(?failure, "owner export cancellation failed");
+            return error(StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE");
+        }
+    };
+    // The transaction already revoked both mail intents and any capability.
+    // A failed object deletion remains private and is retried by expiry jobs.
+    let cleanup_pending = if key.is_empty() {
+        false
+    } else if let Err(failure) = config.storage.delete_object(&key).await {
+        tracing::warn!(?failure, "cancelled export object cleanup deferred");
+        true
+    } else {
+        false
+    };
+    let cleanup_pending = if cleanup_pending {
+        true
+    } else {
+        match data_export_escrow::forget_cancelled(&config.client, id, &key).await {
+            Ok(true) => false,
+            Ok(false) | Err(_) => true,
+        }
+    };
+    response(
+        StatusCode::ACCEPTED,
+        json!({"status":"cancelled","cleanup_pending":cleanup_pending}),
+    )
+}
+
 async fn status_inner(config: &ExportHttpConfig, id: &str, headers: &HeaderMap) -> Response {
     let owner = match authenticated_owner(config, headers).await {
         Ok(Some(owner)) => owner,
@@ -626,7 +685,7 @@ fn add_cors(target: &mut HeaderMap, request: &HeaderMap, trusted: &[String]) {
         );
         target.insert(
             header::ACCESS_CONTROL_ALLOW_METHODS,
-            HeaderValue::from_static("GET, POST, OPTIONS"),
+            HeaderValue::from_static("GET, POST, DELETE, OPTIONS"),
         );
         target.insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,

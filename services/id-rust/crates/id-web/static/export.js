@@ -67,4 +67,68 @@
       button.disabled = false;
     }
   });
+
+  const cancelBox = document.querySelector(".export-cancel[data-export-id]");
+  const cancelStart = document.getElementById("export-cancel-start");
+  const cancelReview = document.getElementById("export-cancel-review");
+  const cancelConfirm = document.getElementById("export-cancel-confirm");
+  const cancelKeep = document.getElementById("export-cancel-keep");
+  const cancelError = document.getElementById("export-cancel-error");
+  if (!cancelBox || !cancelStart || !cancelReview || !cancelConfirm || !cancelKeep || !cancelError) return;
+  const id = cancelBox.dataset.exportId;
+  if (!/^[0-9a-f]{32}$/u.test(id || "")) return;
+
+  cancelStart.addEventListener("click", () => {
+    cancelStart.hidden = true;
+    cancelReview.hidden = false;
+    cancelConfirm.focus();
+  });
+  cancelKeep.addEventListener("click", () => {
+    cancelReview.hidden = true;
+    cancelStart.hidden = false;
+    cancelStart.focus();
+  });
+  cancelConfirm.addEventListener("click", async () => {
+    cancelConfirm.disabled = true;
+    cancelKeep.disabled = true;
+    cancelError.hidden = true;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`/api/v1/auth/data/exports/${id}`, {
+        method: "DELETE", credentials: "include", cache: "no-store",
+        headers: { "X-CSRFToken": csrfCookie(), Accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (response.status === 401) {
+        window.location.assign("/login?next=%2Faccount");
+        return;
+      }
+      if (response.status !== 202) {
+        throw new Error(response.status === 404
+          ? "Запрос больше не доступен в этом аккаунте. Проверьте письмо или обратитесь в поддержку."
+          : "Не удалось подтвердить отзыв. Обновите состояние или обратитесь в поддержку.");
+      }
+      const section = cancelBox.closest("section");
+      if (section) {
+        const heading = document.createElement("h2");
+        heading.textContent = "Запрос отозван";
+        heading.tabIndex = -1;
+        const message = document.createElement("p");
+        message.setAttribute("role", "status");
+        message.textContent = "Ссылка из письма больше не работает; удаление подготовленного файла может занять время.";
+        const back = document.createElement("a");
+        back.href = "/account?section=data";
+        back.textContent = "К запросу копии данных";
+        section.replaceChildren(heading, message, back);
+        heading.focus();
+      }
+    } catch (failure) {
+      cancelError.textContent = failure instanceof Error && failure.name !== "AbortError"
+        ? failure.message : "Ответ не получен. Проверьте состояние запроса перед повтором.";
+      cancelError.hidden = false;
+      cancelConfirm.disabled = false;
+      cancelKeep.disabled = false;
+    } finally { clearTimeout(timer); }
+  });
 })();
