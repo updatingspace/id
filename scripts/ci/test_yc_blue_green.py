@@ -640,7 +640,7 @@ class BlueGreenTests(unittest.TestCase):
             self.assertNotIn("do-not-log", captured.getvalue())
             self.assertEqual(log.stat().st_mode & 0o777, 0o600)
 
-    def test_workflow_only_promotes_after_migrations_build_and_warm_checks(self):
+    def test_rust_workflow_qualifies_digest_before_replacing_live_revisions(self):
         # BaseLoader avoids treating the GitHub 'on' key as YAML 1.1 boolean.
         document = yaml.load(
             (
@@ -648,24 +648,30 @@ class BlueGreenTests(unittest.TestCase):
             ).read_text(),
             Loader=yaml.BaseLoader,
         )
-        steps = document["jobs"]["release"]["steps"]
+        jobs = document["jobs"]
+        self.assertIn("verify-tested-revision", str(jobs["verify-revision"]["steps"]))
+        self.assertEqual(jobs["build"]["needs"], "verify-revision")
+        self.assertEqual(jobs["deploy"]["needs"], "build")
+        steps = jobs["deploy"]["steps"]
         commands = [step.get("run", "") for step in steps]
 
         def at(fragment):
             return next(i for i, command in enumerate(commands) if fragment in command)
 
-        self.assertLess(at("manage.py migrate_ydb"), at("yc_rollout.py warm"))
-        self.assertLess(at("pnpm build"), at("yc_rollout.py warm"))
-        self.assertLess(at("yc_rollout.py warm"), at("yc_rollout.py promote"))
-        self.assertLess(
-            at("yc_rollout.py promote"), at("deploy-frontend-object-storage.sh")
-        )
-        self.assertLess(at("smoke-yc-gateway.sh"), at("yc_rollout.py retire"))
-        for phase in ("rollback", "abort"):
-            self.assertIn(
-                "steps.smoke.outcome != 'success'",
-                steps[at("yc_rollout.py " + phase)]["if"],
-            )
+        self.assertLess(at("data-export-escrow-schema"), at("rollback-yc-rust-revisions.mjs capture"))
+        self.assertIn("data-export-mail-schema", commands[at("data-export-escrow-schema")])
+        self.assertLess(at("rollback-yc-rust-revisions.mjs capture"), at("deploy-yc-rust-revision.mjs"))
+        deploy_steps = [i for i, command in enumerate(commands) if "deploy-yc-rust-revision.mjs" in command]
+        self.assertEqual(len(deploy_steps), 3)
+        for index, container in zip(
+            deploy_steps,
+            ("RUST_API_CONTAINER_ID", "RUST_WEB_CONTAINER_ID", "RUST_JOBS_CONTAINER_ID"),
+        ):
+            self.assertIn(container, commands[index])
+        for index in deploy_steps:
+            self.assertIn("--apply", commands[index])
+        self.assertLess(deploy_steps[-1], at("rollback-yc-rust-revisions.mjs rollback"))
+        self.assertIn("failure()", steps[at("rollback-yc-rust-revisions.mjs rollback")]["if"])
 
 
 if __name__ == "__main__":

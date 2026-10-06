@@ -136,7 +136,8 @@ def revision_config(revision: dict[str, Any]) -> dict[str, Any]:
         # YC emits {} for an explicitly configured zero. Removing that block
         # would still deploy a revision to the serving slot during preparation.
         "provision_policy_present": provision_policy is not None,
-        "log_group_id": revision["log_options"]["log_group_id"],
+        "log_group_id": revision["log_options"].get("log_group_id", ""),
+        "log_folder_id": revision["log_options"].get("folder_id", ""),
         "log_min_level": revision["log_options"].get("min_level", "INFO"),
         "metadata_options": {
             "gce_http_endpoint": endpoint(metadata.get("gce_http_endpoint", 0)),

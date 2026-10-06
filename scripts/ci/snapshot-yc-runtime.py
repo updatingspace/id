@@ -18,6 +18,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--terraform-dir", required=True)
     parser.add_argument("--terraform-bin", default="terraform")
+    parser.add_argument(
+        "--container-id",
+        help="Verified live backend container ID when Terraform state is unavailable locally",
+    )
+    parser.add_argument(
+        "--gateway-id",
+        help="Verified live Gateway ID when Terraform state is unavailable locally",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument(
         "--shared-cache",
@@ -25,18 +33,37 @@ def main():
         help="Resolve VPC/subnet for an explicitly enabled managed cache",
     )
     parser.add_argument("--blue-green", action="store_true")
+    parser.add_argument(
+        "--retire-legacy",
+        action="store_true",
+        help="Snapshot the serving Rust green revision while removing the deleted Django blue slot",
+    )
     parser.add_argument("--release-image-tag")
     parser.add_argument("--manifest", type=Path)
     args = parser.parse_args()
     if args.blue_green and (not args.release_image_tag or not args.manifest):
         parser.error("--blue-green requires --release-image-tag and --manifest")
-    outputs = read_json(
-        args.terraform_bin, f"-chdir={args.terraform_dir}", "output", "-json"
-    )
-    # Use the container recorded in this stack's state, not another folder service.
-    container_id = (
-        outputs["backend_invoke_url"]["value"].split("//", 1)[1].split(".", 1)[0]
-    )
+    if bool(args.container_id) != bool(args.gateway_id):
+        parser.error("--container-id and --gateway-id must be provided together")
+    if args.blue_green and args.container_id:
+        parser.error(
+            "--blue-green requires Terraform outputs to identify both backend slots"
+        )
+    if args.retire_legacy and (args.blue_green or not args.container_id):
+        parser.error("--retire-legacy requires --container-id and --gateway-id, without --blue-green")
+    if args.container_id:
+        outputs = None
+        container_id = args.container_id
+        gateway_id = args.gateway_id
+    else:
+        outputs = read_json(
+            args.terraform_bin, f"-chdir={args.terraform_dir}", "output", "-json"
+        )
+        # Use the container recorded in this stack's state, not another folder service.
+        container_id = (
+            outputs["backend_invoke_url"]["value"].split("//", 1)[1].split(".", 1)[0]
+        )
+        gateway_id = outputs["api_gateway_id"]["value"]
     overrides, manifest = {}, None
     if args.blue_green:
         from yc_rollout import rollout_snapshot
@@ -86,10 +113,14 @@ def main():
             if secret["id"] == secret_id and secret["version_id"] == version_id:
                 values[secret["environment_variable"]] = entries[secret["key"]]
     result = {
-        "existing_api_gateway_id": outputs["api_gateway_id"]["value"],
+        "existing_api_gateway_id": gateway_id,
         "live_service_environment": revision["image"].get("environment", {}),
         "live_secret_entries": values,
     }
+    if args.retire_legacy:
+        from yc_rollout import revision_config
+
+        result["retained_backend_config"] = revision_config(revision)
     # Preserve live connectivity; do not attach a VPC just for a disabled cache.
     result["existing_network_id"] = revision.get("connectivity", {}).get(
         "network_id", ""

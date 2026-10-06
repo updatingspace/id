@@ -4,6 +4,12 @@ variable "blue_green_enabled" {
   default     = false
 }
 
+variable "legacy_backend_enabled" {
+  description = "Keep the retired Django blue container in Terraform-managed environments. Disable only after the public Gateway no longer references it."
+  type        = bool
+  default     = true
+}
+
 variable "rollout_active_slot" {
   description = "Backend slot receiving public gateway traffic."
   type        = string
@@ -56,7 +62,8 @@ variable "retained_backend_config" {
     network_id               = string
     min_instances            = number
     provision_policy_present = optional(bool, false)
-    log_group_id             = string
+    log_group_id             = optional(string, "")
+    log_folder_id            = optional(string, "")
     log_min_level            = string
     metadata_options = object({
       gce_http_endpoint    = number
@@ -85,6 +92,7 @@ locals {
     min_instances            = coalesce(var.candidate_min_ready_instances, var.min_ready_instances)
     provision_policy_present = false
     log_group_id             = yandex_logging_group.id.id
+    log_folder_id            = ""
     log_min_level            = "INFO"
     metadata_options = {
       gce_http_endpoint    = 1
@@ -101,13 +109,13 @@ locals {
     min_instances = var.retire_other_backend ? 0 : var.retained_backend_config.min_instances
   })
   blue_backend  = !var.blue_green_enabled || var.rollout_target_slot == "blue" ? local.desired_backend : local.retained_backend
-  green_backend = var.rollout_target_slot == "green" ? local.desired_backend : local.retained_backend
+  green_backend = var.legacy_backend_enabled ? (var.rollout_target_slot == "green" ? local.desired_backend : local.retained_backend) : local.retained_backend
   backend_ids = merge(
-    { blue = yandex_serverless_container.backend.id },
+    var.legacy_backend_enabled ? { blue = yandex_serverless_container.backend[0].id } : {},
     var.blue_green_enabled ? { green = yandex_serverless_container.backend_green[0].id } : {},
   )
   backend_urls = merge(
-    { blue = yandex_serverless_container.backend.url },
+    var.legacy_backend_enabled ? { blue = yandex_serverless_container.backend[0].url } : {},
     var.blue_green_enabled ? { green = yandex_serverless_container.backend_green[0].url } : {},
   )
   backend_invokers = concat(
@@ -127,6 +135,16 @@ resource "terraform_data" "rollout_safety" {
     precondition {
       condition     = var.blue_green_enabled || (var.rollout_active_slot == "blue" && var.rollout_target_slot == "blue")
       error_message = "The green slot requires blue_green_enabled."
+    }
+    precondition {
+      condition = var.legacy_backend_enabled || (
+        var.blue_green_enabled &&
+        var.rollout_active_slot == "green" &&
+        var.rollout_target_slot == "green" &&
+        var.retained_backend_config != null &&
+        var.gateway_rust_catchall
+      )
+      error_message = "Retiring Django requires a live Rust green snapshot and Rust-only Gateway catch-all."
     }
   }
 }

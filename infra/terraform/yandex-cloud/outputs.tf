@@ -28,6 +28,11 @@ output "media_bucket_name" {
   value       = yandex_storage_bucket.media.bucket
 }
 
+output "export_bucket_name" {
+  description = "Private Object Storage bucket for completed Rust account exports, when enabled."
+  value       = var.enable_rust_export ? yandex_storage_bucket.export[0].bucket : null
+}
+
 output "container_registry_id" {
   description = "Container Registry ID for Yandex Container Registry pushes."
   value       = local.container_registry_id

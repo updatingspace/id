@@ -19,6 +19,48 @@ env:
   FRONTEND_IMAGE: ${{ github.repository_owner }}/id-frontend
 
 jobs:
+  rust-stack:
+    name: Rust API and Topcoat
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    defaults:
+      run:
+        working-directory: services/id-rust
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+      - name: Install WebAuthn build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+      - name: Format and lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Unit tests and release binaries
+        run: |
+          cargo test --locked --workspace
+          cargo build --locked --release -p id-runtime --bin id-api --bin idctl
+          cargo build --locked --release -p id-runtime --bin id-jobs
+          cargo build --locked --release -p id-web
+      - name: Topcoat security SSR smoke
+        run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-security.sh
+      - name: Topcoat recovery SSR smoke
+        run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-recovery.sh
+      - name: Topcoat legacy form-token browser contract
+        run: node scripts/test-web-recovery-legacy-csrf.cjs
+      - name: Topcoat email-management browser contract
+        run: node scripts/test-web-email-management.cjs
+      - name: Topcoat signup SSR smoke
+        run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-signup.sh
+      - name: Check deployment images
+        run: |
+          docker build --check -f Dockerfile.api .
+          docker build --check -f Dockerfile.jobs .
+          docker build --check -f Dockerfile.web .
+
   backend-sqlite:
     name: Backend (SQLite + coverage gates)
     runs-on: ubuntu-latest
@@ -201,11 +243,177 @@ jobs:
       - name: Run migrate_ydb dry-run
         run: uv run --frozen python src/manage.py migrate_ydb --dry-run
 
+      - name: Rehearse upgrade from the previous ID schema
+        run: uv run --frozen python scripts/check_ydb_schema_upgrade.py
+
       - name: Check YDB auth and shared cache
         run: |
           uv run --frozen python src/manage.py migrate_ydb
           uv run --frozen python scripts/check_ydb_runtime.py
+          uv run --frozen python scripts/check_oidc_runtime.py
           uv run --frozen python scripts/check_identity_runtime.py
+
+      - name: Verify Rust OIDC form authorization on local YDB
+        env:
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_OIDC_AUTHORIZE_PILOT_ENABLED: "true"
+          ID_OIDC_TOKEN_PILOT_ENABLED: "true"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          cd ../id-rust
+          cargo test --locked -p id-runtime --test oidc_authorize_ydb -- --ignored
+
+      - name: Verify Rust profile and avatar deletion on local YDB
+        env:
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_AUTH_PROFILE_PILOT_ENABLED: "true"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          cd ../id-rust
+          cargo test --locked -p id-runtime --test profile_http_ydb -- --ignored
+
+      - name: Verify Rust password change and durable mail on local YDB
+        env:
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_AUTH_PASSWORD_CHANGE_PILOT_ENABLED: "true"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          cd ../id-rust
+          cargo run --locked -p id-runtime --bin idctl -- password-mail-schema
+          cargo run --locked -p id-runtime --bin idctl -- security-mail-schema
+          cargo test --locked -p id-runtime --test password_change_http_ydb -- --ignored
+          cargo test --locked -p id-runtime --lib password_mail::tests::sends_once_from_durable_intent -- --ignored
+          cargo test --locked -p id-runtime --lib password_mail::tests::two_clients_claim_one_password_mail -- --ignored
+          cargo test --locked -p id-runtime --lib password_mail::tests::deleted_account_cancels_and_scrubs_pending_mail -- --ignored
+
+      - name: Verify Rust password recovery on local YDB
+        env:
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_AUTH_FORM_TOKEN_ENABLED: "true"
+          ID_AUTH_PASSWORD_RESET_PILOT_ENABLED: "true"
+          ID_PASSWORD_RESET_HMAC_KEY: "0707070707070707070707070707070707070707070707070707070707070707"
+          CSRF_TRUSTED_ORIGINS: "http://localhost:5175"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          cd ../id-rust
+          cargo run --locked -p id-runtime --bin idctl -- password-reset-schema
+          cargo run --locked -p id-runtime --bin idctl -- password-reset-schema
+          cargo test --locked -p id-runtime --test password_reset_http_ydb -- --ignored
+          cargo test --locked -p id-runtime --lib password_reset::tests::mail_claim_is_single_owner_and_expiry_is_cleaned -- --ignored
+
+      - name: Verify Rust email confirmation and durable mail on local YDB
+        env:
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_AUTH_FORM_TOKEN_ENABLED: "true"
+          ID_AUTH_EMAIL_VERIFY_PILOT_ENABLED: "true"
+          ID_AUTH_EMAIL_RESEND_ENABLED: "true"
+          ID_AUTH_SIGNUP_PILOT_ENABLED: "true"
+          ID_EMAIL_VERIFY_HMAC_KEY: "0808080808080808080808080808080808080808080808080808080808080808"
+          CSRF_TRUSTED_ORIGINS: "http://localhost:5175"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          cd ../id-rust
+          cargo run --locked -p id-runtime --bin idctl -- email-verify-schema
+          cargo run --locked -p id-runtime --bin idctl -- email-verify-schema
+          cargo test --locked -p id-runtime --test email_verify_http_ydb -- --ignored
+          cargo test --locked -p id-runtime --test signup_ydb -- --ignored
+          cargo test --locked -p id-runtime --lib email_verify::tests::mail_claim_is_single_owner_and_expiry_is_cleaned -- --ignored
+
+      - name: Verify Rust magic-link request, SMTP delivery and one-use exchange on local YDB
+        env:
+          YDB_CREDENTIALS_MODE: anonymous
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          cd ../id-rust
+          cargo run --locked -p id-runtime --bin idctl -- magic-link-schema
+          cargo run --locked -p id-runtime --bin idctl -- magic-link-schema
+          cargo test --locked -p id-runtime --test magic_link_request_ydb -- --ignored
+          cargo test --locked -p id-runtime --test magic_link_consume_ydb -- --ignored
+          cargo test --locked -p id-runtime --lib magic_link_request::tests::mail_claim_has_one_owner_and_retry_after_lease -- --ignored
+
+      - name: Verify Rust email change ownership and one-use confirmation on local YDB
+        env:
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_AUTH_EMAIL_CHANGE_PILOT_ENABLED: "true"
+          ID_AUTH_EMAIL_CANCEL_PILOT_ENABLED: "true"
+          CSRF_TRUSTED_ORIGINS: "http://id.localhost"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          cd ../id-rust
+          cargo run --locked -p id-runtime --bin idctl -- email-change-schema
+          cargo run --locked -p id-runtime --bin idctl -- email-change-schema
+          cargo run --locked -p id-runtime --bin idctl -- security-mail-schema
+          cargo test --locked -p id-runtime --test email_change_ydb -- --ignored
+
+      - name: Verify isolated cutover, delayed export and deletion finalization
+        env:
+          YDB_ENDPOINT: grpc://127.0.0.1:2137
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_DISPOSABLE_YDB: "true"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          docker run -d --rm --name id-deletion-test-ydb --hostname localhost \
+            -e GRPC_PORT=2137 -e MON_PORT=8766 \
+            -p 127.0.0.1:2137:2137 \
+            ydbplatform/local-ydb@sha256:9e46fd45875551a75bcf34d0bb9ca0baa1d8763a4ccf2070af45f4467c4b7402
+          trap 'docker stop id-deletion-test-ydb' EXIT
+          YDB_CONTAINER_NAME=id-deletion-test-ydb \
+            YDB_LOCAL_ENDPOINT=grpc://localhost:2137 \
+            ../../scripts/ci/wait-for-ydb-local.sh
+          cd ../id-rust
+          cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
+          cargo test --locked -p id-runtime --test legacy_cutover_reset_ydb -- --ignored
+          cargo run --locked -p id-runtime --bin idctl -- data-export-schema
+          cargo run --locked -p id-runtime --bin idctl -- data-export-escrow-schema
+          cargo run --locked -p id-runtime --bin idctl -- data-export-mail-schema
+          cargo test --locked -p id-runtime --test data_export_delete_flow_ydb -- --ignored
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10.3.0
+          run_install: false
+
+      - name: Install Chromium for Topcoat recovery E2E
+        run: |
+          cd ../../web/id-frontend
+          pnpm install --frozen-lockfile
+          pnpm e2e:install
+
+      - name: Verify Chromium to Topcoat to Rust recovery on local YDB
+        env:
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+          YDB_CREDENTIALS_MODE: anonymous
+        run: |
+          cd ../id-rust
+          cargo build --locked -p id-runtime --bins -p id-web
+          bash scripts/smoke-web-recovery-live.sh
+
+      - name: Verify Chromium to Topcoat to Rust signup on local YDB
+        env:
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+          YDB_CREDENTIALS_MODE: anonymous
+        run: |
+          cd ../id-rust
+          bash scripts/smoke-web-signup-live.sh
 
   terraform-check:
     name: Terraform validate

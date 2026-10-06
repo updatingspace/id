@@ -117,6 +117,7 @@ resource "yandex_resourcemanager_folder_iam_member" "runtime_image_puller" {
 }
 
 resource "yandex_serverless_container" "backend" {
+  count              = var.legacy_backend_enabled ? 1 : 0
   name               = "${local.name_prefix}-backend"
   description        = "UpdSpace ID backend"
   memory             = local.blue_backend.memory
@@ -238,13 +239,15 @@ resource "yandex_serverless_container" "backend_green" {
   }
 
   log_options {
-    log_group_id = local.green_backend.log_group_id
+    log_group_id = local.green_backend.log_group_id != "" ? local.green_backend.log_group_id : null
+    folder_id    = local.green_backend.log_folder_id != "" ? local.green_backend.log_folder_id : null
     min_level    = local.green_backend.log_min_level
   }
 }
 
 resource "yandex_serverless_container_iam_binding" "gateway_backend_invoker" {
-  container_id = yandex_serverless_container.backend.id
+  count        = var.legacy_backend_enabled ? 1 : 0
+  container_id = yandex_serverless_container.backend[0].id
   role         = "serverless.containers.invoker"
   members      = local.backend_invokers
 }
@@ -272,6 +275,10 @@ resource "yandex_api_gateway" "id" {
 
   depends_on = [
     yandex_serverless_container_iam_binding.gateway_backend_invoker,
+    yandex_serverless_container_iam_binding.gateway_rust_api_invoker,
+    yandex_serverless_container_iam_binding.gateway_rust_web_invoker,
+    data.yandex_serverless_container.deployed_rust_api,
+    data.yandex_serverless_container.deployed_rust_web,
     yandex_serverless_container_iam_binding.gateway_green_invoker,
     yandex_storage_bucket_iam_binding.gateway_frontend_viewer,
   ]

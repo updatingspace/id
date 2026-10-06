@@ -78,7 +78,7 @@ resource "yandex_iam_service_account" "scheduler" {
 }
 
 resource "yandex_serverless_container" "gravatar" {
-  count              = var.enable_gravatar_job ? 1 : 0
+  count              = var.enable_gravatar_job && var.gravatar_rust_jobs_container_id == "" ? 1 : 0
   name               = "${local.name_prefix}-gravatar"
   description        = "Bounded Gravatar refresh outside the authentication path"
   memory             = 512
@@ -128,8 +128,15 @@ resource "yandex_serverless_container" "gravatar" {
 }
 
 resource "yandex_serverless_container_iam_binding" "gravatar_invoker" {
-  count        = var.enable_gravatar_job ? 1 : 0
+  count        = var.enable_gravatar_job && var.gravatar_rust_jobs_container_id == "" ? 1 : 0
   container_id = yandex_serverless_container.gravatar[0].id
+  role         = "serverless.containers.invoker"
+  members      = ["serviceAccount:${yandex_iam_service_account.scheduler[0].id}"]
+}
+
+resource "yandex_serverless_container_iam_binding" "gravatar_rust_invoker" {
+  count        = var.enable_gravatar_job && var.gravatar_rust_jobs_container_id != "" ? 1 : 0
+  container_id = var.gravatar_rust_jobs_container_id
   role         = "serverless.containers.invoker"
   members      = ["serviceAccount:${yandex_iam_service_account.scheduler[0].id}"]
 }
@@ -142,7 +149,7 @@ resource "yandex_function_trigger" "gravatar" {
     cron_expression = "17 * * * ? *"
   }
   container {
-    id                 = yandex_serverless_container.gravatar[0].id
+    id                 = var.gravatar_rust_jobs_container_id != "" ? var.gravatar_rust_jobs_container_id : yandex_serverless_container.gravatar[0].id
     path               = "/refresh-gravatars"
     service_account_id = yandex_iam_service_account.scheduler[0].id
     retry_attempts     = 2
@@ -150,6 +157,7 @@ resource "yandex_function_trigger" "gravatar" {
   }
   depends_on = [
     yandex_serverless_container_iam_binding.gravatar_invoker,
+    yandex_serverless_container_iam_binding.gravatar_rust_invoker,
     yandex_resourcemanager_folder_iam_member.deployer_trigger_editor,
     data.yandex_serverless_container.deployed_gravatar,
   ]
@@ -165,7 +173,7 @@ resource "terraform_data" "existing_gateway_spec" {
     spec       = local.api_gateway_spec
   }
   provisioner "local-exec" {
-    command = "python3 '${path.module}/../../../scripts/ci/update-yc-gateway.py'"
+    command = "bash '${path.module}/../../../scripts/ci/update-yc-gateway.sh'"
     environment = {
       YC_GATEWAY_ID   = self.input.gateway_id
       YC_GATEWAY_SPEC = self.input.spec
@@ -175,6 +183,10 @@ resource "terraform_data" "existing_gateway_spec" {
     data.yandex_serverless_container.deployed_backend,
     data.yandex_serverless_container.deployed_green,
     yandex_serverless_container_iam_binding.gateway_backend_invoker,
+    yandex_serverless_container_iam_binding.gateway_rust_api_invoker,
+    yandex_serverless_container_iam_binding.gateway_rust_web_invoker,
+    data.yandex_serverless_container.deployed_rust_api,
+    data.yandex_serverless_container.deployed_rust_web,
     yandex_serverless_container_iam_binding.gateway_green_invoker,
     yandex_storage_bucket_iam_binding.gateway_frontend_viewer,
   ]

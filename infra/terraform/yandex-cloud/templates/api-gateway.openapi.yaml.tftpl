@@ -20,6 +20,709 @@ paths:
         container_id: ${backend_container_id}
         service_account_id: ${gateway_service_account_id}
 
+%{ if gateway_rust_me && !gateway_use_rust ~}
+  /api/v1/auth/me:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_form_token && !gateway_use_rust ~}
+  /api/v1/auth/form_token:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_login_api && !gateway_use_rust ~}
+  /api/v1/auth/login:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_passkey_login && !gateway_use_rust ~}
+%{ for action in ["begin", "complete"] ~}
+  /api/v1/auth/passkeys/login/${action}:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endfor ~}
+%{ endif ~}
+
+%{ if gateway_rust_passkey_registration && !gateway_use_rust ~}
+%{ for action in ["begin", "complete"] ~}
+  /api/v1/auth/passkeys/${action}:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endfor ~}
+%{ endif ~}
+
+%{ if gateway_rust_totp_management && !gateway_use_rust ~}
+%{ for action in ["begin", "confirm", "disable"] ~}
+  /api/v1/auth/mfa/totp/${action}:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endfor ~}
+  /api/v1/auth/mfa/recovery/regenerate:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_passkey_rename && !gateway_use_rust ~}
+  /api/v1/auth/passkeys/rename:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_passkey_delete && !gateway_use_rust ~}
+  /api/v1/auth/passkeys/delete:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_signup_api && !gateway_use_rust ~}
+  /api/v1/auth/signup:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_email_verify_api && !gateway_use_rust ~}
+%{ for route in ["request", "confirm"] ~}
+  /api/v1/auth/email/verification/${route}:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endfor ~}
+%{ endif ~}
+
+%{ if gateway_rust_email_resend && !gateway_use_rust ~}
+  /api/v1/auth/email/resend:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_password_reset_api && !gateway_use_rust ~}
+%{ for action in ["request", "confirm"] ~}
+  /api/v1/auth/password/reset/${action}:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endfor ~}
+%{ endif ~}
+
+%{ if gateway_rust_oauth_providers && !gateway_use_rust ~}
+  /api/v1/auth/oauth/providers:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_internal_identity && !gateway_use_rust ~}
+  /api/v1/internal/identity/me:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_exchange && !gateway_use_rust ~}
+  /api/v1/auth/exchange:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_magic_link && !gateway_use_rust ~}
+  /api/v1/auth/magic-link/request:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+  /api/v1/auth/magic-link/consume:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_portal_me && !gateway_use_rust ~}
+  /api/v1/me:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_sessions_read && !gateway_use_rust ~}
+  /api/v1/auth/sessions:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_sessions_mutations && !gateway_use_rust ~}
+  /api/v1/auth/sessions/bulk:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /api/v1/auth/sessions/_bulk:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /api/v1/auth/sessions/{sid}:
+    delete:
+      parameters:
+        - name: sid
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      parameters:
+        - name: sid
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_logout && !gateway_use_rust ~}
+  /api/v1/auth/logout:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_profile && !gateway_use_rust ~}
+  /api/v1/auth/profile:
+    patch:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if (gateway_rust_avatar_delete || gateway_rust_avatar_upload) && !gateway_use_rust ~}
+  /api/v1/auth/avatar:
+%{ if gateway_rust_avatar_upload ~}
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+%{ if gateway_rust_avatar_delete ~}
+    delete:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_preferences && !gateway_use_rust ~}
+  /api/v1/auth/preferences:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    patch:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /api/v1/auth/timezones:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /api/v1/auth/consents:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /api/v1/auth/consents/revoke:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_apps && !gateway_use_rust ~}
+  /api/v1/auth/oauth/apps:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /api/v1/auth/oauth/apps/revoke:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_security_read && !gateway_use_rust ~}
+%{ for path in security_read_routes ~}
+  ${path}:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endfor ~}
+%{ endif ~}
+
+%{ if (gateway_rust_email_cancel || gateway_rust_email_change) && !gateway_use_rust ~}
+  /api/v1/auth/email/change:
+%{ if gateway_rust_email_change ~}
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+%{ if gateway_rust_email_cancel ~}
+    delete:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_password_change && !gateway_use_rust ~}
+  /api/v1/auth/change_password:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_export && !gateway_use_rust ~}
+  /api/v1/auth/data/exports:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+  /api/v1/auth/data/exports/{id}:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+  /api/v1/auth/data/exports/{id}/download:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_export_delayed && !gateway_use_rust ~}
+  /api/v1/auth/data/exports/{id}/redeem:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_account_jwt && !gateway_use_rust ~}
+  /api/v1/auth/jwt/from_session:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /api/v1/auth/refresh:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_jwks && !gateway_use_rust ~}
+  /oauth/jwks:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /.well-known/jwks.json:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_discovery && !gateway_use_rust ~}
+  /.well-known/openid-configuration:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_oidc && !gateway_use_rust ~}
+%{ for path, methods in oidc_rust_routes ~}
+  ${path}:
+%{ for method in methods ~}
+    ${method}:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endfor ~}
+%{ endfor ~}
+%{ endif ~}
+
+%{ if gateway_rust_oidc || gateway_use_rust ~}
+  /authorize:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /oauth/consent:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_login && !gateway_use_rust ~}
+  /login:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_account && !gateway_use_rust ~}
+  /account:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if gateway_rust_recovery_pages && !gateway_use_rust ~}
+  /forgot-password:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /reset-password:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /verify-email:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if (gateway_rust_login || gateway_rust_recovery_pages || gateway_rust_signup_page) && !gateway_use_rust ~}
+  /_id/{file+}:
+    get:
+      parameters:
+        - name: file
+          in: path
+          required: true
+          explode: false
+          style: simple
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
   /oauth/{proxy+}:
     x-yc-apigateway-any-method:
       parameters:
@@ -33,7 +736,7 @@ paths:
             default: "-"
       x-yc-apigateway-integration:
         type: serverless_containers
-        container_id: ${backend_container_id}
+        container_id: ${gateway_rust_oidc && rust_sessions_mutations_container_id != "" ? rust_sessions_mutations_container_id : gateway_rust_jwks && gateway_rust_discovery && gateway_rust_oidc ? rust_api_container_id : backend_container_id}
         service_account_id: ${gateway_service_account_id}
 
   /.well-known/{proxy+}:
@@ -49,7 +752,7 @@ paths:
             default: "-"
       x-yc-apigateway-integration:
         type: serverless_containers
-        container_id: ${backend_container_id}
+        container_id: ${gateway_rust_jwks && gateway_rust_discovery ? rust_api_container_id : backend_container_id}
         service_account_id: ${gateway_service_account_id}
 
   /health:
@@ -63,17 +766,90 @@ paths:
     get:
       x-yc-apigateway-integration:
         type: serverless_containers
-        container_id: ${backend_container_id}
+        container_id: ${gateway_rust_health ? rust_api_container_id : backend_container_id}
         service_account_id: ${gateway_service_account_id}
 
   /readyz:
     get:
       x-yc-apigateway-integration:
         type: serverless_containers
-        container_id: ${backend_container_id}
+        container_id: ${gateway_rust_health ? rust_api_container_id : backend_container_id}
         service_account_id: ${gateway_service_account_id}
 
-%{ for route in ["login", "signup", "authorize", "account", "forgot-password", "reset-password", "verify-email"] ~}
+%{ if gateway_use_rust ~}
+  /login:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /account:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+%{ if enable_rust_password_reset ~}
+  /forgot-password:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /reset-password:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+%{ if enable_rust_email_verify ~}
+  /verify-email:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
+  /_id/{file+}:
+    get:
+      parameters:
+        - name: file
+          in: path
+          required: true
+          explode: false
+          style: simple
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+%{ endif ~}
+%{ if enable_rust_signup || gateway_rust_signup_page ~}
+  /signup:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+%{ endif ~}
+%{ if gateway_rust_export_delayed ~}
+  /data/export:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+%{ for route in frontend_static_routes ~}
   /${route}:
     get:
       x-yc-apigateway-integration:
@@ -122,7 +898,12 @@ paths:
   /:
     get:
       x-yc-apigateway-integration:
+%{ if gateway_use_rust || gateway_rust_home_page ~}
+        type: serverless_containers
+        container_id: ${web_container_id}
+%{ else ~}
         type: object_storage
         bucket: ${frontend_bucket}
         object: index.html
+%{ endif ~}
         service_account_id: ${gateway_service_account_id}

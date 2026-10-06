@@ -25,12 +25,17 @@ js_path="$(printf '%s' "${html}" | sed -n 's/.*src="\([^"]*\/assets\/[^"]*\.js\)
 css_path="$(printf '%s' "${html}" | sed -n 's/.*href="\([^"]*\/assets\/[^"]*\.css\)".*/\1/p' | head -n 1)"
 
 if [[ -z "${js_path}" || -z "${css_path}" ]]; then
-  echo "Could not find Vite JS/CSS assets in ${base_url}/" >&2
-  exit 1
+  if [[ "${html}" == *'href="/_id/home.css"'* ]]; then
+    css_path="/_id/home.css"
+    js_path="/_id/account.js"
+  else
+    echo "Could not find deployed JS/CSS assets in ${base_url}/" >&2
+    exit 1
+  fi
 fi
 
-js_type="$(curl "${curl_args[@]}" -o /dev/null -D - "${base_url}${js_path}" | awk 'tolower($1)=="content-type:" {print tolower($2); exit}')"
-css_type="$(curl "${curl_args[@]}" -o /dev/null -D - "${base_url}${css_path}" | awk 'tolower($1)=="content-type:" {print tolower($2); exit}')"
+js_type="$(curl "${curl_args[@]}" -o /dev/null -D - "${base_url}${js_path}" | awk 'tolower($1)=="content-type:" && !found {found=tolower($2)} END {print found}')"
+css_type="$(curl "${curl_args[@]}" -o /dev/null -D - "${base_url}${css_path}" | awk 'tolower($1)=="content-type:" && !found {found=tolower($2)} END {print found}')"
 
 case "${js_type}" in
   application/javascript*|text/javascript*) ;;
@@ -60,5 +65,5 @@ if [[ "${me_cache}" != *no-store* ]]; then
   exit 1
 fi
 
-python3 "$(dirname "$0")/smoke-yc-auth.py"
+(cd "$(dirname "$0")/../../services/id-rust" && cargo run --locked -p id-runtime --bin idctl -- smoke-auth)
 echo "YC gateway smoke checks passed for ${base_url}"

@@ -65,10 +65,25 @@ class RolloutTests(unittest.TestCase):
     def test_ambiguous_active_revision_does_not_write_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "live.json"
-            with patch.object(snapshot, "read_json", side_effect=[{"backend_invoke_url": {"value": "https://container.containers.yandexcloud.net/"}}, []]), patch.object(sys, "argv", ["snapshot", "--terraform-dir", directory, "--output", str(output)]):
+            with patch.object(snapshot, "read_json", side_effect=[{"backend_invoke_url": {"value": "https://container.containers.yandexcloud.net/"}, "api_gateway_id": {"value": "gateway"}}, []]), patch.object(sys, "argv", ["snapshot", "--terraform-dir", directory, "--output", str(output)]):
                 with self.assertRaises(RuntimeError):
                     snapshot.main()
             self.assertFalse(output.exists())
+
+    def test_retire_legacy_snapshots_existing_rust_container(self):
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "live.json"
+            revision = {"id": "rust-active", "status": "ACTIVE", "image": {"environment": {"BUILD_ID": "rust"}}}
+            with patch.object(snapshot, "read_json", return_value=[revision]), \
+                 patch.dict(sys.modules, {"yc_rollout": SimpleNamespace(revision_config=lambda _: {"image_url": "rust-image"})}), \
+                 patch.object(sys, "argv", ["snapshot", "--terraform-dir", directory, "--output", str(output), "--container-id", "rust-container", "--gateway-id", "gateway", "--retire-legacy"]):
+                snapshot.main()
+            saved = json.loads(output.read_text())
+            self.assertEqual(saved["retained_backend_config"], {"image_url": "rust-image"})
+            self.assertEqual(saved["live_service_environment"], {"BUILD_ID": "rust"})
+            self.assertEqual(saved["existing_api_gateway_id"], "gateway")
 
     def test_plan_rejects_persistent_resource_deletion_and_replacement(self):
         for actions in [["delete"], ["delete", "create"]]:
@@ -77,6 +92,62 @@ class RolloutTests(unittest.TestCase):
     def test_plan_accepts_additions_updates_and_version_replacement(self):
         for resource, actions in [("yandex_mdb_redis_cluster", ["create"]), ("yandex_serverless_container", ["update"]), ("yandex_lockbox_secret_version", ["delete", "create"]), ("terraform_data", ["delete", "create"])]:
             self.assertEqual(self.check_plan(resource, actions), 0)
+
+    def test_plan_preserves_serving_backend(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan = Path(directory) / "plan.json"
+            snapshot = Path(directory) / "snapshot.json"
+            snapshot.write_text(json.dumps({"rollout_active_slot": "blue"}))
+            plan.write_text(json.dumps({"resource_changes": [
+                {"address": "yandex_serverless_container.backend", "type": "yandex_serverless_container", "change": {"actions": ["update"]}},
+            ]}))
+            command = [sys.executable, str(ROOT / "check-yc-plan.py"), str(plan), "--snapshot", str(snapshot)]
+            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            plan.write_text(json.dumps({"resource_changes": [
+                {"address": "yandex_serverless_container.backend_green[0]", "type": "yandex_serverless_container", "change": {"actions": ["update"]}},
+            ]}))
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
+
+    def test_rust_cutover_refuses_new_python_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan = Path(directory) / "plan.json"
+            command = [sys.executable, str(ROOT / "check-yc-plan.py"), str(plan), "--reject-python-deploy"]
+            for actions, image, allowed in [
+                (["no-op"], "updatingspace-id-backend:old", True),
+                (["update"], "updatingspace-id-backend:new", False),
+                (["create"], "updatingspace-id-backend:new", False),
+                (["update"], "updatingspace-id-api:new", True),
+            ]:
+                plan.write_text(json.dumps({"resource_changes": [{
+                    "address": "yandex_serverless_container.backend_green[0]",
+                    "type": "yandex_serverless_container",
+                    "change": {"actions": actions, "after": {"image": [{"url": "cr.yandex/registry/" + image}]}},
+                }]}))
+                result = subprocess.run(command, capture_output=True)
+                self.assertEqual(result.returncode == 0, allowed, result.stderr.decode())
+
+    def test_legacy_retirement_allows_only_deleted_blue_resources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan = Path(directory) / "plan.json"
+            snapshot_file = Path(directory) / "snapshot.json"
+            snapshot_file.write_text(json.dumps({
+                "rollout_active_slot": "green",
+                "retained_backend_config": {"image_url": "cr.yandex/registry/updatingspace-id-api@sha256:" + "a" * 64},
+            }))
+            command = [sys.executable, str(ROOT / "check-yc-plan.py"), str(plan), "--snapshot", str(snapshot_file), "--retire-legacy-backend"]
+            for address, allowed in [
+                ("yandex_serverless_container.backend[0]", True),
+                ("yandex_serverless_container_iam_binding.gateway_backend_invoker[0]", True),
+                ("yandex_serverless_container.backend_green[0]", False),
+                ("yandex_ydb_database_serverless.id", False),
+            ]:
+                plan.write_text(json.dumps({"resource_changes": [{
+                    "address": address,
+                    "type": address.split(".", 1)[0],
+                    "change": {"actions": ["delete"]},
+                }]}))
+                result = subprocess.run(command, capture_output=True)
+                self.assertEqual(result.returncode == 0, allowed, result.stderr.decode())
 
     def check_plan(self, resource, actions):
         with tempfile.TemporaryDirectory() as directory:

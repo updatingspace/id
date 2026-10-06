@@ -1,0 +1,360 @@
+name: Rust migration pilot
+
+on:
+  pull_request:
+    paths:
+      - "services/id-rust/**"
+      - "services/id/**"
+      - "docs/rust-migration/**"
+      - ".github/workflows/rust-pilot.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "services/id-rust/**"
+      - "services/id/**"
+      - ".github/workflows/rust-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-pilot:
+    # This job qualifies the pilot only. It neither publishes nor deploys images.
+    name: Rust codecs, YDB pilot and Python compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      YDB_ENDPOINT: grpc://localhost:2136
+      YDB_DATABASE: /local
+      YDB_CREDENTIALS_MODE: anonymous
+      DJANGO_SETTINGS_MODULE: app.settings
+      DJANGO_DEBUG: "true"
+      DJANGO_SECRET_KEY: "synthetic-ci-secret-not-for-deployment"
+      DB_DRIVER: postgres
+      DATABASE_URL: ""
+      REDIS_URL: ""
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+      - name: Install WebAuthn build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+      - name: Format and lint
+        working-directory: services/id-rust
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Unit and golden fixture tests
+        working-directory: services/id-rust
+        run: cargo test --locked --workspace
+      - name: Build binaries
+        working-directory: services/id-rust
+        run: cargo build --locked --workspace --bins
+      - name: Check jobs image recipe
+        working-directory: services/id-rust
+        run: docker build --check -f Dockerfile.jobs .
+      - name: Start isolated YDB
+        run: |
+          docker run -d --rm --name ydb-local --hostname localhost \
+            -p 127.0.0.1:2136:2136 -p 127.0.0.1:8765:8765 \
+            ydbplatform/local-ydb@sha256:9e46fd45875551a75bcf34d0bb9ca0baa1d8763a4ccf2070af45f4467c4b7402
+          scripts/ci/wait-for-ydb-local.sh
+      - name: Real YDB transaction and nullable type checks
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test ydb_pilot -- --ignored --nocapture
+      - name: Portable cache single-use race on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_CACHE_RACE_ROUNDS: "100"
+        run: cargo test --locked -p id-runtime --test cache_store_ydb -- --ignored --nocapture
+      - name: Issue one-time auth form tokens from Rust on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test form_token_http_ydb -- --ignored --nocapture
+      - name: BFF exchange HMAC and one-time race on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test exchange_http_ydb -- --ignored --nocapture
+      - name: Rust login rate-limit window on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test login_rate_limit_ydb -- --ignored --nocapture
+      - name: Audit normalized account emails across YDB pages
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --lib counts_collisions_across_pages_without_exposing_addresses -- --ignored --nocapture
+      - name: API and Topcoat HTTP smoke
+        run: bash services/id-rust/scripts/smoke-pilot.sh
+      - name: Opt-in Topcoat login HTTP smoke
+        run: bash services/id-rust/scripts/smoke-web-login.sh
+      - name: Opt-in Topcoat profile SSR smoke
+        run: bash services/id-rust/scripts/smoke-web-profile.sh
+      - name: Opt-in Topcoat account consents SSR smoke
+        run: bash services/id-rust/scripts/smoke-web-account-consents.sh
+      - name: Opt-in Topcoat OAuth applications SSR smoke
+        run: bash services/id-rust/scripts/smoke-web-apps.sh
+      - name: Opt-in Topcoat OIDC consent SSR smoke
+        run: bash services/id-rust/scripts/smoke-web-consent.sh
+      - name: Opt-in Topcoat security SSR smoke
+        run: bash services/id-rust/scripts/smoke-web-security.sh
+      - name: Opt-in Topcoat login history SSR smoke
+        run: bash services/id-rust/scripts/smoke-web-history.sh
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install frozen Python baseline and separate fixture dependency
+        working-directory: services/id
+        run: |
+          python -m pip install uv==0.8.5
+          uv sync --python 3.12 --extra dev --frozen
+          uv pip install --python .venv/bin/python --target /tmp/id-fixture-libs bcrypt==5.0.0
+      - name: Regenerate contracts and check cross-language roundtrip
+        working-directory: services/id
+        env:
+          PYTHONPATH: src:/tmp/id-fixture-libs
+        run: |
+          .venv/bin/ruff check scripts/export_migration_baseline.py scripts/export_compat_fixtures.py scripts/export_totp_fixtures.py scripts/check_rust_compat_roundtrip.py scripts/check_rust_form_token.py scripts/issue_python_form_token.py scripts/advance_python_login_rate.py scripts/check_rust_session.py scripts/check_email_lookup_race.py scripts/check_ydb_runtime.py scripts/export_cache_fixtures.py scripts/migrate_cache_values.py src/core/cache_codec.py src/core/ydb_cache.py
+          .venv/bin/ruff format --check scripts/export_migration_baseline.py scripts/export_compat_fixtures.py scripts/export_totp_fixtures.py scripts/check_rust_compat_roundtrip.py scripts/check_rust_form_token.py scripts/issue_python_form_token.py scripts/advance_python_login_rate.py scripts/check_rust_session.py scripts/check_email_lookup_race.py scripts/check_ydb_runtime.py scripts/export_cache_fixtures.py scripts/migrate_cache_values.py src/core/cache_codec.py src/core/ydb_cache.py
+          .venv/bin/python scripts/export_migration_baseline.py /tmp/id-baseline
+          for contract in inventory models openapi; do
+            diff -u "../../docs/rust-migration/baseline/$contract.json" "/tmp/id-baseline/$contract.json"
+          done
+          .venv/bin/python scripts/export_compat_fixtures.py /tmp/django-compat.json
+          cmp /tmp/django-compat.json ../id-rust/crates/id-compat/tests/fixtures/django.json
+          ../id-rust/target/debug/idctl compat-fixtures /tmp/django-compat.json /tmp/rust-compat.json
+          .venv/bin/python scripts/check_rust_compat_roundtrip.py /tmp/django-compat.json /tmp/rust-compat.json
+          .venv/bin/python scripts/export_cache_fixtures.py /tmp/cache-compat.json
+          cmp /tmp/cache-compat.json ../id-rust/crates/id-compat/tests/fixtures/cache.json
+          .venv/bin/python scripts/export_totp_fixtures.py /tmp/totp-compat.json
+          cmp /tmp/totp-compat.json ../id-rust/crates/id-compat/tests/fixtures/totp.json
+      - name: Verify transition Python email writers and schema ledger
+        working-directory: services/id
+        env:
+          PYTHONPATH: src
+        run: .venv/bin/pytest -q src/accounts/tests/test_email_lookup.py src/accounts/tests/test_email_change.py src/accounts/tests/test_activity.py src/accounts/tests/test_mfa_adapter.py src/accounts/tests/test_mfa_unit.py src/accounts/tests/test_passkeys_flow.py src/core/tests/test_ydb_migrations.py
+      - name: Rust HTTP form token consumed once by transition Python
+        working-directory: services/id
+        env:
+          PYTHONPATH: src
+          DB_DRIVER: ydb
+          YDB_NAME: default
+          YDB_CREDENTIALS_MODE: token
+          YDB_TOKEN: local-ydb-token
+        run: .venv/bin/python scripts/check_rust_form_token.py
+      - name: Python form token consumed once by Rust on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_PYTHON_FORM_TOKEN_CHECK: "true"
+        run: cargo test --locked -p id-runtime --test form_token_http_ydb -- --ignored --nocapture
+      - name: Python and Rust share login rate-limit budget
+        working-directory: services/id-rust
+        env:
+          ID_PYTHON_RATE_LIMIT_CHECK: "true"
+        run: cargo test --locked -p id-runtime --test login_rate_limit_ydb -- --ignored --nocapture
+      - name: Bootstrap and verify legacy YDB tables and indexes from Rust
+        working-directory: services/id-rust
+        run: |
+          target/debug/idctl legacy-schema --apply
+          test "$(target/debug/idctl legacy-schema --apply | jq -r .created_indexes)" = 0
+          target/debug/idctl legacy-schema
+      - name: Durable magic-link issuance and one-time exchange on local YDB
+        working-directory: services/id-rust
+        run: |
+          target/debug/idctl magic-link-schema
+          target/debug/idctl magic-link-schema
+          cargo test --locked -p id-runtime --test magic_link_request_ydb -- --ignored --nocapture
+          cargo test --locked -p id-runtime --test magic_link_consume_ydb -- --ignored --nocapture
+          cargo test --locked -p id-runtime --lib magic_link_request::tests::mail_claim_has_one_owner_and_retry_after_lease -- --ignored --nocapture
+      - name: Reconcile and audit account email lookup from Rust
+        working-directory: services/id-rust
+        run: |
+          cargo test --locked -p id-runtime --test email_lookup_reconcile_ydb -- --ignored --nocapture
+          target/debug/idctl login-email-reconcile --apply
+          target/debug/idctl login-email-audit --require-unambiguous
+      - name: Reconcile safe account identity bindings from Rust
+        working-directory: services/id-rust
+        run: |
+          cargo test --locked -p id-runtime --test identity_reconcile_ydb -- --ignored --nocapture
+          target/debug/idctl identity-reconcile --apply
+          test "$(target/debug/idctl identity-reconcile --apply | jq -r '.new_bindings + .new_masters_for_bindings + .needs_review')" = 0
+      - name: Record verified transition migration ledger from Rust
+        working-directory: services/id-rust
+        run: |
+          cargo test --locked -p id-runtime --test migration_ledger_ydb -- --ignored --nocapture
+          test "$(target/debug/idctl legacy-ledger --apply | jq -r .recorded_versions)" = 0
+          target/debug/idctl legacy-ledger
+      - name: Check Rust-created schema and ledger with transitional Django
+        working-directory: services/id
+        env:
+          PYTHONPATH: src
+          DB_DRIVER: ydb
+          YDB_NAME: default
+          YDB_CREDENTIALS_MODE: token
+          YDB_TOKEN: local-ydb-token
+        run: |
+          .venv/bin/python src/manage.py migrate_ydb --check
+      - name: Verify Rust cleanup of legacy one-time tokens on local YDB
+        working-directory: services/id-rust
+        run: |
+          cargo test --locked -p id-runtime --test token_cleanup_ydb -- --ignored --nocapture
+          target/debug/idctl cleanup-tokens --batch 2
+      - name: Read existing Django sessions from Rust on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test session_store_ydb -- --ignored --nocapture
+      - name: Verify OIDC code exchange, refresh replay, UserInfo and revocation on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test oidc_code_exchange_ydb -- --ignored --nocapture
+      - name: Verify remembered-consent authorization through code exchange on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_OIDC_AUTHORIZE_PILOT_ENABLED: "true"
+          ID_OIDC_TOKEN_PILOT_ENABLED: "true"
+        run: cargo test --locked -p id-runtime --test oidc_authorize_ydb -- --ignored --nocapture
+      - name: Verify MFA, passkeys and owner-scoped login history on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_AUTH_SECURITY_READ_PILOT_ENABLED: "true"
+        run: cargo test --locked -p id-runtime --test security_read_http_ydb -- --ignored --nocapture
+      - name: Audit historical passkey conversion across YDB pages
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test passkey_audit_ydb -- --ignored --nocapture
+      - name: Enroll encrypted TOTP once across concurrent Rust requests
+        working-directory: services/id-rust
+        env:
+          ID_AUTH_TOTP_PILOT_ENABLED: "true"
+          ID_MFA_SEAL_KEY_B64: QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=
+        run: cargo test --locked -p id-runtime --test totp_setup_http_ydb -- --ignored --nocapture
+      - name: Manage passkeys with ownership and concurrent deletion on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_AUTH_PASSKEY_MANAGEMENT_ENABLED: "true"
+        run: cargo test --locked -p id-runtime --test passkey_management_http_ydb -- --ignored --nocapture
+      - name: Deliver passkey security mail once from durable YDB intent
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --lib security_mail::tests -- --include-ignored --nocapture
+      - name: Backfill and verify passkey credential index on local YDB
+        working-directory: services/id-rust
+        run: |
+          cargo test --locked -p id-runtime --test passkey_index_ydb -- --ignored --nocapture
+          cargo run --locked -p id-runtime --bin idctl -- passkey-index
+      - name: Register one passkey across concurrent Rust instances on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_AUTH_TOTP_PILOT_ENABLED: "true"
+          ID_AUTH_PASSKEY_REGISTRATION_PILOT_ENABLED: "true"
+          ID_WEBAUTHN_RP_ID: id.example.invalid
+          ID_WEBAUTHN_ORIGIN: https://id.example.invalid
+          ID_MFA_SEAL_KEY_B64: QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=
+        run: cargo test --locked -p id-runtime --test passkey_registration_ydb -- --ignored --nocapture
+      - name: Sign in with a passkey through two Rust instances on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test passkey_login_ydb -- --ignored --nocapture
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+      - name: Install frozen browser test dependencies
+        working-directory: web/id-frontend
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm exec playwright install --with-deps chromium
+      - name: Browser → Topcoat passkey interaction with same-origin API fixture
+        working-directory: services/id-rust
+        run: node scripts/check-web-passkey-browser.cjs
+      - name: Browser → Topcoat passkey registration and recovery-code presentation
+        working-directory: services/id-rust
+        run: node scripts/check-web-passkey-registration-browser.cjs
+      - name: Browser → Topcoat → Rust passkey login on local YDB
+        run: bash services/id-rust/scripts/smoke-web-passkey-live.sh
+      - name: Browser → Topcoat → Rust OIDC consent and code exchange on local YDB
+        run: bash services/id-rust/scripts/smoke-web-consent-live.sh
+      - name: Browser → Topcoat → Rust TOTP enrollment on local YDB
+        run: bash services/id-rust/scripts/smoke-web-totp-live.sh
+      - name: Rotate OIDC refresh across Python and Rust on shared YDB
+        working-directory: services/id
+        env:
+          PYTHONPATH: src
+          DB_DRIVER: ydb
+          YDB_NAME: default
+          YDB_CREDENTIALS_MODE: token
+          YDB_TOKEN: local-ydb-token
+        run: |
+          .venv/bin/ruff check scripts/check_oidc_cross_version.py
+          .venv/bin/ruff format --check scripts/check_oidc_cross_version.py
+          .venv/bin/python scripts/check_oidc_cross_version.py
+      - name: Verify OIDC discovery, JWKS, UserInfo and revocation HTTP errors
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --lib serves_oidc_jwks_at_both_existing_paths -- --ignored --nocapture
+      - name: Verify Rust password-login policy against existing YDB schema
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test login_preflight_ydb -- --ignored --nocapture
+      - name: Rust sessions, account JWT and deletion acceptance with Python restore on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_PYTHON_SESSION_CHECK: "true"
+        run: cargo test --locked -p id-runtime --test session_issuer_ydb -- --ignored --nocapture
+      - name: Private account export, owner access and expiry on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test data_export_operation_ydb -- --ignored --nocapture
+      - name: Rust HTTP password and MFA login with Python rollback compatibility
+        working-directory: services/id-rust
+        env:
+          ID_PYTHON_LOGIN_HTTP_CHECK: "true"
+          ID_MFA_SEAL_KEY_B64: QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=
+        run: cargo test --locked -p id-runtime --test login_http_ydb -- --ignored --nocapture
+      - name: Private YMQ publish, queue and recovery jobs with local YDB and SMTP
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --lib new_device_mail::tests -- --include-ignored --nocapture --test-threads=1
+      - name: Read indexed Django profile data from Rust on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test profile_store_ydb -- --ignored --nocapture
+      - name: Verify opt-in Rust /me HTTP contract on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_AUTH_ME_ENABLED: "true"
+          MEDIA_PUBLIC_BASE_URL: https://storage.yandexcloud.net/synthetic-id-media
+          SESSION_COOKIE_SECURE: "false"
+          CSRF_COOKIE_SECURE: "false"
+        run: cargo test --locked -p id-runtime --test me_http_ydb -- --ignored --nocapture
+      - name: Verify opt-in Rust profile update and concurrent creation on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_AUTH_PROFILE_PILOT_ENABLED: "true"
+          CSRF_TRUSTED_ORIGINS: http://localhost:5175
+        run: cargo test --locked -p id-runtime --test profile_http_ydb -- --ignored --nocapture
+      - name: Verify Rust preferences and concurrent creation on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_AUTH_PREFERENCES_PILOT_ENABLED: "true"
+          CSRF_TRUSTED_ORIGINS: http://localhost:5175
+        run: cargo test --locked -p id-runtime --test preferences_http_ydb -- --ignored --nocapture
+      - name: Verify Rust OAuth application ownership and revocation on local YDB
+        working-directory: services/id-rust
+        env:
+          ID_AUTH_APPS_PILOT_ENABLED: "true"
+          CSRF_TRUSTED_ORIGINS: http://localhost:5175
+        run: cargo test --locked -p id-runtime --test authorized_apps_http_ydb -- --ignored --nocapture
+      - name: Verify portable cache, TTL and atomic backfill on local YDB
+        working-directory: services/id
+        env:
+          PYTHONPATH: src
+          DB_DRIVER: ydb
+          YDB_NAME: default
+          YDB_CREDENTIALS_MODE: token
+          YDB_TOKEN: local-ydb-token
+        run: |
+          .venv/bin/python scripts/check_ydb_runtime.py
+          .venv/bin/python scripts/migrate_cache_values.py --require-portable
+      - name: Verify Rust cache cutover gate on local YDB
+        working-directory: services/id-rust
+        run: cargo run --locked --bin idctl -- cache-audit --require-portable
+      - name: Upload current contract inventory
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-pilot-contracts
+          path: /tmp/id-baseline/
+      - name: Stop test YDB
+        if: always()
+        run: docker stop ydb-local || true

@@ -4,9 +4,15 @@ folder_id = "replace-me"
 public_domain = "id.updspace.com"
 public_zone   = "updspace.com"
 
-# Scale to zero at idle; the first request may wait for a cold start.
-# Nonzero prepared capacity incurs idle charges and requires an explicit budget.
+# Scale to zero at low traffic. Opt into 1 only with an explicit latency/cost budget.
 min_ready_instances = 0
+
+# Rust mail jobs remain disabled until their image digest, SMTP settings,
+# migration, rollback and private timer have passed staging acceptance.
+# enable_rust_mail_queue      = true # keep enabled during worker rollback
+# enable_rust_mail_job        = true
+# rust_mail_job_image_tag     = "<tested-commit-sha>"
+# rust_mail_job_image_digest  = "sha256:<64 lowercase hex digits>"
 
 # container_registry_id = "crp..." # Use an existing registry for first CI bootstrap.
 # certificate_id   = "fpq..."

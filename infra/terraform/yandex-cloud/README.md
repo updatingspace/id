@@ -8,7 +8,109 @@ Production-like low-cost stack for UpdSpace ID:
 - Serverless YDB as the production database
 - Lockbox for runtime secrets
 
-Apply order:
+The Rust export bucket is opt-in (`enable_rust_export = true`). It is private,
+separate from frontend/media storage, aborts incomplete multipart uploads after
+one day, and expires orphaned objects after two days. Jobs delete finished
+archives after 24 hours and during account deletion. The bucket has
+`prevent_destroy`; disabling the flag does not delete archived data. Validate
+with OpenTofu locally, then review a plan against the existing remote state
+before applying. The public Rust export routes remain in local pilot mode.
+
+For a first production API slice, `gateway_rust_me = true` routes only
+`GET /api/v1/auth/me` to the Rust API. The `/api/v1/{proxy+}` catch-all and
+all OAuth routes keep their existing backend until the complete API is ready.
+When the serverless-container quota is full, set
+`gateway_rust_me_container_id` to an existing Rust revision's container ID
+and leave `enable_rust_stack = false`. The `rust_me` workflow-dispatch input
+selects this slice after the Rust image is built and deployed. Full
+`gateway_use_rust = true` still requires the separately deployed stack.
+`gateway_rust_login = true` similarly routes only the Topcoat `/login` page
+and `/_id` assets; set `gateway_rust_web_container_id` when using an existing
+web container. The rest of the React UI remains in Object Storage.
+`gateway_rust_account = true` routes `/account` to Topcoat and keeps the full
+React cabinet at `/legacy/account` during migration. Publish a React bundle
+that recognizes `/legacy/account` before linking to it from Topcoat.
+`gateway_rust_recovery_pages = true` routes only `/forgot-password`,
+`/reset-password`, and `/verify-email` to that Topcoat container. Keep the
+form-token consumer compatible with the shared-cache codec during a mixed
+deployment. The production Python compatibility revision now reads and writes
+the portable codec; verify that revision and run `idctl cache-audit
+--require-portable` before routing token issuance to Rust.
+`gateway_rust_jwks = true` routes only `/oauth/jwks` and
+`/.well-known/jwks.json` to a Rust API revision with
+`ID_OIDC_JWKS_ENABLED=true`. Verify the complete public key set against the
+previous issuer response before changing either route.
+`gateway_rust_form_token = true` separately routes only
+`GET /api/v1/auth/form_token` to the same Rust API container selected by
+`gateway_rust_me_container_id`. Enable it only after the deployed Python
+version can consume Rust's portable shared-cache values, or after every
+form-token consumer has moved to Rust.
+`gateway_rust_login_api = true` separately routes only `POST` and `OPTIONS`
+`/api/v1/auth/login` to that Rust API container. Production enabled this route
+after a verified test-account login, Rust `/me` restore, Python `/sessions`
+cookie/header compatibility and Chromium login with an `/account` reload. The
+remaining account routes still use the Python compatibility container.
+`gateway_rust_sessions_read = true` routes only `GET` and `OPTIONS`
+`/api/v1/auth/sessions` to Rust. `gateway_rust_sessions_container_id` may pin a
+separate verified Rust container so the login revision stays independent.
+Grant the Gateway service account `serverless.containers.invoker` on that
+container before changing the route. `gateway_rust_sessions_mutations = true`
+independently routes DELETE `/sessions/{sid}` and POST `/sessions/bulk` and
+`/sessions/_bulk` to a revision with
+`ID_AUTH_SESSIONS_MUTATIONS_ROLLOUT_ENABLED=true`.
+`gateway_rust_sessions_mutations_container_id` pins that verified revision;
+the production rollout uses a separate container from the read route.
+`gateway_rust_logout = true` also routes POST/OPTIONS `/api/v1/auth/logout`
+to the mutation container. Enable `ID_AUTH_LOGOUT_ROLLOUT_ENABLED=true` on its
+verified revision before switching the Gateway path.
+`gateway_rust_profile = true` routes PATCH/OPTIONS `/api/v1/auth/profile`
+to the same verified container when `ID_AUTH_PROFILE_ROLLOUT_ENABLED=true`.
+`gateway_rust_health = true` routes `/healthz` and `/readyz` to the Rust API.
+`gateway_rust_catchall = true` also routes the remaining `/api/v1/{proxy+}`
+fallback and `/health` to Rust. Unsupported legacy API paths return 404;
+the Rust `/health` response is a readiness result, not the old detailed
+Django component report. The Python container can be removed after the
+Terraform-managed backend resource and state are retired.
+`gateway_rust_preferences = true` routes GET/PATCH/OPTIONS preferences,
+GET timezones, GET/OPTIONS consents, and POST/OPTIONS consent revocation
+to the same verified container when
+`ID_AUTH_PREFERENCES_ROLLOUT_ENABLED=true`.
+`gateway_rust_oidc = true` routes the complete OAuth authorize, token,
+UserInfo and revoke flow to the mutation container and GET `/oauth/consent`
+to Topcoat. Enable both `ID_OIDC_TOKEN_ROLLOUT_ENABLED=true` and
+`ID_OIDC_AUTHORIZE_ROLLOUT_ENABLED=true` on the API revision and
+`ID_WEB_CONSENT_PILOT_ENABLED=true` on the web revision first. Do not split
+the token flow between old and new revisions: the deployed Python image
+lacks refresh-family persistence. `gateway_rust_apps = true` separately
+routes account OAuth applications list/revoke to the same API revision after
+`ID_AUTH_APPS_PILOT_ENABLED=true` has passed a private check.
+`gateway_rust_security_read = true` routes GET/OPTIONS MFA status, passkeys,
+combined security and login history to the verified API revision after
+`ID_AUTH_SECURITY_READ_PILOT_ENABLED=true` has passed a private check.
+
+For the existing hourly Gravatar timer, set `gravatar_rust_jobs_container_id`
+to the tested private Rust jobs container after that revision enables
+`ID_GRAVATAR_JOB_ENABLED=true` and `POST /refresh-gravatars` passes a private
+smoke. With `enable_gravatar_job=true`, the timer and scheduler invocation
+permission then target Rust; the dedicated Django Gravatar container is no
+longer part of the desired infrastructure. Keep the public Gateway separate
+from this private route.
+
+Production note (2026-10-06): the legacy Django container has been deleted
+from YC but is still recorded in this Terraform state. Production tfvars set
+`legacy_backend_enabled=false` and require a private snapshot of the live
+Rust green revision. The current
+`.github/workflows/deploy-yandex-cloud.yml` deploys the existing Rust API,
+Topcoat UI and jobs containers directly by tested image digest; it does not
+run Terraform or publish the React bundle. Before a separate production
+Terraform plan, run `snapshot-yc-runtime.py --retire-legacy` with the verified
+Rust API container and Gateway IDs, then inspect the plan with
+`check-yc-plan.py --retire-legacy-backend --snapshot` using that private file.
+Only the already-deleted blue container and its invoker binding may be removed;
+the serving green revision must stay unchanged. Do not apply a plan that
+changes other resources.
+
+Terraform bootstrap/reference order for a new stack:
 
 1. Copy `terraform.tfvars.example` to a private tfvars file and fill real values.
 2. Run local validation: `scripts/ci/check-yc-terraform-local.sh`.
@@ -42,9 +144,7 @@ Encode it for GitHub Actions with:
 base64 -w0 backend.hcl
 ```
 
-The deploy workflow refuses `YC_TERRAFORM_AUTO_APPLY=true` when the configured
-remote state is empty. This prevents a fresh runner from creating duplicate
-resources when the real stack already exists.
+The production Rust deploy workflow does not initialize or apply Terraform.
 
 ## Observability and Monium
 
@@ -99,20 +199,13 @@ published in the OpenTofu public registry.
 
 ## Latency and frontend releases
 
-`min_ready_instances` defaults to **0**, including in the example tfvars and
-the production profile. This avoids prepared-capacity charges at zero traffic;
-the first request after the platform stops a container can wait for a cold start.
-The platform controls how long idle, unprepared instances are retained; there is
-no configured 15/30-minute grace-period guarantee. Nonzero prepared capacity is
-an explicit cost decision and remains billable during idle time. Inspect both
-the plan and deployed revision; a fast warm response does not prove a fast cold
-start. Prepared capacity does not eliminate cold starts above that capacity.
-
-The rollout snapshot preserves whether the live revision has an explicit
-provision policy, including an empty API object representing zero instances.
-Terraform distinguishes that zero-valued block from an absent block. Retaining
-its shape avoids a revision update to the serving slot during preparation;
-the guard still rejects any actual serving-container change.
+`min_ready_instances` defaults to **0**, including in the example and production
+profile. This avoids prepared-capacity charges during idle periods; the first
+request after inactivity can incur a cold start. Application changes reduce
+unnecessary requests and session writes without a new always-on service. Opt into
+`1` only after measuring real login latency and agreeing an idle-capacity budget.
+This is a configuration change for the next reviewed deployment, not a claim that
+the live revision has already changed. Prepared capacity is not an instance limit.
 
 The checked-in `production.performance.tfvars` disables managed Redis to avoid
 the fixed host cost at the current traffic level. With YDB and no `REDIS_URL`,
@@ -139,10 +232,9 @@ it `functions.editor` for timer management, without managed-cache permissions;
 its existing VPC and IAM administration permissions support initial provisioning.
 
 Always pass `-var-file=production.performance.tfvars` after private runtime
-variables when planning production. CI does this explicitly, so an older
-`min_ready_instances = 1` in its runtime secret cannot restore paid prepared
-capacity. To opt in later, change the production profile as an explicit cost
-decision rather than relying on a lower-precedence runtime variable.
+variables when planning production. CI does this explicitly, so the checked-in
+scale-to-zero setting takes precedence over older prepared-capacity settings in
+its runtime secret.
 Before planning, `scripts/ci/snapshot-yc-runtime.py` preserves the active
 revision's environment and Lockbox values in a mode-0600 ignored tfvars file.
 This prevents rollback of manual secret rotations and loss of SMTP settings.
@@ -166,65 +258,67 @@ cache headers after deployment: browser TTL rules can override origin TTL.
 Keep account/API/OAuth responses out of shared caches; do not enable a blanket
 Cache Everything rule. No CDN/DNS migration is performed by these changes.
 
-## Backend release slots
+## Tested revision gate
 
-The production workflow uses two private backend containers (`blue` and `green`).
-The original `yandex_serverless_container.backend` resource remains the blue
-slot; existing data, domains and resource identities are preserved. The gateway
-routes to one slot. Every release selects the other slot from the **live gateway
-specification**, including after a rollback, rather than trusting a stale output.
+Production rollout is triggered only after the `ID CI/CD` push workflow completes
+successfully on `main` or `master`. Every checkout and image tag uses that run's
+exact `head_sha`, including when the default branch has moved. Before reading
+production secrets or pushing an image, `check-tested-revision.py` verifies the
+run's repository, SHA, branch, workflow, conclusion and all eight required jobs,
+including Rust API and Topcoat checks.
+Missing, failed, cancelled or skipped required jobs stop deployment. A manual
+rollout requires successful push CI for the selected SHA too; it never waits on
+an idle runner for another workflow. PRs retain build-only validation.
 
-The single release job keeps a private runtime snapshot and rollback files on its
-runner. It prepares the inactive slot, runs backward-compatible YDB migrations,
-builds the frontend, and saves the previous Object Storage `index.html`. It then
-waits for nonzero prepared-capacity configuration to settle when enabled and checks
-`/readyz` and form-token issuance through the private container URL using the
-CI service account. Only a verified revision can receive public gateway traffic.
-The IAM token is never forwarded to a redirect or arbitrary host.
+The gate uses the read-only [GitHub Actions REST API](https://docs.github.com/en/rest/actions/workflow-runs).
+No cloud resources, credentials, or billed prepared capacity are changed merely
+by editing this profile or running the local regression tests.
+## Rust mail outbox pilot
 
-The coordinator (`scripts/ci/yc_rollout.py`) validates each saved Terraform plan:
+Both flags are off by default. Enable `enable_rust_mail_queue` first to create
+the persistent standard YMQ queue, a send-only writer key in Lockbox, and
+separate admin/reader identities. Then `enable_rust_mail_job` creates the
+private `id-jobs` container, the queue trigger, a one-minute publish timer, and
+a five-minute direct-SMTP recovery timer. Only the trigger identity may invoke
+the container. Its routes are absent from API Gateway. The queue has
+`prevent_destroy` and remains enabled when rolling back the worker.
 
-- Preparation cannot update the serving container or gateway. Adding only
-  sensitive marks to identical, fully known values is allowed: Terraform 1.15.7
-  persists these marks in state without calling the provider. Removing marks
-  or changing any runtime value remains forbidden.
-- Promotion and rollback may change only the gateway specification.
-- Capacity cleanup may only remove the inactive slot's prepared capacity.
-- Deletion or replacement of persistent resources remains forbidden. A secret
-  version still referenced by the serving backend cannot be deleted during
-  preparation; rotating it requires retaining that version through overlap.
+The image tag and SHA-256 digest must identify the same CI-tested
+`Dockerfile.jobs` artifact; `EMAIL_HOST` and `DEFAULT_FROM_EMAIL` must be
+present. The signed YMQ publisher and timer path have only been tested against
+a loopback SQS fixture and local YDB. A real staging YMQ/IAM test, image build
+and publication, rollback rehearsal, and production acceptance remain open.
+Terraform validation checks the configuration, without deploying any resource.
+`enable_rust_password_reset` and `enable_rust_email_verify` independently
+enable their API, Topcoat page and mail worker paths. Both are off by default,
+require the queue and private worker, and require their separate HMAC keys in
+runtime Lockbox. Run `idctl password-reset-schema` or
+`idctl email-verify-schema` respectively before enabling a route.
 
-After promotion, publication still uploads frontend dependencies before index.
-If publication or public smoke fails, the job restores the previous index and
-backend, then releases the failed candidate's prepared capacity. Database
-migrations are not reversed: releases must remain compatible with the previous
-backend during overlap and rollback. Schema removal requires a separate release
-following an expand/migrate/contract sequence.
+## Early Rust API and Topcoat routing
 
-Successful public smoke is the release commit point. Failure to retire the old
-prepared capacity is reported as a failed job but does **not** roll traffic back
-to that old slot. The production profile sets the new slot to zero prepared
-instances. The serving slot retains its live configuration until retirement;
-after transition to this profile, both slots have zero prepared instances.
-Finite readiness checks still run before promotion; they do not keep an idle
-container alive after deployment.
-They also do not establish a user-visible 500 ms latency bound. If prepared
-capacity is explicitly enabled later, both slots may be billed during overlap.
+The deployment workflow now builds digest-pinned `updatingspace-id-api` and
+`updatingspace-id-web` images from the tested SHA and creates separate scale-to-zero
+containers. The Topcoat service account has no YDB or Lockbox access. The Rust API
+uses the existing runtime identity and signing secret; `idctl` audits ambiguous
+login email/passkey records and builds the passkey index before routing changes.
+Its private avatar URLs are signed with the runtime S3 credentials; the Rust
+container keeps `S3_QUERYSTRING_AUTH=true`. A real GET from the private media
+bucket remains a rollout check.
 
-For recovery, retain the private snapshot, release image tag and manifest from
-the same run while invoking coordinator phases. `rollback` is only valid before
-capacity retirement; `abort` requires the gateway to point to the original slot.
-A stopped runner or a manual gateway change requires inspecting live routing and
-revisions before recovery. Never publish manifests, tfvars, state or saved plans
-as CI artifacts. Do not run a bare production apply with default slot values;
-use the snapshot and guarded coordinator. Disabling `blue_green_enabled` after
-a green slot exists would propose deletion and is rejected by the plan guard.
+Set the GitHub Actions repository variable `YC_RUST_GATEWAY_ENABLED=true` to keep
+Rust routing active across automatic deployments. A manual workflow dispatch may
+select `rust_gateway=true` for one deployment; if the repository variable remains
+false, the next automatic deployment routes back to Python. Rollback is the same
+workflow with `rust_gateway=false` after clearing the repository variable. The
+Python container and additive YDB schema remain during this early stage.
 
-Before the first two-slot release, the cloud needs one additional container slot
-and capacity for two prepared instances during overlap. Container quotas are
-shared with other services in the cloud. A quota failure before candidate
-creation leaves public routing unchanged; cleanup can resolve partial Terraform
-state even when the new slot outputs have not yet been saved. CI reports only
-a fixed error category, keeping raw provider diagnostics private. The production
-log retention is the canonical `168h0m0s` (the same seven days), avoiding a
-framework-provider duration-normalization diff during promotion.
+The current Rust Gateway route serves `/`, `/login`, `/account`, and `/_id/*`
+from Topcoat, and API/OAuth paths from Axum. The targeted smoke verifies API
+readiness, login assets, session response headers and form-token issuance. This
+is an **early rollout**, not functional parity: signup and several
+account/OIDC operations still need Rust implementations. The remaining React
+pages are published as transitional assets and may call unavailable API routes.
+Do not record those scenarios as accepted until their real browser/API checks
+pass. No production route change has been verified merely by local Terraform
+validation or container builds.
