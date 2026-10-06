@@ -7,6 +7,12 @@ const checks = {
     ['/readyz', 200, 'application/json'],
     ['/api/v1/auth/me', 200, 'application/json'],
   ],
+  sessions: [
+    ['/api/v1/auth/sessions', 401, 'application/json'],
+  ],
+  mutations: [
+    ['/api/v1/auth/data/exports/not-an-id', 401, 'application/json'],
+  ],
   web: [
     ['/login', 200, 'text/html'],
     ['/signup', 200, 'text/html'],
@@ -16,7 +22,7 @@ const checks = {
     ['/_id/signup.css', 200, 'text/css'],
   ],
 }[target];
-if (!checks) throw new Error('usage: smoke-yc-rust-http.mjs api|web');
+if (!checks) throw new Error('usage: smoke-yc-rust-http.mjs api|sessions|mutations|web');
 
 for (const [path, status, type] of checks) {
   let lastError;

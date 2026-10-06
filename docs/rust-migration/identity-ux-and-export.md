@@ -26,6 +26,13 @@ complete login → consent → return flow with a real relying party.
 **Production behavior does not meet this contract.** The deployed export still
 uses the immediate, owner-session path. The delayed path below is a local pilot
 until the remaining failure and production checks pass.
+Read-only YC inspection on 2026-10-07 confirmed that Gateway sends
+`/api/v1/auth/data/exports` to Rust container
+`bbamj363kmhlj2nof0mo`; its active revision has
+`ID_EXPORT_API_ROLLOUT_ENABLED=true` and no delayed-export flag. The active
+Topcoat revision has `ID_WEB_EXPORTS_ENABLED=true` but no redeem flag, and the
+active jobs revision has neither escrow snapshot nor escrow mail rollout flag.
+Changing only one container would create a misleading or broken user journey.
 
 The Rust workspace now contains additive `id_data_export_escrow` schema,
 operation-bound address encryption and deterministic download capability

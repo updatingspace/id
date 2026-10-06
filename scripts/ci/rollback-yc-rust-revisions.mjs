@@ -6,6 +6,8 @@ import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 const [mode, manifestPath] = process.argv.slice(2);
 const services = [
   ['api', process.env.RUST_API_CONTAINER_ID, process.env.API_DIGEST],
+  ['sessions', process.env.RUST_SESSIONS_CONTAINER_ID, process.env.API_DIGEST],
+  ['mutations', process.env.RUST_MUTATIONS_CONTAINER_ID, process.env.API_DIGEST],
   ['web', process.env.RUST_WEB_CONTAINER_ID, process.env.WEB_DIGEST],
   ['jobs', process.env.RUST_JOBS_CONTAINER_ID, process.env.JOBS_DIGEST],
 ];

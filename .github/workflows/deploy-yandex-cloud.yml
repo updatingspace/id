@@ -18,6 +18,8 @@ concurrency:
 env:
   DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
   RUST_API_CONTAINER_ID: bbak8734de8cabdaorc7
+  RUST_SESSIONS_CONTAINER_ID: bba3ev9oenabp55se69m
+  RUST_MUTATIONS_CONTAINER_ID: bbamj363kmhlj2nof0mo
   RUST_WEB_CONTAINER_ID: bbai4bjc8f21qg5fvjht
   RUST_JOBS_CONTAINER_ID: bba9v82d1op2qbh2kqtt
   ID_GATEWAY_ID: d5d6almt4c5i2ao9e4ha
@@ -145,9 +147,12 @@ jobs:
           set -euo pipefail
           spec=$(yc serverless api-gateway get-spec --id "$ID_GATEWAY_ID" --format json | jq -r '.openapi_spec')
           [[ "$spec" == *"$RUST_API_CONTAINER_ID"* ]]
+          [[ "$spec" == *"$RUST_SESSIONS_CONTAINER_ID"* ]]
+          [[ "$spec" == *"$RUST_MUTATIONS_CONTAINER_ID"* ]]
           [[ "$spec" == *"$RUST_WEB_CONTAINER_ID"* ]]
           [[ "$spec" != *"bbab7jbbhqhupu9idvh0"* ]]
-          for id in "$RUST_API_CONTAINER_ID" "$RUST_WEB_CONTAINER_ID" "$RUST_JOBS_CONTAINER_ID"; do
+          printf '%s' "$spec" | node scripts/ci/check-yc-gateway-containers.mjs
+          for id in "$RUST_API_CONTAINER_ID" "$RUST_SESSIONS_CONTAINER_ID" "$RUST_MUTATIONS_CONTAINER_ID" "$RUST_WEB_CONTAINER_ID" "$RUST_JOBS_CONTAINER_ID"; do
             yc serverless container get --id "$id" --format json >/dev/null
           done
       - name: Apply additive Rust YDB schemas
@@ -178,6 +183,18 @@ jobs:
           revision=$(yc serverless container revision list --container-id "$RUST_API_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
           node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_API_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
           node scripts/ci/smoke-yc-rust-http.mjs api
+      - name: Deploy Rust sessions API
+        run: |
+          set -euo pipefail
+          revision=$(yc serverless container revision list --container-id "$RUST_SESSIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
+          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_SESSIONS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
+          node scripts/ci/smoke-yc-rust-http.mjs sessions
+      - name: Deploy Rust mutations API
+        run: |
+          set -euo pipefail
+          revision=$(yc serverless container revision list --container-id "$RUST_MUTATIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
+          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_MUTATIONS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
+          node scripts/ci/smoke-yc-rust-http.mjs mutations
       - name: Deploy Topcoat UI
         run: |
           set -euo pipefail

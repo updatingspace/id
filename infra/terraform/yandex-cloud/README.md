@@ -5,7 +5,10 @@ Lockbox, identities and timers for the Rust `id-api`, Topcoat `id-web` and
 `id-jobs` stack. The deploy workflow in
 [`.github/workflows/deploy-yandex-cloud.yml`](../../../.github/workflows/deploy-yandex-cloud.yml)
 builds tested Rust images and updates the **existing** API, web and jobs
-containers. It does not apply OpenTofu or publish a React bundle.
+containers. The API image is deployed to the main, sessions-read and
+mutations containers because the live Gateway sends requests to all three;
+all five active Rust containers are included in revision capture and rollback.
+The workflow does not apply OpenTofu or publish a React bundle.
 
 The checked-in [`production.performance.tfvars`](production.performance.tfvars)
 records the intended Rust routing and scale-to-zero configuration. It is not a
