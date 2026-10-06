@@ -1,0 +1,9 @@
+{
+  "name": "updspace-id-rust-browser-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser test runner for the Rust API and Topcoat UI",
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}

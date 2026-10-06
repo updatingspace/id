@@ -8,7 +8,7 @@ api_port="${ID_PILOT_API_PORT:-13121}"
 web_port="${ID_PILOT_WEB_PORT:-13122}"
 proxy_port="${ID_PILOT_PROXY_PORT:-13123}"
 proxy_origin="http://127.0.0.1:${proxy_port}"
-playwright_module="${ID_PLAYWRIGHT_MODULE:-${workspace_dir}/../../web/id-frontend/node_modules/@playwright/test}"
+playwright_module="${ID_PLAYWRIGHT_MODULE:-${workspace_dir}/browser-tests/node_modules/@playwright/test}"
 session_key="synthetic-local-secret-min-32-characters"
 umask 077
 scratch_dir="$(mktemp -d)"

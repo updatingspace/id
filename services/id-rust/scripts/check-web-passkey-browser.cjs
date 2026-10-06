@@ -7,7 +7,7 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const playwrightPath = process.env.ID_PLAYWRIGHT_MODULE || path.resolve(root, '../../web/id-frontend/node_modules/@playwright/test');
+const playwrightPath = process.env.ID_PLAYWRIGHT_MODULE || path.resolve(root, 'browser-tests/node_modules/@playwright/test');
 const { chromium } = require(playwrightPath);
 
 async function port() {

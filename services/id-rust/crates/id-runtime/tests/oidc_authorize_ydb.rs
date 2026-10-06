@@ -138,11 +138,16 @@ fn keyset() -> Result<OidcKeyRing> {
 #[tokio::test]
 #[ignore = "requires migrated local YDB and opt-in OIDC authorization route"]
 async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
+    let endpoint = std::env::var("YDB_ENDPOINT")?;
+    let fixed_local = matches!(
+        endpoint.as_str(),
+        "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
+    );
+    let disposable_local = std::env::var("ID_DISPOSABLE_YDB").as_deref() == Ok("true")
+        && (endpoint.starts_with("grpc://localhost:") || endpoint.starts_with("grpc://127.0.0.1:"));
     ensure!(
-        matches!(
-            std::env::var("YDB_ENDPOINT")?.as_str(),
-            "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
-        ) && std::env::var("YDB_DATABASE")? == "/local"
+        (fixed_local || disposable_local)
+            && std::env::var("YDB_DATABASE")? == "/local"
             && std::env::var("ID_OIDC_AUTHORIZE_PILOT_ENABLED")? == "true"
             && std::env::var("ID_OIDC_TOKEN_PILOT_ENABLED")? == "true",
         "local pilot required"

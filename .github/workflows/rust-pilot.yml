@@ -254,11 +254,10 @@ jobs:
         with:
           node-version: "22.12.0"
       - name: Install frozen browser test dependencies
-        working-directory: web/id-frontend
+        working-directory: services/id-rust/browser-tests
         run: |
-          corepack enable
-          corepack pnpm install --frozen-lockfile
-          corepack pnpm exec playwright install --with-deps chromium
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Browser → Topcoat passkey interaction with same-origin API fixture
         working-directory: services/id-rust
         run: node scripts/check-web-passkey-browser.cjs

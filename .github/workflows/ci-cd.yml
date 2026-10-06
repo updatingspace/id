@@ -12,11 +12,7 @@ on:
       - master
 
 env:
-  PYTHON_VERSION: "3.12"
   NODE_VERSION: "22.12.0"
-  REGISTRY: ghcr.io
-  BACKEND_IMAGE: ${{ github.repository_owner }}/id-service
-  FRONTEND_IMAGE: ${{ github.repository_owner }}/id-frontend
 
 jobs:
   rust-stack:
@@ -61,165 +57,30 @@ jobs:
           docker build --check -f Dockerfile.jobs .
           docker build --check -f Dockerfile.web .
 
-  backend-sqlite:
-    name: Backend (SQLite + coverage gates)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/id
-    env:
-      DJANGO_SETTINGS_MODULE: app.settings
-      PYTHONPATH: src
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install uv
-          uv sync --extra dev --frozen
-
-      - name: Dependency audit (Python)
-        continue-on-error: true
-        run: uv run --extra dev pip-audit --format=json --output=pip-audit.json
-
-      - name: Ruff check
-        run: uv run --extra dev ruff check src/
-
-      - name: Ruff format check
-        run: uv run --extra dev ruff format --check src/
-
-      - name: Check migrations
-        env:
-          DJANGO_DEBUG: "true"
-          DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
-        run: uv run --extra dev python src/manage.py makemigrations --check --dry-run --noinput
-
-      - name: Run tests with coverage profile
-        env:
-          DJANGO_DEBUG: "true"
-          DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
-        run: |
-          uv run --extra dev pytest -q --junitxml=pytest-sqlite.xml \
-            --cov=accounts.api.exception_handlers \
-            --cov=accounts.api.security \
-            --cov=accounts.services.rate_limit \
-            --cov=core.logging_config \
-            --cov=core.middleware \
-            --cov=core.security \
-            --cov=core.http \
-            --cov=core.errors \
-            --cov=idp.router \
-            --cov=idp.services \
-            --cov=updspaceid.providers \
-            --cov-branch \
-            --cov-report=xml \
-            --cov-report=term
-          uv run --extra dev python scripts/check_coverage.py \
-            --xml coverage.xml \
-            --min-line 0.85 \
-            --min-branch 0.80 \
-            --critical src/accounts/api/security.py \
-            --critical src/accounts/services/rate_limit.py \
-            --critical src/core/security.py \
-            --critical src/core/http.py \
-            --critical src/core/errors.py \
-            --critical src/idp/router.py \
-            --critical-min-line 1.0 \
-            --critical-min-branch 1.0
-
-      - name: Upload backend SQLite artifacts
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: backend-sqlite-reports
-          path: |
-            services/id/coverage.xml
-            services/id/pytest-sqlite.xml
-            services/id/pip-audit.json
-
-  backend-postgres:
-    name: Backend (Postgres integration)
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: id_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d id_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-    defaults:
-      run:
-        working-directory: services/id
-    env:
-      DJANGO_SETTINGS_MODULE: app.settings
-      PYTHONPATH: src
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install uv
-          uv sync --extra dev --frozen
-
-      - name: Run tests on Postgres
-        env:
-          DJANGO_DEBUG: "true"
-          DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
-          DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/id_test"
-        run: uv run --extra dev pytest -q --junitxml=pytest-postgres.xml
-
-      - name: Upload backend Postgres artifacts
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: backend-postgres-reports
-          path: services/id/pytest-postgres.xml
-
   ydb-schema-check:
-    name: YDB schema and auth integration
+    name: Rust YDB schema and auth integration
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: services/id
+        working-directory: services/id-rust
     env:
-      DJANGO_SETTINGS_MODULE: app.settings
-      PYTHONPATH: src
       DJANGO_DEBUG: "true"
       DJANGO_SECRET_KEY: "ci-secret-key-min-32-characters-long"
-      DJANGO_ALLOWED_HOSTS: "testserver,localhost,127.0.0.1,.yandexcloud.net"
       ID_TOKEN_HASH_SECRET: "ci-token-hash-secret"
       OIDC_REFRESH_TOKEN_SALT: "ci-refresh-token-salt"
-      DB_DRIVER: ydb
       YDB_ENDPOINT: grpc://localhost:2136
       YDB_DATABASE: /local
-      YDB_NAME: default
-      YDB_CREDENTIALS_MODE: token
-      YDB_TOKEN: local-ydb-token
+      YDB_CREDENTIALS_MODE: anonymous
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: services/id/pyproject.toml
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Install WebAuthn build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
 
       - name: Start YDB local
         run: |
@@ -228,30 +89,13 @@ jobs:
             --hostname 127.0.0.1 \
             -p 2136:2136 \
             -p 8765:8765 \
-            ydbplatform/local-ydb:latest
+            ydbplatform/local-ydb@sha256:9e46fd45875551a75bcf34d0bb9ca0baa1d8763a4ccf2070af45f4467c4b7402
           ../../scripts/ci/wait-for-ydb-local.sh
 
-      - name: Install deps
+      - name: Bootstrap legacy schema with Rust
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install uv
-          uv sync --extra dev --frozen
-
-      - name: Rehearse additive YDB identity migration
-        run: uv run --frozen python scripts/check_ydb_schema_upgrade.py
-
-      - name: Run migrate_ydb dry-run
-        run: uv run --frozen python src/manage.py migrate_ydb --dry-run
-
-      - name: Rehearse upgrade from the previous ID schema
-        run: uv run --frozen python scripts/check_ydb_schema_upgrade.py
-
-      - name: Check YDB auth and shared cache
-        run: |
-          uv run --frozen python src/manage.py migrate_ydb
-          uv run --frozen python scripts/check_ydb_runtime.py
-          uv run --frozen python scripts/check_oidc_runtime.py
-          uv run --frozen python scripts/check_identity_runtime.py
+          cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
+          cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
 
       - name: Verify Rust OIDC form authorization on local YDB
         env:
@@ -261,8 +105,6 @@ jobs:
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
-          rustup toolchain install 1.98.1 --profile minimal
-          cd ../id-rust
           cargo test --locked -p id-runtime --test oidc_authorize_ydb -- --ignored
 
       - name: Verify Rust profile and avatar deletion on local YDB
@@ -272,7 +114,6 @@ jobs:
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
-          cd ../id-rust
           cargo test --locked -p id-runtime --test profile_http_ydb -- --ignored
 
       - name: Verify Rust password change and durable mail on local YDB
@@ -282,8 +123,6 @@ jobs:
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
-          rustup toolchain install 1.98.1 --profile minimal
-          cd ../id-rust
           cargo run --locked -p id-runtime --bin idctl -- password-mail-schema
           cargo run --locked -p id-runtime --bin idctl -- security-mail-schema
           cargo test --locked -p id-runtime --test password_change_http_ydb -- --ignored
@@ -301,8 +140,6 @@ jobs:
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
-          rustup toolchain install 1.98.1 --profile minimal
-          cd ../id-rust
           cargo run --locked -p id-runtime --bin idctl -- password-reset-schema
           cargo run --locked -p id-runtime --bin idctl -- password-reset-schema
           cargo test --locked -p id-runtime --test password_reset_http_ydb -- --ignored
@@ -320,7 +157,6 @@ jobs:
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
-          cd ../id-rust
           cargo run --locked -p id-runtime --bin idctl -- email-verify-schema
           cargo run --locked -p id-runtime --bin idctl -- email-verify-schema
           cargo test --locked -p id-runtime --test email_verify_http_ydb -- --ignored
@@ -333,7 +169,6 @@ jobs:
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
-          cd ../id-rust
           cargo run --locked -p id-runtime --bin idctl -- magic-link-schema
           cargo run --locked -p id-runtime --bin idctl -- magic-link-schema
           cargo test --locked -p id-runtime --test magic_link_request_ydb -- --ignored
@@ -349,7 +184,6 @@ jobs:
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: |
-          cd ../id-rust
           cargo run --locked -p id-runtime --bin idctl -- email-change-schema
           cargo run --locked -p id-runtime --bin idctl -- email-change-schema
           cargo run --locked -p id-runtime --bin idctl -- security-mail-schema
@@ -371,7 +205,6 @@ jobs:
           YDB_CONTAINER_NAME=id-deletion-test-ydb \
             YDB_LOCAL_ENDPOINT=grpc://localhost:2137 \
             ../../scripts/ci/wait-for-ydb-local.sh
-          cd ../id-rust
           cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
           cargo test --locked -p id-runtime --test legacy_cutover_reset_ydb -- --ignored
           cargo run --locked -p id-runtime --bin idctl -- data-export-schema
@@ -383,16 +216,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - uses: pnpm/action-setup@v5
-        with:
-          version: 10.3.0
-          run_install: false
-
-      - name: Install Chromium for Topcoat recovery E2E
+      - name: Install Chromium for Topcoat E2E
         run: |
-          cd ../../web/id-frontend
-          pnpm install --frozen-lockfile
-          pnpm e2e:install
+          cd browser-tests
+          npm ci
+          npx playwright install --with-deps chromium
 
       - name: Verify Chromium to Topcoat to Rust recovery on local YDB
         env:
@@ -401,7 +229,6 @@ jobs:
           CARGO_PROFILE_TEST_DEBUG: "0"
           YDB_CREDENTIALS_MODE: anonymous
         run: |
-          cd ../id-rust
           cargo build --locked -p id-runtime --bins -p id-web
           bash scripts/smoke-web-recovery-live.sh
 
@@ -412,7 +239,6 @@ jobs:
           CARGO_PROFILE_TEST_DEBUG: "0"
           YDB_CREDENTIALS_MODE: anonymous
         run: |
-          cd ../id-rust
           bash scripts/smoke-web-signup-live.sh
 
   terraform-check:
@@ -445,207 +271,3 @@ jobs:
 
       - name: OpenTofu local check
         run: scripts/ci/check-yc-terraform-local.sh
-
-  frontend-ci:
-    name: Frontend lint/typecheck/unit
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web/id-frontend
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - uses: pnpm/action-setup@v5
-        with:
-          version: 10.3.0
-          run_install: false
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Dependency audit (Node)
-        continue-on-error: true
-        run: pnpm audit --prod --audit-level=high --json > pnpm-audit.json
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Unit tests with coverage
-        run: pnpm test:coverage
-
-      - name: Frontend publication regression checks
-        run: |
-          bash -n ../../scripts/ci/deploy-frontend-object-storage.sh
-          python3 -m pip install PyYAML==6.0.3
-          python3 -m unittest discover -s ../../scripts/ci -p 'test_*.py'
-
-      - name: Upload frontend coverage
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: frontend-coverage
-          path: |
-            web/id-frontend/coverage
-            web/id-frontend/pnpm-audit.json
-
-  e2e-smoke:
-    name: E2E smoke (Playwright)
-    runs-on: ubuntu-latest
-    needs:
-      - frontend-ci
-    defaults:
-      run:
-        working-directory: web/id-frontend
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - uses: pnpm/action-setup@v5
-        with:
-          version: 10.3.0
-          run_install: false
-
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browsers
-        run: pnpm e2e:install
-
-      - name: Run smoke E2E
-        run: pnpm e2e
-
-      - name: Upload Playwright reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-report
-          path: |
-            web/id-frontend/playwright-report
-            web/id-frontend/test-results
-
-  compliance-matrix:
-    name: Compliance matrix artifact
-    runs-on: ubuntu-latest
-    if: always()
-    needs:
-      - backend-sqlite
-      - backend-postgres
-      - ydb-schema-check
-      - terraform-check
-      - opentofu-check
-      - frontend-ci
-      - e2e-smoke
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Generate control matrix
-        run: |
-          python services/id/scripts/generate_compliance_matrix.py \
-            --output services/id/docs/compliance/control-matrix.md \
-            --backend-status "${{ needs.backend-sqlite.result }}" \
-            --postgres-status "${{ needs.backend-postgres.result }}" \
-            --frontend-status "${{ needs.frontend-ci.result }}" \
-            --e2e-status "${{ needs.e2e-smoke.result }}"
-
-      - name: Upload compliance matrix
-        uses: actions/upload-artifact@v7
-        with:
-          name: compliance-matrix
-          path: services/id/docs/compliance/control-matrix.md
-
-  publish-backend:
-    name: Publish backend image
-    runs-on: ubuntu-latest
-    needs:
-      - backend-sqlite
-      - backend-postgres
-      - ydb-schema-check
-      - terraform-check
-      - opentofu-check
-      - compliance-matrix
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}
-          tags: |
-            type=ref,event=branch
-            type=sha,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - uses: docker/build-push-action@v6
-        with:
-          context: services/id
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  publish-frontend:
-    name: Publish frontend image
-    runs-on: ubuntu-latest
-    needs:
-      - frontend-ci
-      - e2e-smoke
-      - compliance-matrix
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}
-          tags: |
-            type=ref,event=branch
-            type=sha,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - uses: docker/build-push-action@v6
-        with:
-          context: web/id-frontend
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

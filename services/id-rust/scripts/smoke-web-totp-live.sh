@@ -8,7 +8,7 @@ api_port="${ID_PILOT_API_PORT:-13051}"
 web_port="${ID_PILOT_WEB_PORT:-13052}"
 proxy_port="${ID_PILOT_PROXY_PORT:-13053}"
 proxy_origin="http://127.0.0.1:${proxy_port}"
-playwright_module="${ID_PLAYWRIGHT_MODULE:-${workspace_dir}/../../web/id-frontend/node_modules/@playwright/test}"
+playwright_module="${ID_PLAYWRIGHT_MODULE:-${workspace_dir}/browser-tests/node_modules/@playwright/test}"
 synthetic_mfa_key="QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="
 synthetic_session_key="synthetic-totp-browser-secret-min-32-chars"
 umask 077
