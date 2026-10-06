@@ -88,7 +88,8 @@ when `existing_api_gateway_id` is set; the domain attachment is retained.
 The provider source is pinned to `registry.terraform.io/yandex-cloud/yandex`
 for OpenTofu compatibility.
 
-The current Rust UI has no operator console. `/admin/` and the removed React
-cabinet must not be counted as working Rust administration. The remaining
+The current Rust UI has only a read-only deletion-request lookup, and its
+`/admin/` route is disabled in production. It must not be counted as full
+Rust administration. The remaining
 functional and interface gaps are tracked in
 [`docs/rust-migration/identity-ux-and-export.md`](../../../docs/rust-migration/identity-ux-and-export.md).

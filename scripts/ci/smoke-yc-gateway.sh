@@ -21,18 +21,17 @@ for route in forgot-password reset-password verify-email; do
 done
 
 html="$(curl "${curl_args[@]}" "${base_url}/")"
-js_path="$(printf '%s' "${html}" | sed -n 's/.*src="\([^"]*\/assets\/[^"]*\.js\)".*/\1/p' | head -n 1)"
-css_path="$(printf '%s' "${html}" | sed -n 's/.*href="\([^"]*\/assets\/[^"]*\.css\)".*/\1/p' | head -n 1)"
-
-if [[ -z "${js_path}" || -z "${css_path}" ]]; then
-  if [[ "${html}" == *'href="/_id/home.css"'* ]]; then
-    css_path="/_id/home.css"
-    js_path="/_id/account.js"
-  else
-    echo "Could not find deployed JS/CSS assets in ${base_url}/" >&2
-    exit 1
-  fi
-fi
+login_html="$(curl "${curl_args[@]}" "${base_url}/login")"
+[[ "${html}" == *'href="/_id/home.css?'* ]] || {
+  echo "Topcoat home stylesheet missing from ${base_url}/" >&2
+  exit 1
+}
+[[ "${login_html}" == *'id="login-form"'* ]] || {
+  echo "Topcoat login form missing from ${base_url}/login" >&2
+  exit 1
+}
+js_path="/_id/login.js"
+css_path="/_id/home.css"
 
 js_type="$(curl "${curl_args[@]}" -o /dev/null -D - "${base_url}${js_path}" | awk 'tolower($1)=="content-type:" && !found {found=tolower($2)} END {print found}')"
 css_type="$(curl "${curl_args[@]}" -o /dev/null -D - "${base_url}${css_path}" | awk 'tolower($1)=="content-type:" && !found {found=tolower($2)} END {print found}')"
@@ -58,6 +57,13 @@ if [[ "${missing_status}" != '404' ]]; then
   echo "Missing assets must return 404, got ${missing_status}" >&2
   exit 1
 fi
+for retired_path in /legacy/account /__smoke_missing_page__; do
+  retired_status="$(curl "${curl_args[@]}" --no-fail -o /dev/null -w '%{http_code}' "${base_url}${retired_path}")"
+  if [[ "${retired_status}" != '404' ]]; then
+    echo "Retired or unknown page ${retired_path} must return 404, got ${retired_status}" >&2
+    exit 1
+  fi
+done
 
 me_cache="$(curl "${curl_args[@]}" -o /dev/null -D - "${base_url}/api/v1/auth/me" | awk 'tolower($1)=="cache-control:" {print tolower($0)}')"
 if [[ "${me_cache}" != *no-store* ]]; then
