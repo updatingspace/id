@@ -36,3 +36,7 @@ cargo clippy --locked -p id-web --all-targets -- -D warnings
 
 The web image is built by `Dockerfile.web`; a frontend change produces a new
 `id-web` image and can be deployed independently of `id-api`.
+
+Browser checks use the small, locked Playwright runner in
+`services/id-rust/browser-tests`. Install it with `npm ci` there; the Topcoat
+smoke scripts resolve this package without installing the old React frontend.
