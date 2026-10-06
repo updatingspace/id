@@ -27,6 +27,15 @@ jobs:
         working-directory: services/id-rust
     steps:
       - uses: actions/checkout@v6
+      - name: Reject retired application runtimes
+        working-directory: .
+        run: |
+          test ! -e services/id
+          test ! -e web/id-frontend
+          if [ -n "$(git ls-files -- '*.py' '**/*.py' 'pyproject.toml' '**/pyproject.toml' 'uv.lock' '**/uv.lock')" ]; then
+            echo 'Python application or tooling returned to the repository' >&2
+            exit 1
+          fi
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Install WebAuthn build dependencies
