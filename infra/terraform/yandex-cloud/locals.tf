@@ -89,7 +89,7 @@ locals {
     rust_api_container_id                = var.gateway_rust_me || var.gateway_rust_form_token || var.gateway_rust_jwks || var.gateway_rust_login_api || var.gateway_rust_passkey_login || var.gateway_rust_passkey_registration || var.gateway_rust_totp_management || var.gateway_rust_passkey_rename || var.gateway_rust_passkey_delete || var.gateway_rust_email_verify_api || var.gateway_rust_signup_api || var.gateway_rust_password_reset_api || var.gateway_rust_health || var.gateway_rust_oauth_providers || var.gateway_rust_internal_identity || var.gateway_rust_exchange || var.gateway_rust_magic_link || var.gateway_rust_portal_me ? (var.gateway_rust_me_container_id != "" ? var.gateway_rust_me_container_id : yandex_serverless_container.rust_api[0].id) : ""
     rust_sessions_container_id           = var.gateway_rust_sessions_container_id != "" ? var.gateway_rust_sessions_container_id : (var.gateway_rust_me_container_id != "" ? var.gateway_rust_me_container_id : (var.enable_rust_stack ? yandex_serverless_container.rust_api[0].id : ""))
     rust_sessions_mutations_container_id = var.gateway_rust_sessions_mutations_container_id != "" ? var.gateway_rust_sessions_mutations_container_id : (var.enable_rust_stack ? yandex_serverless_container.rust_api[0].id : "")
-    web_container_id                     = var.gateway_use_rust || var.gateway_rust_login || var.gateway_rust_account || var.gateway_rust_admin || var.gateway_rust_recovery_pages || var.gateway_rust_signup_page || var.gateway_rust_home_page || var.gateway_rust_oidc ? (var.gateway_rust_web_container_id != "" ? var.gateway_rust_web_container_id : yandex_serverless_container.rust_web[0].id) : ""
+    web_container_id                     = var.gateway_rust_web_container_id != "" ? var.gateway_rust_web_container_id : yandex_serverless_container.rust_web[0].id
     gateway_use_rust                     = var.gateway_use_rust
     gateway_rust_me                      = var.gateway_rust_me
     gateway_rust_form_token              = var.gateway_rust_form_token
@@ -153,8 +153,6 @@ locals {
     enable_rust_signup          = var.enable_rust_signup
     gateway_rust_signup_page    = var.gateway_rust_signup_page
     gateway_rust_home_page      = var.gateway_rust_home_page
-    frontend_static_routes      = var.gateway_use_rust ? concat(var.enable_rust_signup || var.gateway_rust_signup_page ? [] : ["signup"], var.enable_rust_password_reset ? [] : ["forgot-password", "reset-password"], var.enable_rust_email_verify ? [] : ["verify-email"]) : concat(var.gateway_rust_login ? [] : ["login"], var.gateway_rust_signup_page ? [] : ["signup"], var.gateway_rust_oidc ? ["legacy/account"] : ["authorize", "legacy/account"], var.gateway_rust_account ? [] : ["account"], var.gateway_rust_recovery_pages ? [] : ["forgot-password", "reset-password", "verify-email"])
-    frontend_bucket             = local.frontend_bucket_name
     gateway_service_account_id  = yandex_iam_service_account.gateway.id
   })
 

@@ -104,12 +104,6 @@ resource "yandex_ydb_database_iam_binding" "runtime_editor" {
   members     = ["serviceAccount:${yandex_iam_service_account.runtime.id}"]
 }
 
-resource "yandex_storage_bucket_iam_binding" "gateway_frontend_viewer" {
-  bucket  = yandex_storage_bucket.frontend.bucket
-  role    = "storage.viewer"
-  members = ["serviceAccount:${yandex_iam_service_account.gateway.id}"]
-}
-
 resource "yandex_resourcemanager_folder_iam_member" "runtime_image_puller" {
   folder_id = var.folder_id
   role      = "container-registry.images.puller"
@@ -208,7 +202,6 @@ resource "yandex_api_gateway" "id" {
     data.yandex_serverless_container.deployed_rust_api,
     data.yandex_serverless_container.deployed_rust_web,
     yandex_serverless_container_iam_binding.gateway_green_invoker,
-    yandex_storage_bucket_iam_binding.gateway_frontend_viewer,
   ]
 
   dynamic "custom_domains" {

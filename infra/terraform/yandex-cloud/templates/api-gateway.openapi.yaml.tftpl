@@ -878,32 +878,6 @@ paths:
         container_id: ${web_container_id}
         service_account_id: ${gateway_service_account_id}
 %{ endif ~}
-%{ for route in frontend_static_routes ~}
-  /${route}:
-    get:
-      x-yc-apigateway-integration:
-        type: object_storage
-        bucket: ${frontend_bucket}
-        object: index.html
-        service_account_id: ${gateway_service_account_id}
-
-%{ endfor ~}
-  /assets/{file+}:
-    get:
-      parameters:
-        - name: file
-          in: path
-          required: true
-          explode: false
-          style: simple
-          schema:
-            type: string
-      x-yc-apigateway-integration:
-        type: object_storage
-        bucket: ${frontend_bucket}
-        object: "assets/{file}"
-        service_account_id: ${gateway_service_account_id}
-
   /{file+}:
     get:
       parameters:
@@ -916,23 +890,13 @@ paths:
             type: string
             default: "-"
       x-yc-apigateway-integration:
-        type: object_storage
-        bucket: ${frontend_bucket}
-        object: "{file}"
+        type: serverless_containers
+        container_id: ${web_container_id}
         service_account_id: ${gateway_service_account_id}
-        error_object:
-          object: index.html
-          statusCode: 200
 
   /:
     get:
       x-yc-apigateway-integration:
-%{ if gateway_use_rust || gateway_rust_home_page ~}
         type: serverless_containers
         container_id: ${web_container_id}
-%{ else ~}
-        type: object_storage
-        bucket: ${frontend_bucket}
-        object: index.html
-%{ endif ~}
         service_account_id: ${gateway_service_account_id}

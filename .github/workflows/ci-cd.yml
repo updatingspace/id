@@ -40,6 +40,10 @@ jobs:
             echo 'Retired Django deployment path returned to Terraform' >&2
             exit 1
           fi
+          if git grep -n -E 'type: object_storage|object: index\.html|frontend_static_routes' -- infra/terraform/yandex-cloud/templates/api-gateway.openapi.yaml.tftpl infra/terraform/yandex-cloud/locals.tf; then
+            echo 'Retired React Gateway fallback returned' >&2
+            exit 1
+          fi
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Install WebAuthn build dependencies

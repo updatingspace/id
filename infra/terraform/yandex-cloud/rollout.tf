@@ -129,6 +129,10 @@ resource "terraform_data" "rollout_safety" {
       error_message = "Gateway requires a Rust API container and Rust routing."
     }
     precondition {
+      condition     = var.enable_rust_stack || var.gateway_rust_web_container_id != ""
+      error_message = "Gateway fallback requires a Topcoat web container."
+    }
+    precondition {
       condition = !var.blue_green_enabled || (
         var.retained_backend_config != null && var.deployment_service_account_name != ""
       )

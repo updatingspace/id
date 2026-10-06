@@ -60,6 +60,12 @@ uses private trigger/timer routes. `/_id/*` is served with explicit CSS/JS MIME
 types; account, authentication and OAuth responses must not enter shared
 caches. `min_ready_instances` defaults to zero, so cold-start latency remains
 a measured part of the user experience.
+The catch-all GET route now reaches Topcoat. Unknown paths return its 404
+instead of a React `index.html` from Object Storage. The former frontend
+bucket is temporarily retained as a Terraform-managed resource, but Gateway
+has no route for it; this Terraform revision removes the old Gateway viewer
+permission when applied. Remove the bucket in a separate
+reviewed state change after the last old assets are no longer needed.
 The hourly Gravatar timer requires `gravatar_rust_jobs_container_id` and calls
 the Rust jobs container. Terraform no longer contains the retired Django
 Gravatar container or blue backend resources. The historical green resource

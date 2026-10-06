@@ -127,6 +127,5 @@ resource "terraform_data" "existing_gateway_spec" {
     data.yandex_serverless_container.deployed_rust_api,
     data.yandex_serverless_container.deployed_rust_web,
     yandex_serverless_container_iam_binding.gateway_green_invoker,
-    yandex_storage_bucket_iam_binding.gateway_frontend_viewer,
   ]
 }
