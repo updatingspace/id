@@ -166,7 +166,7 @@ jobs:
           export YDB_DATABASE="$database"
           export YDB_CREDENTIALS_MODE=token
           export YDB_TOKEN="$(yc iam create-token)"
-          for schema in password-mail-schema security-mail-schema password-reset-schema email-verify-schema magic-link-schema email-change-schema data-export-schema data-export-escrow-schema data-export-mail-schema passkey-index; do
+          for schema in cache-schema password-mail-schema security-mail-schema password-reset-schema email-verify-schema magic-link-schema email-change-schema data-export-schema data-export-escrow-schema data-export-mail-schema passkey-index; do
             cargo run --locked --release -p id-runtime --bin idctl -- "$schema"
           done
       - name: Capture serving Rust revisions

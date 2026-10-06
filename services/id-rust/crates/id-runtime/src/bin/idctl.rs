@@ -36,6 +36,11 @@ enum Command {
     },
     /// Read-only YDB connection and query probe. Credentials come from environment.
     YdbProbe,
+    /// Add or verify the shared one-time-state table used by Rust auth.
+    CacheSchema {
+        #[arg(long, env = "YDB_CACHE_TABLE", default_value = "id_shared_cache")]
+        table: String,
+    },
     /// Count portable, legacy, expired and malformed shared-cache rows without values.
     CacheAudit {
         #[arg(long, env = "YDB_CACHE_TABLE", default_value = "id_shared_cache")]
@@ -214,6 +219,11 @@ async fn main() -> Result<()> {
                 "{}",
                 json!({"ydb_query": "pass", "production_qualified": false})
             );
+        }
+        Command::CacheSchema { table } => {
+            let client = id_runtime::connect_ydb().await?;
+            id_runtime::cache_store::ensure_schema(&client, &table).await?;
+            println!("{}", json!({"table": table, "ready": true}));
         }
         Command::CacheAudit {
             table,

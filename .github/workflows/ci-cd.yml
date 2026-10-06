@@ -96,6 +96,8 @@ jobs:
         run: |
           cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
           cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
+          cargo run --locked -p id-runtime --bin idctl -- cache-schema
+          cargo run --locked -p id-runtime --bin idctl -- cache-schema
 
       - name: Verify Rust OIDC form authorization on local YDB
         env:

@@ -1,7 +1,7 @@
 //! Portable, shared YDB cache access for transition-era one-time state.
 
 use crate::tx_retry::retry_known_abort;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use id_compat::cache::{self, CacheValue};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -11,7 +11,53 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex;
-use ydb::{Client, Transaction, TxMode, closure};
+use ydb::{Client, Transaction, TxMode, Value, closure};
+
+fn valid_table_name(table: &str) -> bool {
+    !table.is_empty()
+        && table
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        && (table.as_bytes()[0].is_ascii_alphabetic() || table.as_bytes()[0] == b'_')
+}
+
+/// Create the shared one-time-state table without running Django migrations.
+/// Keep the legacy column types so existing tokens and rate-limit budgets remain readable.
+pub async fn ensure_schema(client: &Client, table: &str) -> Result<()> {
+    ensure!(
+        valid_table_name(table),
+        "invalid YDB cache table identifier"
+    );
+    client.query_client().exec(format!(
+        "CREATE TABLE IF NOT EXISTS `{table}` (cache_key Utf8 NOT NULL, value String, expires_at Uint64, PRIMARY KEY(cache_key)) WITH (TTL=Interval(\"PT0S\") ON expires_at AS SECONDS)"
+    )).timeout(Duration::from_secs(15)).await?;
+    let description = client
+        .table_client()
+        .describe_table(format!("{}/{table}", client.database()))
+        .await?;
+    ensure!(
+        description.primary_key == ["cache_key"],
+        "cache primary key drift"
+    );
+    ensure!(description.columns.len() == 3, "cache columns drift");
+    for (name, expected) in [
+        ("cache_key", Value::Text(String::new())),
+        ("value", Some(ydb::Bytes::default()).into()),
+        ("expires_at", Some(u64::default()).into()),
+    ] {
+        let actual = description
+            .columns
+            .iter()
+            .find(|column| column.name == name)
+            .with_context(|| format!("cache column missing: {name}"))?;
+        let kind = actual
+            .type_value
+            .as_ref()
+            .map_err(|_| anyhow::anyhow!("cache column type unsupported: {name}"))?;
+        ensure!(kind == &expected, "cache column type drift: {name}");
+    }
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct CacheStore {
@@ -62,12 +108,7 @@ pub struct CacheAudit {
 
 impl CacheStore {
     pub fn new(client: Arc<Client>, table: &str, key_prefix: &str, version: i64) -> Result<Self> {
-        if table.is_empty()
-            || !table
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-            || !table.as_bytes()[0].is_ascii_alphabetic() && table.as_bytes()[0] != b'_'
-        {
+        if !valid_table_name(table) {
             bail!("invalid YDB cache table identifier");
         }
         Ok(Self {

@@ -5,9 +5,10 @@
 контейнеры (45 — основной API, 59 — мутации сессий, 3 — чтение сессий,
 10 — Topcoat web) или Object Storage (3); маршрутов к Python-контейнеру нет.**
 Это подтверждает маршрутизацию, но не функциональный паритет всех операций.
-Python и React ещё остаются в исходниках; отдельный переходный `rust-pilot`
-проверяет совместимость с Python, но основной `ID CI/CD`, от которого зависит
-deploy, запускает Rust/YDB/Topcoat и проверки инфраструктуры без Python.
+Python и React ещё остаются в исходниках, но проектные GitHub workflows больше
+не устанавливают и не запускают их. Основной `ID CI/CD`, от которого зависит
+deploy, проверяет Rust/YDB/Topcoat и инфраструктуру; отдельный расширенный
+workflow проверяет дополнительные сценарии аутентификации на локальной YDB.
 Rust admin и отложенная production-выгрузка ещё не готовы. Состояние этапов и
 незакрытые условия — в
 [журнале миграции](../../docs/rust-migration/README.md).
@@ -254,7 +255,9 @@ WebAuthn и других интерактивных действий. Веб-с�
   YDB; секрет и сам код не выводятся в отчёт.
   `cleanup-tokens` по умолчанию считает устаревшие activation, magic-link и
   OAuth-state токены; `--execute` удаляет их с повторной проверкой в YDB.
-  `legacy-schema` проверяет 50 переходных таблиц и 98 индексов; `--apply`
+  `cache-schema` повторяемо создаёт и проверяет общий YDB-кэш для одноразовых
+  credentials и rate limits, без Python. `legacy-schema` проверяет 50 переходных
+  таблиц и 98 индексов; `--apply`
   повторяемо создаёт отсутствующие объекты только в локальном YDB.
   `legacy-ledger --apply` после проверок identity и email записывает четыре
   исторические версии без Python; запись пока ограничена локальным YDB.
@@ -311,9 +314,8 @@ WebAuthn и других интерактивных действий. Веб-с�
   через `ID_LIVE_BASE_URL`, `ID_LIVE_EMAIL`, `ID_LIVE_PASSWORD`,
   `ID_PLAYWRIGHT_MODULE` и при необходимости `ID_CHROMIUM_PATH`. При
   `ID_LIVE_ACCOUNT_SSR=true` smoke дополнительно проверяет гостевой редирект и
-  SSR профиля. Локальная YDB
-  должна иметь таблицу `id_shared_cache` из Terraform `cache.tf`: Django
-  `migrate_ydb` её не создаёт.
+  SSR профиля. Для локальной YDB перед smoke выполните `idctl cache-schema`:
+  Django `migrate_ydb` общую таблицу кэша не создаёт.
   Topcoat `/login` также переводит действующий старый `id_session_token` из
   sessionStorage в HttpOnly cookie через Rust `/me` при возврате с защищённого
   маршрута. Сначала проверяется существующая cookie; после проверки явного
@@ -709,6 +711,7 @@ export YDB_CREDENTIALS_MODE=anonymous
 cargo run --locked --bin idctl -- ydb-probe
 cargo run --locked --bin idctl -- legacy-schema --apply
 cargo run --locked --bin idctl -- legacy-schema
+cargo run --locked --bin idctl -- cache-schema
 cargo test --locked -p id-runtime --test ydb_pilot -- --ignored --nocapture
 cargo test --locked -p id-runtime --test cache_store_ydb -- --ignored --nocapture
 cargo test --locked -p id-runtime --test form_token_http_ydb -- --ignored --nocapture
@@ -775,8 +778,8 @@ API по умолчанию слушает 8081. Для защищённого Y
 Anonymous разрешён только на loopback. Секреты не передаются аргументами CLI.
 Metadata-режим ещё не прошёл IAM renewal/freeze-resume qualification.
 
-После создания `id_shared_cache` совместимой Python-версией или Terraform
-можно запустить `cargo run --locked --bin idctl -- cache-audit --require-portable`.
+После `idctl cache-schema` можно запустить
+`cargo run --locked --bin idctl -- cache-audit --require-portable`.
 Команда читает строки общей таблицы кэша постранично и выводит
 только счётчики: `portable`, `legacy`, `expired`, `malformed`. Флаг
 `--require-portable` завершает команду с ошибкой при действующих legacy или
