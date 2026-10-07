@@ -690,6 +690,39 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
             .as_str()
             .is_some_and(|url| url.contains("exports/escrow/") && !url.contains(&capability))
     );
+    // The email capability remains reusable throughout its delivery window:
+    // a lost response or parallel downloads must not consume it.
+    let mut redemptions = tokio::task::JoinSet::new();
+    for _ in 0..100 {
+        let (export, id, capability) = (export.clone(), id.clone(), capability.clone());
+        redemptions.spawn(async move {
+            let response = export
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/v1/auth/data/exports/{id}/redeem"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            serde_json::json!({"token": capability}).to_string(),
+                        ))?,
+                )
+                .await?;
+            let status = response.status();
+            let body: serde_json::Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+            anyhow::Ok((status, body))
+        });
+    }
+    while let Some(result) = redemptions.join_next().await {
+        let (status, body) = result??;
+        ensure!(
+            status == StatusCode::OK
+                && body["download_url"].as_str().is_some_and(
+                    |url| url.contains("exports/escrow/") && !url.contains(&capability)
+                ),
+            "parallel post-deletion redemption failed: {status}"
+        );
+    }
     if real_s3 {
         let url = download["download_url"]
             .as_str()
@@ -717,6 +750,29 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
             "deleted real S3 archive remained readable"
         );
     }
+    let expired_at = SystemTime::now() - Duration::from_secs(1);
+    client
+        .query_client()
+        .exec("UPDATE id_data_export_escrow SET expires_at = CAST($expired AS Datetime) WHERE id = $id")
+        .param("$expired", expired_at)
+        .param("$id", id.clone())
+        .await?;
+    let expired = export
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/auth/data/exports/{id}/redeem"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"token": capability}).to_string(),
+                ))?,
+        )
+        .await?;
+    ensure!(
+        expired.status() == StatusCode::NOT_FOUND,
+        "expired post-deletion capability remained redeemable"
+    );
 
     server.abort();
     client

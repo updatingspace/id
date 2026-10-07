@@ -106,6 +106,10 @@ a `succeeded` deletion receipt, physical removal of the
 account, identity and Django session, the cooldown boundary, durable SMTP
 delivery and public bearer redemption without a session. The test explicitly
 creates its rate-limit cache table rather than relying on a shared database.
+The 2026-10-07 local rerun also passed 100 concurrent bearer redemptions after
+account deletion and confirmed that the same endpoint returns 404 after the
+capability expires. This checks the delivery window on disposable YDB; it is
+not a production Gateway or SMTP acceptance result.
 CI runs it after the cutover-seal regression in a separate disposable YDB on
 port 2137. On 2026-10-06, `idctl data-export-storage-smoke` used the current
 production private bucket and S3 credentials to upload synthetic owner-prefix
