@@ -6,15 +6,11 @@ use serde_json::Value;
 use std::{collections::BTreeMap, env, time::Duration};
 
 const WORKFLOW: &str = ".github/workflows/ci-cd.yml";
-const REQUIRED_JOBS: [&str; 8] = [
+const REQUIRED_JOBS: [&str; 4] = [
     "Rust API and Topcoat",
-    "Backend (SQLite + coverage gates)",
-    "Backend (Postgres integration)",
-    "YDB schema and auth integration",
+    "Rust YDB schema and auth integration",
     "Terraform validate",
     "OpenTofu validate",
-    "Frontend lint/typecheck/unit",
-    "E2E smoke (Playwright)",
 ];
 
 fn validate_run(run: &Value, sha: &str, repository: &str) -> Result<u64> {
@@ -202,6 +198,16 @@ pub(super) async fn run() -> Result<()> {
 mod tests {
     use super::*;
     use axum::{Json, Router, http::Uri, routing::get};
+
+    #[test]
+    fn required_jobs_match_current_ci_workflow() {
+        let workflow = include_str!("../../../../../../../.github/workflows/ci-cd.yml");
+        let jobs = workflow
+            .lines()
+            .filter_map(|line| line.strip_prefix("    name: "))
+            .collect::<Vec<_>>();
+        assert_eq!(jobs, REQUIRED_JOBS);
+    }
 
     const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 

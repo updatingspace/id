@@ -64,6 +64,11 @@ branch has not run on remote CI and the fix is not in the active API revision.
 Physical iPhone verification remains required after deployment.
 
 Publishing this branch and deploying the tested image are outstanding.
+The local deployment gate now matches the four jobs in the current Rust CI
+workflow. Its previous list still required four retired Python/React jobs and
+the old YDB job name, so it would have rejected any green Rust build. A unit
+test compares the gate's job names with the workflow, but no remote CI run has
+validated this branch.
 Production rollout remains incomplete until the authenticated and operator
 journeys, delayed export, data checks and performance gates are verified against
 their actual production revisions.
