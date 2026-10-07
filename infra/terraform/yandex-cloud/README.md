@@ -55,6 +55,9 @@ YDB, buckets, secrets, the Gateway, or live Rust containers unexpectedly.
 There is currently no automated live-state snapshot or plan guard in the
 project; manual review is required until a Rust/Node replacement is built.
 Keep backend configuration and secrets outside Git.
+The [2026-10-07 state reconciliation snapshot](../../../docs/rust-migration/production-state-reconciliation.md)
+lists retired container addresses still present in remote state and the live
+Rust resources that must remain untouched.
 
 The production deploy workflow is triggered only for a SHA whose `ID CI/CD`
 push run passed. `idctl verify-tested-revision` checks the exact repository,
