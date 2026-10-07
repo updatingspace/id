@@ -26,6 +26,13 @@ Do not schedule destruction of either version while an active revision still
 binds it. A targeted runtime secret-version apply is unsafe unless the old
 version is kept active through revision replacement. Recheck version statuses,
 all active bindings, and public routes before another OpenTofu apply.
+The runtime version now has `prevent_destroy` in OpenTofu. Future rotations
+need an explicit staged-version change: create and inspect the replacement
+while the pinned version stays active, rebind every serving API, web and jobs
+revision, and verify those revisions and public routes. Only after no active
+revision refers to the old version may an operator deliberately remove the
+guard in a reviewed migration. Never bypass it with `-target` or state surgery
+during normal deployment.
 The complete, non-targeted OpenTofu plan and delayed-export rollout remain
 outstanding; do not infer them from the targeted apply.
 

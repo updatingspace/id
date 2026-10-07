@@ -53,6 +53,12 @@ resource "yandex_lockbox_secret" "runtime" {
 resource "yandex_lockbox_secret_version" "runtime" {
   secret_id = yandex_lockbox_secret.runtime.id
 
+  # Active serverless revisions pin this version. Replacing it before every
+  # serving revision is rebound makes cold starts fail with HTTP 502.
+  lifecycle {
+    prevent_destroy = true
+  }
+
   dynamic "entries" {
     for_each = nonsensitive(toset(keys(local.runtime_secret_entries)))
     content {
