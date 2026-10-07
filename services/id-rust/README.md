@@ -496,7 +496,10 @@ WebAuthn и других интерактивных действий. Веб-с�
   `scripts/smoke-web-passkey-native-live.sh` отдельно открывает настоящий
   Topcoat-кабинет в Chromium с временным виртуальным WebAuthn-устройством,
   регистрирует ключ через Rust API и проверяет запись в локальной YDB. Этот
-  прогон не заменяет проверку на физическом iPhone/Safari.
+  прогон входит в основной CI и не заменяет проверку на физическом iPhone/Safari.
+  В production Gateway направляет `/api/v1/auth/passkeys/begin` и `/complete`
+  в основной Rust API-контейнер; его ревизию нужно обновить при исправлении
+  регистрации. Контейнер API-мутаций обслуживает другие маршруты.
   `ID_AUTH_PASSKEY_LOGIN_PILOT_ENABLED=true` вместе с локальным
   `ID_AUTH_LOGIN_PILOT_ENABLED=true` открывает `/passkeys/login/begin` и
   `/complete`. Challenge хранится пять минут в YDB и потребляется ровно один

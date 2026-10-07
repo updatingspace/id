@@ -274,6 +274,14 @@ jobs:
         run: |
           bash scripts/smoke-web-signup-live.sh
 
+      - name: Verify native WebAuthn registration through Topcoat and Rust on local YDB
+        env:
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+          YDB_CREDENTIALS_MODE: anonymous
+        run: bash scripts/smoke-web-passkey-native-live.sh
+
   terraform-check:
     name: Terraform validate
     runs-on: ubuntu-latest
