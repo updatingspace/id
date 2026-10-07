@@ -213,6 +213,7 @@ jobs:
           delayed=$(yc serverless container revision list --container-id "$RUST_MUTATIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")][0].image.environment.ID_EXPORT_DELAYED_ROLLOUT_ENABLED // "false"')
           if [[ "$delayed" == "true" ]]; then
             EXPECTED_BUILD_ID="$DEPLOY_SHA" node scripts/ci/check-yc-delayed-export.mjs
+            node scripts/ci/smoke-yc-rust-http.mjs delayed-export
           fi
       - name: Restore previous Rust images after failed deployment
         if: failure() && steps.capture.outcome == 'success'

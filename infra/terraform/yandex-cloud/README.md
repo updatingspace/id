@@ -89,7 +89,9 @@ tested deployment SHA. The check verifies flags, the same versioned escrow
 key binding, private bucket, public origin, recovery timer and exact Gateway
 routes for request, status, owner and email-link cancellation, download,
 redemption, delivery and cancellation pages without printing
-secrets. A passing configuration check still requires the full mail, storage,
+secrets. The deploy workflow then opens both public pages and sends invalid
+download/cancellation tokens through the Gateway as a side-effect-free smoke.
+A passing configuration and smoke check still requires the full mail, storage,
 deletion and redemption rehearsal.
 Do not set the delayed flag until the corresponding jobs, SMTP, Object Storage,
 key retention, cancellation and delete-after-export scenarios have passed on
