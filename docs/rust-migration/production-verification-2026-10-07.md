@@ -64,11 +64,27 @@ branch has not run on remote CI and the fix is not in the active API revision.
 Physical iPhone verification remains required after deployment.
 
 Publishing this branch and deploying the tested image are outstanding.
-The local deployment gate now matches the four jobs in the current Rust CI
-workflow. Its previous list still required four retired Python/React jobs and
-the old YDB job name, so it would have rejected any green Rust build. A unit
-test compares the gate's job names with the workflow, but no remote CI run has
-validated this branch.
+The local deployment gate now requires five jobs in the current Rust CI
+workflow, including the extended Rust/YDB/browser integration workflow. The
+extended workflow is called from the main CI run, so the deploy trigger waits
+for it. The four local `verify-tested-revision` tests and YAML dependency
+structure check pass; no remote CI run has validated this branch.
+
+The read-only delayed-export gate was rerun on 2026-10-07 for the active API,
+web, jobs and Gateway revisions. It found the delayed API, web redemption and
+escrow jobs/mail flags disabled; no versioned escrow key bound to API or jobs;
+no jobs public export origin; and missing Gateway routes for cancellation,
+redemption and the two delivery pages. All three active runtime `BUILD_ID`s
+also differ from the current local commit. These findings block activation of
+the 24-hour flow as one coherent user journey. The gate disclosed neither
+secret values nor account data.
+
+An attempted push of the complete local Rust branch to the configured GitHub
+repository was rejected by automatic approval review before execution because
+it would publish a large private-source payload. No branch or image was
+published through that attempt. Do not reroute the same payload through a
+container registry; obtain an explicit review decision for the exact branch
+and destination before publishing.
 Production rollout remains incomplete until the authenticated and operator
 journeys, delayed export, data checks and performance gates are verified against
 their actual production revisions.
