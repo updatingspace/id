@@ -4,11 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Вход — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/login.css?v=ux-20261006-2" />
+  <link rel="stylesheet" href="/_id/login.css?v=ux-20261007-3" />
   <script src="/_id/login.js?v=ux-20261007-2" defer></script>
 </head>
 <body>
   <main class="auth-shell">
+    <div class="auth-story" aria-hidden="true">
+      <span class="auth-story-mark">ID</span>
+      <p class="auth-story-kicker">Единая точка входа</p>
+      <p class="auth-story-title">Ваши сервисы.<br>Ваш выбор.</p>
+      <p class="auth-story-copy">Входите в сервисы UpdSpace через один аккаунт и управляйте их доступом в одном месте.</p>
+      <span class="auth-story-rule"></span>
+      <p class="auth-story-foot">UpdSpace ID</p>
+    </div>
     <section class="auth-card" aria-labelledby="login-title">
       <a class="brand" href="/">UpdSpace ID</a>
       <h1 id="login-title">{{LOGIN_TITLE}}</h1>
@@ -35,8 +43,10 @@
         <button id="submit" type="submit">{{LOGIN_ACTION}}</button>
       </form>
       {{PASSKEY_ACTION}}
-      {{RECOVERY_LINK}}
-      {{SIGNUP_LINK}}
+      <div class="auth-links">
+        {{RECOVERY_LINK}}
+        {{SIGNUP_LINK}}
+      </div>
     </section>
   </main>
 </body>
