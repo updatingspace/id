@@ -113,6 +113,14 @@ async fn one_registration_after_concurrent_completion_and_replay() -> Result<()>
             "wrong challenge accepted");
         let client_data = json!({"type":"webauthn.create","challenge":challenge,"origin":"https://id.example.invalid","crossOrigin":false});
         fixture["registration"]["response"]["clientDataJSON"] = json!(URL_SAFE_NO_PAD.encode(client_data.to_string()));
+        fixture["registration"]["clientExtensionResults"] = json!({"credProps":{"rk":false}});
+        let (status, rejected) = post(&app, "/api/v1/auth/passkeys/complete", &cookie, true,
+            json!({"name":"Non-discoverable","credential":fixture["registration"]})).await?;
+        ensure!(status == StatusCode::BAD_REQUEST && rejected["code"] == "INVALID_PASSKEY",
+            "explicitly non-discoverable credential accepted");
+        // A browser may omit this optional extension result despite the
+        // required residentKey option. Its absence is not a negative result.
+        fixture["registration"]["clientExtensionResults"] = json!({});
         let credential = fixture["registration"].clone();
         let body = json!({"name":"Rust passkey","credential":credential,"passwordless":true});
         let mut tasks = tokio::task::JoinSet::new();

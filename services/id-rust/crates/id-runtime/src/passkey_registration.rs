@@ -155,8 +155,11 @@ pub async fn complete(
                 let Ok(state) = serde_json::from_value::<PasskeyRegistration>(state.clone()) else { return Ok(CompleteOutcome::InvalidPasskey) };
                 let Ok(response) = serde_json::from_value::<RegisterPublicKeyCredential>(credential.clone()) else { return Ok(CompleteOutcome::InvalidPasskey) };
                 let Ok(passkey) = webauthn.finish_passkey_registration(&response, &state) else { return Ok(CompleteOutcome::InvalidPasskey) };
-                let resident = credential.pointer("/clientExtensionResults/credProps/rk").and_then(Value::as_bool).unwrap_or(false);
-                if passwordless && !resident { return Ok(CompleteOutcome::InvalidPasskey) }
+                // credProps is an optional client extension result. A required
+                // residentKey request is enforced by the browser even when the
+                // extension omits rk; an explicit false still contradicts it.
+                let resident = credential.pointer("/clientExtensionResults/credProps/rk").and_then(Value::as_bool);
+                if passwordless && resident == Some(false) { return Ok(CompleteOutcome::InvalidPasskey) }
                 let digest = passkey_index::digest_of_bytes(passkey.cred_id().as_ref())
                     .map_err(|_| ydb::YdbOrCustomerError::from_err(std::io::Error::other("invalid credential ID")))?;
                 if !passkey_index::claim_in_tx(tx, &digest, row_id, user_id).await? { return Ok(CompleteOutcome::Duplicate) }
