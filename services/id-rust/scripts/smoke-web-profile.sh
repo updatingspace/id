@@ -61,7 +61,7 @@ html="$(<"${scratch_dir}/account.html")"
 [[ "${html}" == *'value="Ada"'* ]]
 [[ "${html}" == *'value="+1 555"'* ]]
 [[ "${html}" == *'value="1990-01-02"'* ]]
-[[ "${html}" == *'src="/_id/profile.js"'* ]]
+[[ "${html}" == *'src="/_id/profile.js?'* ]]
 curl --silent --show-error --fail --max-time 5 -D "${scratch_dir}/headers" \
   -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/account?section=profile" > /dev/null
 headers="$(<"${scratch_dir}/headers")"
