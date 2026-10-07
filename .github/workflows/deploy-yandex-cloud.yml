@@ -138,6 +138,12 @@ jobs:
           "$RUNNER_TEMP/yc/bin/yc" config set service-account-key "$RUNNER_TEMP/yc-sa-key.json"
           "$RUNNER_TEMP/yc/bin/yc" config set cloud-id "$YC_CLOUD_ID"
           "$RUNNER_TEMP/yc/bin/yc" config set folder-id "$YC_FOLDER_ID"
+          node -e '
+            const fs = require("node:fs");
+            const id = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).service_account_id;
+            if (!/^[a-z0-9]{20}$/.test(id ?? "")) throw new Error("invalid YC deploy service account ID");
+            console.log(`::notice title=YC deploy identity::Service account ${id}`);
+          ' "$RUNNER_TEMP/yc-sa-key.json"
       - name: Verify live Gateway and target containers
         run: |
           set -euo pipefail
@@ -145,7 +151,10 @@ jobs:
             echo "::error title=Rust Gateway preflight::$1"
             exit 1
           }
-          gateway_json=$(yc serverless api-gateway get-spec --id "$ID_GATEWAY_ID" --format json) || fail "Cannot read the production Gateway specification with the deploy identity"
+          gateway_json=$(yc serverless api-gateway get-spec --id "$ID_GATEWAY_ID" --format json 2>"$RUNNER_TEMP/id-gateway-read.err") || {
+            detail=$(sed -n '/^ERROR:/ { s/^ERROR: //; p; q; }' "$RUNNER_TEMP/id-gateway-read.err" | cut -c1-300)
+            fail "Cannot read the production Gateway specification with the deploy identity: ${detail:-YC CLI returned no error detail}"
+          }
           spec=$(printf '%s' "$gateway_json" | jq -er '.openapi_spec | select(type == "string")') || fail "Gateway returned no OpenAPI specification"
           for id in "$RUST_API_CONTAINER_ID" "$RUST_SESSIONS_CONTAINER_ID" "$RUST_MUTATIONS_CONTAINER_ID" "$RUST_WEB_CONTAINER_ID"; do
             [[ "$spec" == *"$id"* ]] || fail "Gateway does not reference expected container $id"
