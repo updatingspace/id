@@ -207,6 +207,13 @@ jobs:
           revision=$(yc serverless container revision list --container-id "$RUST_JOBS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
           node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_JOBS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-jobs@$JOBS_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
           yc serverless container revision list --container-id "$RUST_JOBS_CONTAINER_ID" --format json | jq -e 'any(.[]; .status == "ACTIVE")'
+      - name: Verify delayed export bundle when enabled
+        run: |
+          set -euo pipefail
+          delayed=$(yc serverless container revision list --container-id "$RUST_MUTATIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")][0].image.environment.ID_EXPORT_DELAYED_ROLLOUT_ENABLED // "false"')
+          if [[ "$delayed" == "true" ]]; then
+            EXPECTED_BUILD_ID="$DEPLOY_SHA" node scripts/ci/check-yc-delayed-export.mjs
+          fi
       - name: Restore previous Rust images after failed deployment
         if: failure() && steps.capture.outcome == 'success'
         run: node scripts/ci/rollback-yc-rust-revisions.mjs rollback "$RUNNER_TEMP/id-rust-revisions.json"

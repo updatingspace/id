@@ -83,9 +83,12 @@ It must be deployed coherently
 to the mutations API, Topcoat web and jobs. Before exposing delayed export,
 run `scripts/ci/check-yc-delayed-export.mjs` with
 `RUST_MUTATIONS_CONTAINER_ID`, `RUST_WEB_CONTAINER_ID` and
-`RUST_JOBS_CONTAINER_ID` set to the live IDs; set `EXPECTED_BUILD_ID` to the
+`RUST_JOBS_CONTAINER_ID` set to the live IDs, and `ID_GATEWAY_ID` set to the
+active Gateway; set `EXPECTED_BUILD_ID` to the
 tested deployment SHA. The check verifies flags, the same versioned escrow
-key binding, private bucket, public origin and recovery timer without printing
+key binding, private bucket, public origin, recovery timer and exact Gateway
+routes for request, status, cancellation, download, redemption and delivery
+page without printing
 secrets. A passing configuration check still requires the full mail, storage,
 deletion and redemption rehearsal.
 Do not set the delayed flag until the corresponding jobs, SMTP, Object Storage,

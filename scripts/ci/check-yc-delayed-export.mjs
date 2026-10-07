@@ -9,6 +9,7 @@ const containerIds = {
 };
 const expectedBuild = process.env.EXPECTED_BUILD_ID;
 const origin = process.env.ID_EXPORT_PUBLIC_ORIGIN ?? 'https://id.updspace.com';
+const gatewayId = process.env.ID_GATEWAY_ID;
 const issues = [];
 if (!/^[0-9a-f]{40}$/.test(expectedBuild ?? '')) {
   issues.push('EXPECTED_BUILD_ID must be the tested 40-character commit SHA');
@@ -48,6 +49,25 @@ function escrowBinding(role, revision) {
   return bindings[0];
 }
 
+function routeContainer(spec, path, method) {
+  const lines = spec.split(/\r?\n/);
+  const start = lines.indexOf(`  ${path}:`);
+  if (start < 0) return null;
+  const end = lines.findIndex((line, index) => index > start && /^  \/[^\n]*:$/.test(line));
+  const pathLines = lines.slice(start + 1, end < 0 ? undefined : end);
+  const methodStart = pathLines.indexOf(`    ${method}:`);
+  if (methodStart < 0) return null;
+  const methodEnd = pathLines.findIndex((line, index) => index > methodStart && /^    [a-z-]+:$/.test(line));
+  const operation = pathLines.slice(methodStart + 1, methodEnd < 0 ? undefined : methodEnd);
+  return operation.find((line) => line.startsWith('        container_id: '))?.slice('        container_id: '.length) ?? null;
+}
+
+function gatewayRoute(spec, path, method, containerId, role) {
+  if (routeContainer(spec, path, method) !== containerId) {
+    issues.push(`Gateway: ${method.toUpperCase()} ${path} must target ${role}`);
+  }
+}
+
 try {
   const api = activeRevision('api', containerIds.api);
   const web = activeRevision('web', containerIds.web);
@@ -78,6 +98,24 @@ try {
       issues.push('export recovery timer does not target Rust jobs export recovery');
     }
   }
+  if (!/^d5[a-z0-9]{18}$/.test(gatewayId ?? '')) {
+    issues.push('ID_GATEWAY_ID is missing or malformed');
+  } else {
+    const spec = yc('serverless', 'api-gateway', 'get-spec', '--id', gatewayId).openapi_spec;
+    if (typeof spec !== 'string') {
+      issues.push('Gateway: OpenAPI specification is unavailable');
+    } else {
+      for (const [path, method] of [
+        ['/api/v1/auth/data/exports', 'post'],
+        ['/api/v1/auth/data/exports/{id}', 'get'],
+        ['/api/v1/auth/data/exports/{id}', 'delete'],
+        ['/api/v1/auth/data/exports/{id}/download', 'get'],
+        ['/api/v1/auth/data/exports/{id}/redeem', 'post'],
+      ]) gatewayRoute(spec, path, method, containerIds.api, 'Rust mutations API');
+      gatewayRoute(spec, '/data/export', 'get', containerIds.web, 'Topcoat web');
+      gatewayRoute(spec, '/_id/{file+}', 'get', containerIds.web, 'Topcoat web');
+    }
+  }
 } catch (error) {
   issues.push(`YC read failed: ${error instanceof Error ? error.message.split('\n')[0] : 'unknown error'}`);
 }
@@ -86,5 +124,5 @@ if (issues.length) {
   for (const issue of issues) console.error(`NOT READY: ${issue}`);
   process.exitCode = 1;
 } else {
-  console.log('Delayed export revisions, escrow key, bucket and timer are aligned. Run end-to-end checks before traffic.');
+  console.log('Delayed export revisions, escrow key, bucket, timer and Gateway routes are aligned. Run end-to-end checks before traffic.');
 }
