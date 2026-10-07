@@ -16,6 +16,9 @@ Before any schema or revision change, it dry-runs cloning all five active
 Rust revisions with the tested image digests and SHA. A missing or ambiguous
 active revision, incompatible environment, or secret collision stops the
 deployment before the first production mutation.
+After deployment, it checks that each of the five unique active revisions
+actually serves the expected Rust image repository, digest and tested SHA;
+an older still-active image fails the workflow and triggers rollback.
 
 The checked-in [`production.performance.tfvars`](production.performance.tfvars)
 records the intended Rust routing and scale-to-zero configuration. It is not a

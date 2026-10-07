@@ -209,6 +209,8 @@ jobs:
           revision=$(yc serverless container revision list --container-id "$RUST_JOBS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
           node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_JOBS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-jobs@$JOBS_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
           yc serverless container revision list --container-id "$RUST_JOBS_CONTAINER_ID" --format json | jq -e 'any(.[]; .status == "ACTIVE")'
+      - name: Confirm all serving Rust images and tested SHA
+        run: node scripts/ci/check-yc-rust-rollout.mjs --deployed
       - name: Verify delayed export bundle when enabled
         run: |
           set -euo pipefail

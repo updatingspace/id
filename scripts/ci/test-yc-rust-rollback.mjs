@@ -103,14 +103,16 @@ try {
   run(['scripts/ci/check-yc-rust-rollout.mjs']);
   run(['scripts/ci/rollback-yc-rust-revisions.mjs', 'capture', manifestPath]);
   for (const [index, id] of ids.entries()) {
+    const imageName = index === 3 ? 'web' : index === 4 ? 'jobs' : 'api';
     const args = ['scripts/ci/deploy-yc-rust-revision.mjs', id, revisions[index].id,
-      `cr.yandex/registry/updatingspace-id-api@${newDigest}`,
+      `cr.yandex/registry/updatingspace-id-${imageName}@${newDigest}`,
       '--set-env', `BUILD_ID=${newBuild}`, '--set-env', 'ID_EXPORT_DELAYED_ROLLOUT_ENABLED=true'];
     if ([0, 2, 4].includes(index)) args.push('--add-secret',
       `${'e6' + 'c'.repeat(18)}:${'e6' + 'd'.repeat(18)}:ID_EXPORT_ESCROW_KEY:ID_EXPORT_ESCROW_KEY`);
     run([...args, '--apply']);
   }
   const deployed = readState();
+  run(['scripts/ci/check-yc-rust-rollout.mjs', '--deployed']);
   for (const [index, id] of ids.entries()) {
     const active = deployed.revisions.findLast(row => row.container_id === id && row.status === 'ACTIVE');
     assert.equal(active.image.environment.ID_EXPORT_DELAYED_ROLLOUT_ENABLED, 'true');
@@ -118,6 +120,12 @@ try {
     assert.equal(active.secrets.some(secret => secret.environment_variable === 'ID_EXPORT_ESCROW_KEY'),
       [0, 2, 4].includes(index));
   }
+  const wrongImage = readState();
+  wrongImage.revisions.findLast(row => row.container_id === ids[3] && row.status === 'ACTIVE')
+    .image.image_url = `cr.yandex/registry/updatingspace-id-api@${newDigest}`;
+  writeState(wrongImage);
+  run(['scripts/ci/check-yc-rust-rollout.mjs', '--deployed'], false);
+  writeState(deployed);
   run(['scripts/ci/rollback-yc-rust-revisions.mjs', 'rollback', manifestPath]);
   const restored = readState();
   for (const [index, id] of ids.entries()) {

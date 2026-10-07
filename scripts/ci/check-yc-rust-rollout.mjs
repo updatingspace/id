@@ -1,12 +1,15 @@
 #!/usr/bin/env node
-// Read-only preflight: prove that every serving Rust revision can be cloned
-// with the exact image digest and build ID selected by this deployment.
+// Read-only preflight and post-deployment proof for all five Rust revisions.
 import { execFileSync } from 'node:child_process';
 
 const digest = (value) => /^sha256:[0-9a-f]{64}$/.test(value ?? '');
 const container = (value) => /^bba[a-z0-9]{17}$/.test(value ?? '');
 const registry = process.env.REGISTRY_ID;
 const buildId = process.env.DEPLOY_SHA;
+const deployed = process.argv[2] === '--deployed';
+if (process.argv.length > (deployed ? 3 : 2)) {
+  throw new Error('usage: check-yc-rust-rollout.mjs [--deployed]');
+}
 const services = [
   ['api', process.env.RUST_API_CONTAINER_ID, 'api', process.env.API_DIGEST],
   ['sessions', process.env.RUST_SESSIONS_CONTAINER_ID, 'api', process.env.API_DIGEST],
@@ -27,6 +30,17 @@ for (const [name, id, imageName, imageDigest] of services) {
   const active = revisions.filter((revision) => revision.status === 'ACTIVE');
   if (active.length !== 1) throw new Error(`${name}: expected one active revision, found ${active.length}`);
   const image = `cr.yandex/${registry}/updatingspace-id-${imageName}@${imageDigest}`;
+  if (deployed) {
+    const actual = active[0].image;
+    const repository = `cr.yandex/${registry}/updatingspace-id-${imageName}`;
+    if (actual?.image_digest !== imageDigest ||
+        !new RegExp(`^${repository.replaceAll('.', '\\.')}(:[A-Za-z0-9._-]+|@sha256:[0-9a-f]{64})$`).test(actual.image_url ?? '') ||
+        actual.environment?.BUILD_ID !== buildId) {
+      throw new Error(`${name}: active Rust image digest, repository or tested SHA differs from deployment`);
+    }
+    console.log(`${name}: active tested Rust image verified`);
+    continue;
+  }
   const output = execFileSync('node', [
     'scripts/ci/deploy-yc-rust-revision.mjs', id, active[0].id, image,
     '--set-env', `BUILD_ID=${buildId}`,
