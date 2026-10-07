@@ -110,7 +110,7 @@ enum Command {
         #[arg(long)]
         apply: bool,
     },
-    /// Write, read and delete a synthetic object in the private export bucket.
+    /// Write, list, read and delete synthetic objects in the private export bucket.
     DataExportStorageSmoke,
     /// Check the frozen legacy YDB schema, or add missing objects on local YDB.
     LegacySchema {
@@ -404,16 +404,13 @@ async fn main() -> Result<()> {
         Command::DataExportStorageSmoke => {
             let storage = id_runtime::data_export_s3::S3Export::from_env()?;
             let smoke_id = uuid::Uuid::new_v4();
+            let escrow_id = smoke_id.simple().to_string();
             let keys = [
                 format!("exports/user_0/smoke/{smoke_id}.ndjson"),
-                format!(
-                    "exports/escrow/{:032x}/{}.ndjson",
-                    smoke_id.as_u128(),
-                    uuid::Uuid::new_v4()
-                ),
+                format!("exports/escrow/{escrow_id}/{}.ndjson", uuid::Uuid::new_v4()),
             ];
             let body = b"{\"category\":\"smoke\"}\n".to_vec();
-            for key in keys {
+            for (index, key) in keys.into_iter().enumerate() {
                 if let Err(error) = storage
                     .upload_stream(&key, std::io::Cursor::new(body.clone()))
                     .await
@@ -429,6 +426,13 @@ async fn main() -> Result<()> {
                         response.bytes().await?.as_ref() == body,
                         "export smoke body mismatch"
                     );
+                    if index == 1 {
+                        let listed = storage.list_escrow_objects(&escrow_id).await?;
+                        ensure!(
+                            listed.keys == [key.clone()] && !listed.truncated,
+                            "export smoke escrow listing did not return exactly its synthetic object"
+                        );
+                    }
                     Ok::<_, anyhow::Error>(())
                 }
                 .await;
@@ -443,8 +447,18 @@ async fn main() -> Result<()> {
                     removed.status() == reqwest::StatusCode::NOT_FOUND,
                     "export smoke object remained readable after deletion"
                 );
+                if index == 1 {
+                    let listed = storage.list_escrow_objects(&escrow_id).await?;
+                    ensure!(
+                        listed.keys.is_empty() && !listed.truncated,
+                        "export smoke escrow prefix was not empty after deletion"
+                    );
+                }
             }
-            println!("{}", json!({"data_export_storage":"pass", "prefixes":2}));
+            println!(
+                "{}",
+                json!({"data_export_storage":"pass", "prefixes":2, "escrow_listing":"pass"})
+            );
         }
         Command::LegacySchema { apply } => {
             if apply {

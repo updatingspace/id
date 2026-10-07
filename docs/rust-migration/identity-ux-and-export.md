@@ -121,7 +121,10 @@ port 2137. On 2026-10-06, `idctl data-export-storage-smoke` used the current
 production private bucket and S3 credentials to upload synthetic owner-prefix
 and escrow-prefix objects, verify both through signed GETs, delete both and
 confirm subsequent signed GETs return 404. This proves those storage operations,
-not the complete delayed-export flow. The opt-in `ID_EXPORT_TEST_REAL_S3=true`
+not the complete delayed-export flow. The smoke command now also requires an
+exact ListBucket result for its unique escrow prefix before deletion and an
+empty result afterward; the 2026-10-06 run predates this added check. The
+opt-in `ID_EXPORT_TEST_REAL_S3=true`
 run of `data_export_delete_flow_ydb` then passed with disposable local YDB,
 private production Object Storage and local SMTP: the jobs HTTP timer uploaded
 a synthetic archive after access revocation, account finalization removed the

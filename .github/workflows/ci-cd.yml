@@ -58,6 +58,8 @@ jobs:
           cargo build --locked --release -p id-runtime --bin id-api --bin idctl
           cargo build --locked --release -p id-runtime --bin id-jobs
           cargo build --locked --release -p id-web
+      - name: Verify private export storage diagnostics
+        run: ID_RUST_BIN_DIR="$PWD/target/release" node scripts/test-idctl-export-storage-smoke.cjs
       - name: Topcoat security SSR smoke
         run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-security.sh
       - name: Topcoat operator account SSR smoke
