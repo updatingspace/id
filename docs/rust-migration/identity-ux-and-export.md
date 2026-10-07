@@ -47,6 +47,15 @@ non-operator, missing request, pending, running, failed and completed states.
 **Production behavior does not meet this contract.** The deployed export still
 uses the immediate, owner-session path. The delayed path below is a local pilot
 until the remaining failure and production checks pass.
+The Rust deletion API and its dedicated private recovery route are now staged
+behind separate rollout flags. The API refuses a production deletion rollout
+without delayed export escrow; the jobs process refuses deletion recovery
+without export storage and escrow recovery. Terraform leaves the public route
+and the five-minute private deletion timer off by default. The existing
+production API/jobs containers are pinned outside the managed Rust stack, so
+their actual secret bindings and flags must be verified on the active revisions
+before enabling Gateway routing. A valid Terraform template alone does not
+prove that the live containers can serve these routes.
 Read-only YC inspection on 2026-10-07 confirmed that Gateway sends
 `/api/v1/auth/data/exports` to Rust container
 `bbamj363kmhlj2nof0mo`; its active revision has

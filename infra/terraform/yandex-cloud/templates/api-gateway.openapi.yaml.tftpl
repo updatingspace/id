@@ -598,6 +598,20 @@ paths:
         service_account_id: ${gateway_service_account_id}
 %{ endif ~}
 
+%{ if gateway_rust_account_deletion && !gateway_use_rust ~}
+  /api/v1/auth/account/deletions:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
 %{ if gateway_rust_account_jwt && !gateway_use_rust ~}
   /api/v1/auth/jwt/from_session:
     post:

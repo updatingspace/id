@@ -1,4 +1,4 @@
-//! Local-only acceptance endpoint for asynchronous account deletion.
+//! Opt-in acceptance endpoint for asynchronous account deletion.
 
 use crate::{
     account_deletion::{AccountDeletion, DeletionResult},
@@ -35,18 +35,25 @@ pub struct AccountDeletionHttpConfig {
 
 impl AccountDeletionHttpConfig {
     pub fn from_env(client: Arc<Client>) -> Result<Option<Arc<Self>>> {
-        if !env_flag("ID_AUTH_DELETION_PILOT_ENABLED", false)? {
+        let pilot = env_flag("ID_AUTH_DELETION_PILOT_ENABLED", false)?;
+        let rollout = env_flag("ID_AUTH_DELETION_ROLLOUT_ENABLED", false)?;
+        if !pilot && !rollout {
             return Ok(None);
         }
-        let endpoint = Url::parse(&env::var("YDB_ENDPOINT")?)?;
-        if !env_flag("DJANGO_DEBUG", false)?
-            || !matches!(
-                endpoint.host_str(),
-                Some("localhost" | "127.0.0.1" | "[::1]")
-            )
-            || env::var("YDB_DATABASE")? != "/local"
-        {
-            bail!("incomplete account deletion is restricted to local debug YDB");
+        if pilot {
+            let endpoint = Url::parse(&env::var("YDB_ENDPOINT")?)?;
+            if !env_flag("DJANGO_DEBUG", false)?
+                || !matches!(
+                    endpoint.host_str(),
+                    Some("localhost" | "127.0.0.1" | "[::1]")
+                )
+                || env::var("YDB_DATABASE")? != "/local"
+            {
+                bail!("account deletion pilot is restricted to local debug YDB");
+            }
+        }
+        if rollout && !env_flag("ID_EXPORT_DELAYED_ROLLOUT_ENABLED", false)? {
+            bail!("account deletion rollout requires delayed export escrow");
         }
         let trusted_origins = env::var("CSRF_TRUSTED_ORIGINS")
             .unwrap_or_else(|_| {

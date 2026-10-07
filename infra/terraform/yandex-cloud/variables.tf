@@ -707,6 +707,34 @@ variable "enable_rust_export_recovery_timer" {
   }
 }
 
+variable "enable_rust_account_deletion_api" {
+  description = "Accept account deletion only after delayed export escrow and the private deletion recovery timer are ready."
+  type        = bool
+  default     = false
+
+  validation {
+    condition = !var.enable_rust_account_deletion_api || (
+      var.enable_rust_export_delayed && var.enable_rust_deletion_recovery_timer &&
+      (var.enable_rust_stack || var.gateway_rust_sessions_mutations_container_id != "")
+    )
+    error_message = "Account deletion requires delayed export, private recovery and a Rust mutation API container."
+  }
+}
+
+variable "enable_rust_deletion_recovery_timer" {
+  description = "Recover only accepted account deletions on the private Rust jobs container."
+  type        = bool
+  default     = false
+
+  validation {
+    condition = !var.enable_rust_deletion_recovery_timer || (
+      var.enable_rust_export_delayed && var.enable_gravatar_job &&
+      var.gravatar_rust_jobs_container_id != ""
+    )
+    error_message = "Deletion recovery requires delayed export storage and the existing private Rust jobs container."
+  }
+}
+
 variable "export_bucket_name" {
   description = "Optional private Object Storage bucket name for full account exports."
   type        = string

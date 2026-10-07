@@ -18,6 +18,9 @@ locals {
     var.enable_rust_export ? {
       ID_EXPORT_ESCROW_KEY = random_id.export_escrow[0].b64_std
     } : {},
+    var.enable_rust_account_deletion_api ? {
+      ID_DELETION_OPERATION_KEY = random_password.deletion_operation[0].result
+    } : {},
     {
       S3_ACCESS_KEY_ID     = lookup(var.live_secret_entries, "S3_ACCESS_KEY_ID", yandex_iam_service_account_static_access_key.automation.access_key)
       S3_SECRET_ACCESS_KEY = lookup(var.live_secret_entries, "S3_SECRET_ACCESS_KEY", yandex_iam_service_account_static_access_key.automation.secret_key)
@@ -138,6 +141,7 @@ locals {
     gateway_rust_account_jwt          = var.gateway_rust_account_jwt
     gateway_rust_export               = var.enable_rust_export_api
     gateway_rust_export_delayed       = var.enable_rust_export_delayed
+    gateway_rust_account_deletion     = var.enable_rust_account_deletion_api
     security_read_routes = concat([
       "/api/v1/auth/mfa/status",
       "/api/v1/auth/passkeys",

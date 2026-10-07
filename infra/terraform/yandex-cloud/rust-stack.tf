@@ -43,6 +43,7 @@ locals {
     ID_EXPORT_S3_BUCKET_NAME                   = var.enable_rust_export ? local.export_bucket_name : ""
     ID_EXPORT_API_ROLLOUT_ENABLED              = var.enable_rust_export_api ? "true" : "false"
     ID_EXPORT_DELAYED_ROLLOUT_ENABLED          = var.enable_rust_export_delayed ? "true" : "false"
+    ID_AUTH_DELETION_ROLLOUT_ENABLED           = var.enable_rust_account_deletion_api ? "true" : "false"
   })
 
   rust_web_env = {
@@ -146,6 +147,7 @@ resource "yandex_serverless_container" "rust_api" {
         contains(nonsensitive(keys(local.runtime_secret_entries)), "S3_ACCESS_KEY_ID") &&
         contains(nonsensitive(keys(local.runtime_secret_entries)), "S3_SECRET_ACCESS_KEY") &&
         (!var.enable_rust_export || var.export_operation_secret_id != "" || contains(nonsensitive(keys(local.runtime_secret_entries)), "ID_EXPORT_OPERATION_KEY")) &&
+        (!var.enable_rust_account_deletion_api || contains(nonsensitive(keys(local.runtime_secret_entries)), "ID_DELETION_OPERATION_KEY")) &&
         (!var.enable_rust_password_reset || contains(nonsensitive(keys(local.runtime_secret_entries)), "ID_PASSWORD_RESET_HMAC_KEY")) &&
         (!var.enable_rust_email_verify || contains(nonsensitive(keys(local.runtime_secret_entries)), "ID_EMAIL_VERIFY_HMAC_KEY")) &&
       (!(var.gateway_rust_internal_identity || var.gateway_rust_portal_me) || contains(nonsensitive(keys(local.runtime_secret_entries)), "BFF_INTERNAL_HMAC_SECRET")))

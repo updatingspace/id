@@ -325,6 +325,69 @@ async fn recover_export(
     }
 }
 
+/// Continue accepted deletions without dispatching unrelated mail or exports.
+/// The route is registered only when deletion recovery is explicitly enabled.
+#[cfg(feature = "passkeys")]
+async fn recover_deletion(
+    State(worker): State<Arc<MailWorker>>,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    if let Err(reason) = timer_batch(&body) {
+        return response(StatusCode::BAD_REQUEST, json!({"error":reason})).into_response();
+    }
+    let credentials = worker.drain_pending_deletions(10).await;
+    let avatars = worker.drain_pending_avatars(10).await;
+    let profiles = worker.drain_pending_profiles(10).await;
+    let globals = worker.drain_pending_globals(10).await;
+    let finalizations = worker.drain_pending_finalizations(10).await;
+    match (credentials, avatars, profiles, globals, finalizations) {
+        (Ok(credentials), Ok(avatars), Ok(profiles), Ok(globals), Ok(finalizations)) => {
+            let deferred = credentials.deferred
+                + avatars.deferred
+                + profiles.deferred
+                + globals.deferred
+                + finalizations.deferred;
+            response(
+                if deferred > 0 {
+                    StatusCode::SERVICE_UNAVAILABLE
+                } else {
+                    StatusCode::OK
+                },
+                json!({
+                    "credentials_attempted": credentials.attempted,
+                    "credentials_completed": credentials.completed,
+                    "avatars_attempted": avatars.attempted,
+                    "avatars_completed": avatars.completed,
+                    "profiles_attempted": profiles.attempted,
+                    "profiles_completed": profiles.completed,
+                    "globals_attempted": globals.attempted,
+                    "globals_completed": globals.completed,
+                    "finalizations_attempted": finalizations.attempted,
+                    "finalizations_completed": finalizations.completed,
+                    "deferred": deferred,
+                }),
+            )
+            .into_response()
+        }
+        _ => {
+            tracing::error!("private deletion recovery failed");
+            response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                json!({"error":"JOB_UNAVAILABLE"}),
+            )
+            .into_response()
+        }
+    }
+}
+
+#[cfg(feature = "passkeys")]
+pub fn deletion_router(worker: Arc<MailWorker>) -> Router {
+    Router::new()
+        .route("/internal/jobs/recover-deletion", post(recover_deletion))
+        .layer(DefaultBodyLimit::max(64 * 1024))
+        .with_state(worker)
+}
+
 /// Recover verification links without touching pre-existing security alerts.
 async fn recover_verify_mail(
     State(worker): State<Arc<MailWorker>>,

@@ -47,7 +47,25 @@ async fn main() -> Result<()> {
         let listener =
             tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await?;
         tracing::info!(port, "private Rust jobs listening");
-        let mut app = jobs_http::router(worker);
+        let deletion_rollout = match std::env::var("ID_DELETION_JOBS_ROLLOUT_ENABLED").as_deref() {
+            Ok("true") => true,
+            Ok("false") | Err(std::env::VarError::NotPresent) => false,
+            _ => anyhow::bail!("invalid deletion recovery rollout flag"),
+        };
+        if deletion_rollout {
+            ensure!(
+                cfg!(feature = "passkeys")
+                    && std::env::var("ID_EXPORT_ESCROW_JOBS_ROLLOUT_ENABLED").as_deref()
+                        == Ok("true")
+                    && worker.exports_enabled(),
+                "deletion recovery requires delayed export escrow and storage jobs"
+            );
+        }
+        let mut app = jobs_http::router(worker.clone());
+        #[cfg(feature = "passkeys")]
+        if deletion_rollout {
+            app = app.merge(jobs_http::deletion_router(worker));
+        }
         if let Some((job, limit)) = gravatar {
             app = app.merge(jobs_http::gravatar_router(job, limit));
         }

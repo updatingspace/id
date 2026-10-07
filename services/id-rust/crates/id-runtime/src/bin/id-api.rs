@@ -98,7 +98,7 @@ async fn main() -> Result<()> {
     } else {
         false
     };
-    let account_deletion_pilot_enabled = if let Some(config) =
+    let account_deletion_enabled = if let Some(config) =
         id_runtime::account_deletion_http::AccountDeletionHttpConfig::from_env(client.clone())?
     {
         app = app.merge(id_runtime::account_deletion_http::router(config));
@@ -251,7 +251,7 @@ async fn main() -> Result<()> {
         form_token_enabled,
         login_pilot_enabled,
         account_jwt_session_pilot_enabled,
-        account_deletion_pilot_enabled,
+        account_deletion_enabled,
         export_pilot_enabled,
         logout_pilot_enabled,
         profile_pilot_enabled,

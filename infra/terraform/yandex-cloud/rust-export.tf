@@ -13,6 +13,12 @@ resource "random_id" "export_escrow" {
   byte_length = 32
 }
 
+resource "random_password" "deletion_operation" {
+  count   = var.enable_rust_account_deletion_api ? 1 : 0
+  length  = 64
+  special = false
+}
+
 resource "yandex_storage_bucket" "export" {
   count         = var.enable_rust_export && var.manage_rust_export_bucket ? 1 : 0
   access_key    = yandex_iam_service_account_static_access_key.automation.access_key

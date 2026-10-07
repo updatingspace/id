@@ -22,6 +22,7 @@ locals {
     ID_EXPORT_ESCROW_JOBS_ROLLOUT_ENABLED = var.enable_rust_export_delayed ? "true" : "false"
     ID_EXPORT_PUBLIC_ORIGIN               = local.public_base_url
     ID_EXPORT_S3_BUCKET_NAME              = var.enable_rust_export ? local.export_bucket_name : ""
+    ID_DELETION_JOBS_ROLLOUT_ENABLED      = var.enable_rust_deletion_recovery_timer ? "true" : "false"
     YMQ_QUEUE_URL                         = var.enable_rust_mail_queue ? yandex_message_queue.rust_mail[0].id : ""
     DEFAULT_FROM_EMAIL                    = lookup(local.backend_env, "DEFAULT_FROM_EMAIL", "")
     EMAIL_HOST                            = lookup(local.backend_env, "EMAIL_HOST", "")
@@ -59,6 +60,23 @@ resource "yandex_function_trigger" "rust_export_recovery_existing" {
   container {
     id                 = var.gravatar_rust_jobs_container_id
     path               = "/internal/jobs/recover-export"
+    service_account_id = yandex_iam_service_account.scheduler[0].id
+    retry_attempts     = 2
+    retry_interval     = 60
+  }
+  depends_on = [yandex_serverless_container_iam_binding.gravatar_rust_invoker]
+}
+
+resource "yandex_function_trigger" "rust_deletion_recovery_existing" {
+  count = var.enable_rust_deletion_recovery_timer ? 1 : 0
+  name  = "${local.name_prefix}-rust-deletion-recovery"
+
+  timer {
+    cron_expression = "*/5 * * * ? *"
+  }
+  container {
+    id                 = var.gravatar_rust_jobs_container_id
+    path               = "/internal/jobs/recover-deletion"
     service_account_id = yandex_iam_service_account.scheduler[0].id
     retry_attempts     = 2
     retry_interval     = 60

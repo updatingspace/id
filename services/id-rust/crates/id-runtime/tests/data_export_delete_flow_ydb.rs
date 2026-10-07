@@ -373,7 +373,8 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
             .env("ID_JOBS_HTTP_ENABLED", "true")
             .env("ID_EXPORT_JOBS_ENABLED", "true")
             .env("ID_EXPORT_ESCROW_JOBS_PILOT_ENABLED", "false")
-            .env("ID_EXPORT_ESCROW_JOBS_ROLLOUT_ENABLED", "false")
+            .env("ID_EXPORT_ESCROW_JOBS_ROLLOUT_ENABLED", "true")
+            .env("ID_DELETION_JOBS_ROLLOUT_ENABLED", "true")
             .env("ID_EXPORT_ESCROW_MAIL_PILOT_ENABLED", "false")
             .env("ID_EXPORT_ESCROW_MAIL_ROLLOUT_ENABLED", "false")
             .env("MEDIA_STORAGE_DRIVER", "local")
@@ -416,6 +417,31 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
         .send()
         .await?;
     ensure!(rejected.status().as_u16() == StatusCode::BAD_REQUEST.as_u16());
+    let rejected_deletion = jobs_http
+        .post(format!("{jobs_origin}/internal/jobs/recover-deletion"))
+        .json(&queue_event)
+        .send()
+        .await?;
+    ensure!(
+        rejected_deletion.status().as_u16() == StatusCode::BAD_REQUEST.as_u16(),
+        "private deletion timer accepted a queue event"
+    );
+    let waiting_deletion = jobs_http
+        .post(format!("{jobs_origin}/internal/jobs/recover-deletion"))
+        .json(&timer_event)
+        .send()
+        .await?;
+    ensure!(
+        waiting_deletion.status().as_u16() == StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+        "deletion timer did not wait for the accepted export snapshot"
+    );
+    let waiting_report: serde_json::Value = waiting_deletion.json().await?;
+    ensure!(
+        waiting_report["deferred"]
+            .as_u64()
+            .is_some_and(|value| value > 0),
+        "deletion timer did not report deferred cleanup: {waiting_report}"
+    );
     let recovered = jobs_http
         .post(format!("{jobs_origin}/internal/jobs/recover-export"))
         .json(&timer_event)
