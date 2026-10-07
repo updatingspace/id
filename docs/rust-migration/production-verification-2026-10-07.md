@@ -63,6 +63,20 @@ extension result. CI has a mandatory YDB registration step, but the updated
 branch has not run on remote CI and the fix is not in the active API revision.
 Physical iPhone verification remains required after deployment.
 
+## Local candidate checks after the mobile report
+
+On the unpublished Rust branch, `cargo clippy --locked --workspace
+--all-targets -- -D warnings` and `cargo test --locked --workspace` passed on
+2026-10-07. The workspace test run used local loopback access for the S3 and
+YMQ doubles; the first sandboxed attempt could not bind their ports. Ignored
+integration tests are not included in this workspace result. Separately, the
+real local-YDB registration test passed with `credProps.rk` omitted, one
+success among concurrent completions, and replay rejection. The Topcoat
+Chromium check passed for a 390 px rejected-registration screen, no automatic
+retry, recovery-code presentation and unknown-result review. The operator
+export-status YDB test and Topcoat SSR smoke also passed. These checks do not
+prove physical iPhone behavior or production release readiness.
+
 Publishing this branch and deploying the tested image are outstanding.
 The local deployment gate now requires five jobs in the current Rust CI
 workflow, including the extended Rust/YDB/browser integration workflow. The
