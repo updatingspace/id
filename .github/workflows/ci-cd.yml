@@ -6,6 +6,7 @@ on:
       - main
       - master
       - "feat-*"
+      - "codex/**"
   pull_request:
     branches:
       - main
