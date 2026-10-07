@@ -145,7 +145,11 @@ and escrow-prefix objects, verify both through signed GETs, delete both and
 confirm subsequent signed GETs return 404. This proves those storage operations,
 not the complete delayed-export flow. The smoke command now also requires an
 exact ListBucket result for its unique escrow prefix before deletion and an
-empty result afterward; the 2026-10-06 run predates this added check. The
+empty result afterward. On 2026-10-07 the updated smoke passed against the
+production private bucket using the active Rust jobs revision's storage
+credentials: both synthetic objects returned 404 after deletion, and the
+escrow prefix contained exactly its test object before deletion and was empty
+afterward. It used no production account or export request. The
 opt-in `ID_EXPORT_TEST_REAL_S3=true`
 run of `data_export_delete_flow_ydb` then passed with disposable local YDB,
 private production Object Storage and local SMTP: the jobs HTTP timer uploaded
