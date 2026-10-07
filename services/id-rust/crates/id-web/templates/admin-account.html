@@ -46,7 +46,7 @@
           <h2 id="account-title">Аккаунт № {{ item.id }}</h2>
           <dl>
             <dt>Электронная почта</dt><dd>{{ item.email }}</dd>
-            <dt>Вход</dt><dd>{% if item.is_active %}Активен{% else %}Заблокирован{% endif %}</dd>
+            <dt>Доступ в ID</dt><dd>{{ item.access_state.label() }}</dd>
             <dt>Операторская роль</dt><dd>{% if item.is_staff && item.is_superuser %}Есть{% else %}Нет{% endif %}</dd>
             <dt>Дополнительная защита</dt><dd>{% if item.has_mfa %}Настроена{% else %}Не настроена{% endif %}</dd>
             <dt>Identity</dt><dd>{% if let Some(identity) = item.identity_id %}{{ identity }}{% else %}Связь не найдена — нужна проверка{% endif %}</dd>

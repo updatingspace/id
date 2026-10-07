@@ -2,6 +2,7 @@
 
 use crate::{
     account_deletion,
+    ids::PublicSubject,
     logout_http::cookie_value,
     me_http::env_flag,
     me_store::restore_django_profile,
@@ -54,6 +55,17 @@ struct AccountSnapshot {
     has_mfa: bool,
     identity_id: Option<uuid::Uuid>,
     public_subject: Option<String>,
+    access_state: AccessState,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AccessState {
+    Active,
+    DeletionPending,
+    AccountDisabled,
+    IdentityInactive,
+    NeedsReview,
 }
 
 impl AdminReadConfig {
@@ -267,6 +279,42 @@ async fn read_account_tx(
     };
     let has_mfa = tx.query_row("SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $id LIMIT 1")
         .param("$id", id).optional().await?.is_some();
+    let deletion_pending = tx
+        .query_row("SELECT id FROM accounts_accountdeletionrequest VIEW accounts_accountdeletionrequest_user_id_6a166c52 WHERE user_id = $id AND status != 'canceled' LIMIT 1")
+        .param("$id", id)
+        .optional()
+        .await?
+        .is_some();
+    let identity_status: Option<String> = if let Some(identity_id) = identity_id {
+        let row = tx
+            .query_row("SELECT status FROM usid_user WHERE user_id = $identity_id")
+            .param("$identity_id", identity_id)
+            .optional()
+            .await?;
+        match row {
+            Some(mut row) => Some(row.remove_field_by_name("status")?.try_into()?),
+            None => None,
+        }
+    } else {
+        None
+    };
+    let access_state = if deletion_pending {
+        AccessState::DeletionPending
+    } else if !active {
+        AccessState::AccountDisabled
+    } else if identity_id.is_none()
+        || public_subject
+            .as_ref()
+            .and_then(|value| PublicSubject::parse(value.clone()))
+            .is_none()
+        || identity_status.is_none()
+    {
+        AccessState::NeedsReview
+    } else if identity_status.as_deref() != Some("active") {
+        AccessState::IdentityInactive
+    } else {
+        AccessState::Active
+    };
     Ok(Some(AccountSnapshot {
         id,
         email,
@@ -276,6 +324,7 @@ async fn read_account_tx(
         has_mfa,
         identity_id,
         public_subject,
+        access_state,
     }))
 }
 

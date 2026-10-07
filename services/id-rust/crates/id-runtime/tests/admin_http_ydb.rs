@@ -165,10 +165,30 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         let (status, body) = get(&app, &account_path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::OK && body["account"]["id"] == target_id
             && body["account"]["is_active"] == false
+            && body["account"]["access_state"] == "deletion_pending"
             && body["account"]["identity_id"] == target_identity_id.to_string()
             && body["account"]["public_subject"] == format!("target-subject-{stamp}")
             && body["account"]["has_mfa"] == false, "operator account lookup: {body}");
         ensure!(!body.to_string().contains(password), "password hash exposed to operator UI");
+        client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
+            .param("$id", deletion_id).await?;
+        let (_, body) = get(&app, &account_path, Some(&cookie), None).await?;
+        ensure!(body["account"]["access_state"] == "account_disabled");
+        client.query_client().exec("UPDATE auth_user SET is_active = true WHERE id = $id")
+            .param("$id", target_id).await?;
+        let (_, body) = get(&app, &account_path, Some(&cookie), None).await?;
+        ensure!(body["account"]["access_state"] == "needs_review", "missing identity allowed: {body}");
+        client.query_client().exec("INSERT INTO usid_user (user_id, username, display_name, email, email_verified, status, system_admin, created_at) VALUES ($id, $name, $name, $email, true, 'active', false, CurrentUtcDatetime())")
+            .param("$id", target_identity_id).param("$name", format!("target-test-{stamp}"))
+            .param("$email", target_email.clone()).await?;
+        let (_, body) = get(&app, &account_path, Some(&cookie), None).await?;
+        ensure!(body["account"]["access_state"] == "active", "active identity misreported: {body}");
+        client.query_client().exec("UPDATE usid_user SET status = 'suspended' WHERE user_id = $id")
+            .param("$id", target_identity_id).await?;
+        let (_, body) = get(&app, &account_path, Some(&cookie), None).await?;
+        ensure!(body["account"]["access_state"] == "identity_inactive", "suspended identity misreported: {body}");
+        client.query_client().exec("INSERT INTO accounts_accountdeletionrequest (id, user_id, status, requested_at, reason) VALUES ($id, $user, 'pending', CurrentUtcDatetime(), 'private test reason')")
+            .param("$id", deletion_id).param("$user", target_id).await?;
         let (status, body) = search_email(&app, Some(&cookie), None, &target_email).await?;
         ensure!(status == StatusCode::OK && body["account"]["id"] == target_id,
             "verified email lookup: {body}");
@@ -258,6 +278,11 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         .query_client()
         .exec("DELETE FROM usid_user WHERE user_id = $id")
         .param("$id", identity_id)
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM usid_user WHERE user_id = $id")
+        .param("$id", target_identity_id)
         .await?;
     client
         .query_client()

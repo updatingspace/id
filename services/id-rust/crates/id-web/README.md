@@ -41,7 +41,10 @@ The opt-in `/admin/` area offers read-only deletion-request and account lookups
 by exact ID or verified primary email. It verifies the operator session through `id-api` before
 rendering and does not query YDB. Its templates and stylesheet are
 frontend-owned; the API owns authorization and account/request state. Account
-lookup shows status and identity binding, not credentials or editing controls.
+lookup shows effective ID access status (including a pending deletion, disabled
+account, inactive identity, or broken binding) and identity binding, not
+credentials or editing controls. The label is a snapshot, not a command to
+change access.
 Email lookup submits a read-only POST from the SSR form to `id-web`, then to
 `id-api`; the address is not placed in a page or API URL. Both responses use
 `Cache-Control: no-store`.

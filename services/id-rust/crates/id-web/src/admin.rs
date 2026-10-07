@@ -67,12 +67,34 @@ struct AccountResponse {
 struct OperatorAccount {
     id: i32,
     email: String,
-    is_active: bool,
     is_staff: bool,
     is_superuser: bool,
     has_mfa: bool,
     identity_id: Option<String>,
     public_subject: Option<String>,
+    access_state: AccessState,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum AccessState {
+    Active,
+    DeletionPending,
+    AccountDisabled,
+    IdentityInactive,
+    NeedsReview,
+}
+
+impl AccessState {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Active => "Доступен",
+            Self::DeletionPending => "Закрыт: идёт удаление",
+            Self::AccountDisabled => "Закрыт: аккаунт отключён",
+            Self::IdentityInactive => "Закрыт: identity неактивна",
+            Self::NeedsReview => "Недоступен: проверьте связь identity",
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -481,7 +503,7 @@ mod tests {
         let account = OperatorAccount {
             id: 42,
             email: "<script>bad()</script>@example.invalid".into(),
-            is_active: false,
+            access_state: AccessState::AccountDisabled,
             is_staff: false,
             is_superuser: false,
             has_mfa: true,
@@ -497,7 +519,7 @@ mod tests {
         }
         .render()?;
         assert!(!html.contains("<script>"));
-        assert!(html.contains("Заблокирован"));
+        assert!(html.contains("Закрыт: аккаунт отключён"));
         assert!(html.contains("Связь не найдена"));
         assert!(html.contains("не блокирует вход"));
         Ok(())
