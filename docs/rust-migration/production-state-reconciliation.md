@@ -36,6 +36,19 @@ during normal deployment.
 The complete, non-targeted OpenTofu plan and delayed-export rollout remain
 outstanding; do not infer them from the targeted apply.
 
+On 2026-10-07, all 11 additive `idctl` schema commands were rerun successfully
+against production YDB with the deploy service account. The exact database ID,
+command list, verification time and schema-source digest are recorded in
+`production-ydb-schema-receipt.json`. GitHub-hosted runners repeatedly failed
+at `cache-schema` while the same commands succeeded from the operator host; the
+underlying runner-to-YDB failure has not been established because private job
+logs were unavailable. Deployment therefore checks the receipt against live
+YDB metadata and current schema source, rather than opening a query connection
+from the runner. A change to any listed schema source or `idctl` command wiring
+invalidates the receipt and blocks deployment until an operator applies and
+verifies the new schema, then records a fresh receipt. The receipt does not
+prove that the YDB data stayed unchanged after verification.
+
 The section below is the read-only snapshot taken before that cleanup. Recheck
 every ID immediately before another state change; it is not an authorization
 to apply an old plan.

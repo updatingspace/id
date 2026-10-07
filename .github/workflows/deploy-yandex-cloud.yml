@@ -172,38 +172,13 @@ jobs:
           set -euo pipefail
           active_build=$(yc serverless container revision list --container-id "$RUST_MUTATIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")][0].image.environment.BUILD_ID // ""')
           EXPECTED_BUILD_ID="$active_build" node scripts/ci/check-yc-delayed-export.mjs --if-enabled
-      - name: Apply additive Rust YDB schemas
-        working-directory: services/id-rust
+      - name: Verify operator-applied Rust YDB schemas
         run: |
           set -euo pipefail
-          rustup toolchain install 1.98.1 --profile minimal
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
           ydb_json=$(yc ydb database get --name updspace-id --format json)
-          endpoint=$(jq -r '.endpoint | split("?")[0]' <<< "$ydb_json")
-          database=$(jq -r '.endpoint | split("?database=")[1]' <<< "$ydb_json")
-          test -n "$endpoint"
-          test -n "$database"
-          export YDB_ENDPOINT="$endpoint"
-          export YDB_DATABASE="$database"
-          export YDB_CREDENTIALS_MODE=token
-          export YDB_TOKEN="$(yc iam create-token)"
-          cargo build --locked --release -p id-runtime --bin idctl
-          for schema in cache-schema password-mail-schema security-mail-schema password-reset-schema email-verify-schema magic-link-schema email-change-schema data-export-schema data-export-escrow-schema data-export-mail-schema passkey-index; do
-            for attempt in 1 2 3; do
-              if target/release/idctl "$schema" > "$RUNNER_TEMP/id-schema-result.log" 2>&1; then
-                cat "$RUNNER_TEMP/id-schema-result.log"
-                break
-              fi
-              if ! grep -Fq 'create query session timed out after 500ms' "$RUNNER_TEMP/id-schema-result.log" || [ "$attempt" -eq 3 ]; then
-                echo "::error title=Rust schema migration::$schema failed on attempt $attempt; inspect the private job log"
-                cat "$RUNNER_TEMP/id-schema-result.log" >&2
-                exit 1
-              fi
-              echo "Retrying $schema after a transient YDB query-session timeout ($attempt/3)"
-              sleep "$attempt"
-            done
-          done
+          YDB_DATABASE_ID=$(jq -er '.id | select(type == "string")' <<< "$ydb_json")
+          export YDB_DATABASE_ID
+          node scripts/ci/check-ydb-schema-receipt.mjs
       - name: Capture serving Rust revisions
         id: capture
         run: node scripts/ci/rollback-yc-rust-revisions.mjs capture "$RUNNER_TEMP/id-rust-revisions.json"

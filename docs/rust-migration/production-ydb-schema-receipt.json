@@ -1,0 +1,18 @@
+{
+  "database_id": "etnq1cp5vubgd8ono4t4",
+  "source_digest": "sha256:919fc6b6c28ea3c147db5e93ac161ad5129b34e63a2c7f366fdff8c45af5a9f3",
+  "verified_at": "2026-10-07T15:59:17Z",
+  "commands": [
+    "cache-schema",
+    "password-mail-schema",
+    "security-mail-schema",
+    "password-reset-schema",
+    "email-verify-schema",
+    "magic-link-schema",
+    "email-change-schema",
+    "data-export-schema",
+    "data-export-escrow-schema",
+    "data-export-mail-schema",
+    "passkey-index"
+  ]
+}
