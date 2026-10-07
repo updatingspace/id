@@ -15,6 +15,7 @@ pub(crate) struct AdminApi {
     operator_url: Url,
     deletion_url: Url,
     account_url: Url,
+    account_search_url: Url,
 }
 
 impl AdminApi {
@@ -34,9 +35,11 @@ impl AdminApi {
         }
         let mut deletion_url = operator_url.clone();
         let mut account_url = operator_url.clone();
+        let mut account_search_url = operator_url.clone();
         operator_url.set_path("/api/v1/auth/admin/me");
         deletion_url.set_path("/api/v1/auth/admin/deletions/");
         account_url.set_path("/api/v1/auth/admin/accounts/");
+        account_search_url.set_path("/api/v1/auth/admin/accounts/search");
         Ok(Self {
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
@@ -45,6 +48,7 @@ impl AdminApi {
             operator_url,
             deletion_url,
             account_url,
+            account_search_url,
         })
     }
 }
@@ -119,8 +123,10 @@ struct AdminPage<'a> {
 #[template(path = "admin-account.html")]
 struct AccountPage<'a> {
     lookup_id: &'a str,
+    lookup_email: &'a str,
     account: Option<&'a OperatorAccount>,
     not_found: bool,
+    ambiguous: bool,
 }
 
 #[derive(Template)]
@@ -179,25 +185,47 @@ async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
     if query.is_some_and(|value| value.len() > 128) {
         return problem(400, "Слишком длинный поисковый запрос.");
     }
-    let requested = query.and_then(|query| {
+    let fields = query.map_or_else(Vec::new, |query| {
         url::form_urlencoded::parse(query.as_bytes())
-            .find(|(key, _)| key == "id")
-            .map(|(_, value)| value.into_owned())
+            .into_owned()
+            .collect::<Vec<_>>()
     });
-    let Some(id) = requested else {
-        return render_account("", None, false);
-    };
-    if id.is_empty() || id.len() > 10 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
-        return problem(400, "Укажите корректный ID аккаунта.");
+    if fields.is_empty() {
+        return render_account("", "", None, false, false);
     }
-    let Ok(parsed) = id.parse::<i32>() else {
-        return problem(400, "Укажите корректный ID аккаунта.");
-    };
-    if parsed <= 0 {
-        return problem(400, "Укажите корректный ID аккаунта.");
+    if fields.len() != 1 {
+        return problem(400, "Укажите только один способ поиска.");
     }
-    let mut url = api.account_url.clone();
-    url.set_path(&format!("/api/v1/auth/admin/accounts/{parsed}"));
+    let (key, value) = &fields[0];
+    let (lookup_id, lookup_email, url, expected_id) = if key == "id" {
+        if value.is_empty() || value.len() > 10 || !value.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return problem(400, "Укажите корректный ID аккаунта.");
+        }
+        let Ok(parsed) = value.parse::<i32>() else {
+            return problem(400, "Укажите корректный ID аккаунта.");
+        };
+        if parsed <= 0 {
+            return problem(400, "Укажите корректный ID аккаунта.");
+        }
+        let mut url = api.account_url.clone();
+        url.set_path(&format!("/api/v1/auth/admin/accounts/{parsed}"));
+        (value.as_str(), String::new(), url, Some(parsed))
+    } else if key == "email" {
+        let email = value.trim().to_lowercase();
+        if email.is_empty()
+            || email.len() > 320
+            || email.bytes().filter(|byte| *byte == b'@').count() != 1
+            || email.chars().any(char::is_control)
+        {
+            return problem(400, "Укажите корректный адрес электронной почты.");
+        }
+        let mut url = api.account_search_url.clone();
+        url.query_pairs_mut().append_pair("email", &email);
+        ("", email, url, None)
+    } else {
+        return problem(400, "Укажите ID или электронную почту.");
+    };
     let lookup = api
         .client
         .get(url)
@@ -215,7 +243,8 @@ async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
         200 => {}
         401 => return redirect_to_login("/login?next=%2Fadmin%2Faccounts%2F"),
         403 => return problem(403, "У вас нет доступа к операторскому разделу."),
-        404 => return render_account(&id, None, true),
+        404 => return render_account(lookup_id, &lookup_email, None, true, false),
+        409 => return render_account(lookup_id, &lookup_email, None, false, true),
         _ => return problem(503, "Не удалось загрузить аккаунт. Попробуйте позже."),
     }
     let mut body = Vec::new();
@@ -234,21 +263,33 @@ async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
         Ok(value) => value,
         Err(_) => return problem(503, "Некорректный ответ сервиса аккаунтов."),
     };
-    if result.account.id != parsed {
+    if expected_id.is_some_and(|id| result.account.id != id)
+        || (!lookup_email.is_empty() && result.account.email.trim().to_lowercase() != lookup_email)
+    {
         return problem(503, "Некорректный ответ сервиса аккаунтов.");
     }
-    render_account(&id, Some(&result.account), false)
+    render_account(
+        lookup_id,
+        &lookup_email,
+        Some(&result.account),
+        false,
+        false,
+    )
 }
 
 fn render_account(
     lookup_id: &str,
+    lookup_email: &str,
     account: Option<&OperatorAccount>,
     not_found: bool,
+    ambiguous: bool,
 ) -> topcoat::Result<Response> {
     let html = AccountPage {
         lookup_id,
+        lookup_email,
         account,
         not_found,
+        ambiguous,
     }
     .render()
     .map_err(|error| topcoat::Error::msg(error.to_string()))?;
@@ -436,14 +477,32 @@ mod tests {
         };
         let html = AccountPage {
             lookup_id: "42",
+            lookup_email: "",
             account: Some(&account),
             not_found: false,
+            ambiguous: false,
         }
         .render()?;
         assert!(!html.contains("<script>"));
         assert!(html.contains("Заблокирован"));
         assert!(html.contains("Связь не найдена"));
         assert!(html.contains("не блокирует вход"));
+        Ok(())
+    }
+
+    #[test]
+    fn ambiguous_email_never_selects_an_account_and_escapes_query() -> Result<()> {
+        let html = AccountPage {
+            lookup_id: "",
+            lookup_email: "<script>@example.invalid",
+            account: None,
+            not_found: false,
+            ambiguous: true,
+        }
+        .render()?;
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("Поиск требует проверки"));
+        assert!(html.contains("не выбирает владельца автоматически"));
         Ok(())
     }
 

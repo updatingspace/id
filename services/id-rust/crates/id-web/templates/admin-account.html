@@ -15,13 +15,13 @@
     <div class="page-heading">
       <p class="eyebrow">Аккаунты · только просмотр</p>
       <h1>Проверка аккаунта</h1>
-      <p class="intro">Найдите аккаунт по точному ID и проверьте его состояние и связь с identity. Этот экран не блокирует вход и не меняет данные пользователя.</p>
+      <p class="intro">Найдите аккаунт по точному ID или подтверждённой основной почте. Проверьте его состояние и связь с identity. Этот экран не блокирует вход и не меняет данные пользователя.</p>
     </div>
     <div class="workspace">
       <div class="task-column">
         <section class="lookup-panel" aria-labelledby="lookup-title">
-          <h2 id="lookup-title">Поиск по ID аккаунта</h2>
-          <p>ID можно получить из обращения или операторского журнала. Поиск по адресу почты здесь пока недоступен.</p>
+          <h2 id="lookup-title">Найти аккаунт</h2>
+          <p>Используйте один известный идентификатор. Поиск не изменяет аккаунт.</p>
           <form action="/admin/accounts/" method="get">
             <label for="account-id">ID аккаунта</label>
             <div class="search-row">
@@ -30,8 +30,17 @@
             </div>
             <p id="account-help" class="field-help">Только цифры; поиск не изменяет аккаунт.</p>
           </form>
+          <form action="/admin/accounts/" method="get">
+            <label for="account-email">Подтверждённый основной адрес</label>
+            <div class="search-row">
+              <input id="account-email" name="email" type="email" autocomplete="off" maxlength="320" value="{{ lookup_email }}" aria-describedby="email-help" required>
+              <button type="submit">Найти по почте</button>
+            </div>
+            <p id="email-help" class="field-help">Неподтверждённые и дополнительные адреса не используются для поиска.</p>
+          </form>
         </section>
-        {% if not_found %}<section class="result-panel" role="status"><h2>Аккаунт не найден</h2><p>Проверьте ID. Отсутствие результата не подтверждает, что данные были удалены из всех хранилищ.</p></section>{% endif %}
+        {% if not_found %}<section class="result-panel" role="status"><h2>Аккаунт не найден</h2><p>Проверьте введённые данные. Отсутствие результата не подтверждает, что данные были удалены из всех хранилищ.</p></section>{% endif %}
+        {% if ambiguous %}<section class="result-panel" role="alert"><h2>Поиск требует проверки</h2><p>Адрес связан с несколькими записями или есть конфликт подтверждений. Выберите аккаунт по точному ID и проверьте связи; система не выбирает владельца автоматически.</p></section>{% endif %}
         {% if let Some(item) = account %}
         <section class="result-panel" aria-labelledby="account-title">
           <h2 id="account-title">Аккаунт № {{ item.id }}</h2>

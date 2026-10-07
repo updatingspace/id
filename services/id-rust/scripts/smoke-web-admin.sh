@@ -26,14 +26,25 @@ http.createServer((request, response) => {
     response.end('{}');
     return;
   }
-  if (request.url === '/api/v1/auth/admin/me') {
+  const url = new URL(request.url, `http://127.0.0.1:${port}`);
+  if (url.pathname === '/api/v1/auth/admin/me') {
     response.writeHead(200, {'content-type':'application/json'});
     response.end('{"operator":true}');
-  } else if (request.url === '/api/v1/auth/admin/accounts/42') {
+  } else if (url.pathname === '/api/v1/auth/admin/accounts/42') {
     response.writeHead(200, {'content-type':'application/json'});
     response.end(JSON.stringify({account:{id:42,email:'<script>bad()</script>@example.invalid',
       is_active:false,is_staff:false,is_superuser:false,has_mfa:true,
       identity_id:null,public_subject:'subject-42'}}));
+  } else if (url.pathname === '/api/v1/auth/admin/accounts/search'
+    && url.searchParams.get('email') === 'pilot@example.invalid') {
+    response.writeHead(200, {'content-type':'application/json'});
+    response.end(JSON.stringify({account:{id:42,email:'pilot@example.invalid',
+      is_active:false,is_staff:false,is_superuser:false,has_mfa:true,
+      identity_id:null,public_subject:'subject-42'}}));
+  } else if (url.pathname === '/api/v1/auth/admin/accounts/search'
+    && url.searchParams.get('email') === 'ambiguous@example.invalid') {
+    response.writeHead(409, {'content-type':'application/json'});
+    response.end('{"code":"ACCOUNT_EMAIL_AMBIGUOUS"}');
   } else {
     response.writeHead(404, {'content-type':'application/json'});
     response.end('{"code":"ACCOUNT_NOT_FOUND"}');
@@ -73,6 +84,13 @@ headers="$(curl --silent --show-error --fail --max-time 5 -D - -o /dev/null \
   -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?id=42")"
 [[ "${headers,,}" == *'cache-control: no-store'* ]]
 [[ "${headers,,}" == *"content-security-policy: default-src 'none'; style-src 'self'"* ]]
+
+email_html="$(curl --silent --show-error --fail --max-time 5 \
+  -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?email=pilot%40example.invalid")"
+[[ "${email_html}" == *'Аккаунт № 42'* && "${email_html}" == *'value="pilot@example.invalid"'* ]]
+ambiguous_html="$(curl --silent --show-error --fail --max-time 5 \
+  -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?email=ambiguous%40example.invalid")"
+[[ "${ambiguous_html}" == *'Поиск требует проверки'* ]]
 
 guest="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
   "http://127.0.0.1:${web_port}/admin/accounts/")"

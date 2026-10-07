@@ -10,7 +10,7 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, RawQuery, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -24,6 +24,12 @@ use std::{
     time::{Duration, SystemTime},
 };
 use ydb::{Client, Transaction, TxMode, closure};
+
+enum EmailLookupOutcome {
+    Found(AccountSnapshot),
+    NotFound,
+    Ambiguous,
+}
 
 pub struct AdminReadConfig {
     client: Arc<Client>,
@@ -67,6 +73,7 @@ impl AdminReadConfig {
 pub fn router(config: Arc<AdminReadConfig>) -> Router {
     Router::new()
         .route("/api/v1/auth/admin/me", get(operator_session))
+        .route("/api/v1/auth/admin/accounts/search", get(account_by_email))
         .route("/api/v1/auth/admin/accounts/{id}", get(account_status))
         .route("/api/v1/auth/admin/deletions/{id}", get(deletion_status))
         .with_state(config)
@@ -127,39 +134,137 @@ async fn account_status(
     }
 }
 
+async fn account_by_email(
+    State(config): State<Arc<AdminReadConfig>>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(response) = authorize(&config, &headers).await {
+        return *response;
+    }
+    let Some(query) = query.filter(|value| value.len() <= 512) else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
+    };
+    let mut fields = url::form_urlencoded::parse(query.as_bytes());
+    let Some((key, email)) = fields.next() else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
+    };
+    if key != "email" || fields.next().is_some() {
+        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
+    }
+    let email = email.trim().to_lowercase();
+    if email.len() > 320
+        || email.is_empty()
+        || email.bytes().filter(|byte| *byte == b'@').count() != 1
+        || email.chars().any(char::is_control)
+    {
+        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
+    }
+    match read_account_by_email(&config.client, email).await {
+        Ok(EmailLookupOutcome::Found(account)) => {
+            json_response(StatusCode::OK, json!({"account": account}))
+        }
+        Ok(EmailLookupOutcome::NotFound) => error(StatusCode::NOT_FOUND, "ACCOUNT_NOT_FOUND"),
+        Ok(EmailLookupOutcome::Ambiguous) => error(StatusCode::CONFLICT, "ACCOUNT_EMAIL_AMBIGUOUS"),
+        Err(err) => {
+            tracing::error!(error = %err, "operator email lookup failed");
+            error(StatusCode::SERVICE_UNAVAILABLE, "ACCOUNT_UNAVAILABLE")
+        }
+    }
+}
+
 async fn read_account(client: &Client, id: i32) -> Result<Option<AccountSnapshot>> {
-    client.query_client()
+    client
+        .query_client()
         .retry_tx(closure!([id], async |tx: &mut Transaction| {
-            let Some(mut account) = tx.query_row("SELECT email, is_active, is_staff, is_superuser FROM auth_user WHERE id = $id")
-                .param("$id", *id).optional().await? else { return Ok(None) };
-            let email: String = account.remove_field_by_name("email")?.try_into()?;
-            let active: bool = account.remove_field_by_name("is_active")?.try_into()?;
-            let staff: bool = account.remove_field_by_name("is_staff")?.try_into()?;
-            let superuser: bool = account.remove_field_by_name("is_superuser")?.try_into()?;
-            let binding = tx.query_row("SELECT identity_id, public_subject FROM accounts_accountidentity WHERE user_id = $id")
-                .param("$id", *id).optional().await?;
-            let (identity_id, public_subject) = if let Some(mut binding) = binding {
-                let identity_id: Option<uuid::Uuid> = binding.remove_field_by_name("identity_id")?.try_into()?;
-                let public_subject: String = binding.remove_field_by_name("public_subject")?.try_into()?;
-                (identity_id, Some(public_subject))
-            } else { (None, None) };
-            let has_mfa = tx.query_row("SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $id LIMIT 1")
-                .param("$id", *id).optional().await?.is_some();
-            Ok(Some(AccountSnapshot {
-                id: *id,
-                email,
-                is_active: active,
-                is_staff: staff,
-                is_superuser: superuser,
-                has_mfa,
-                identity_id,
-                public_subject,
-            }))
+            read_account_tx(tx, *id).await
         }))
         .isolation(TxMode::SnapshotReadOnly)
         .timeout(Duration::from_secs(5))
         .await
         .context("read operator account snapshot")
+}
+
+async fn read_account_by_email(client: &Client, email: String) -> Result<EmailLookupOutcome> {
+    client.query_client()
+        .retry_tx(closure!([email], async |tx: &mut Transaction| {
+            let mut stream = tx.query("SELECT user_id FROM accounts_accountemaillookup VIEW acct_email_key_idx WHERE email_key = $email LIMIT 2")
+                .param("$email", email.clone()).await?;
+            let mut ids = Vec::with_capacity(2);
+            while let Some(rows) = stream.next_result_set().await? {
+                for mut row in rows { ids.push(row.remove_field_by_name("user_id")?.try_into()?); }
+            }
+            stream.close().await?;
+            if ids.len() > 1 { return Ok(EmailLookupOutcome::Ambiguous) }
+            let Some(id) = ids.pop() else { return Ok(EmailLookupOutcome::NotFound) };
+            let Some(account) = read_account_tx(tx, id).await? else {
+                return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("operator email lookup points to missing account")))
+            };
+            if account.email.trim().to_lowercase() != *email {
+                return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("operator email lookup disagrees with account")))
+            }
+            let mut verified = tx.query("SELECT verified FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $id AND primary = true AND Unicode::ToLower(email) = $email LIMIT 2")
+                .param("$id", id).param("$email", email.clone()).await?;
+            let mut rows = Vec::with_capacity(2);
+            while let Some(result) = verified.next_result_set().await? {
+                for mut row in result { rows.push(row.remove_field_by_name("verified")?.try_into()?); }
+            }
+            verified.close().await?;
+            match rows.as_slice() {
+                [true] => Ok(EmailLookupOutcome::Found(account)),
+                [] | [false] => Ok(EmailLookupOutcome::NotFound),
+                _ => Ok(EmailLookupOutcome::Ambiguous),
+            }
+        }))
+        .isolation(TxMode::SnapshotReadOnly)
+        .timeout(Duration::from_secs(5))
+        .await
+        .context("read operator verified email snapshot")
+}
+
+async fn read_account_tx(
+    tx: &mut Transaction,
+    id: i32,
+) -> ydb::YdbResultWithCustomerErr<Option<AccountSnapshot>> {
+    let Some(mut account) = tx
+        .query_row("SELECT email, is_active, is_staff, is_superuser FROM auth_user WHERE id = $id")
+        .param("$id", id)
+        .optional()
+        .await?
+    else {
+        return Ok(None);
+    };
+    let email: String = account.remove_field_by_name("email")?.try_into()?;
+    let active: bool = account.remove_field_by_name("is_active")?.try_into()?;
+    let staff: bool = account.remove_field_by_name("is_staff")?.try_into()?;
+    let superuser: bool = account.remove_field_by_name("is_superuser")?.try_into()?;
+    let binding = tx
+        .query_row(
+            "SELECT identity_id, public_subject FROM accounts_accountidentity WHERE user_id = $id",
+        )
+        .param("$id", id)
+        .optional()
+        .await?;
+    let (identity_id, public_subject) = if let Some(mut binding) = binding {
+        let identity_id: Option<uuid::Uuid> =
+            binding.remove_field_by_name("identity_id")?.try_into()?;
+        let public_subject: String = binding.remove_field_by_name("public_subject")?.try_into()?;
+        (identity_id, Some(public_subject))
+    } else {
+        (None, None)
+    };
+    let has_mfa = tx.query_row("SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $id LIMIT 1")
+        .param("$id", id).optional().await?.is_some();
+    Ok(Some(AccountSnapshot {
+        id,
+        email,
+        is_active: active,
+        is_staff: staff,
+        is_superuser: superuser,
+        has_mfa,
+        identity_id,
+        public_subject,
+    }))
 }
 
 async fn authorize(

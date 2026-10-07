@@ -57,6 +57,8 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
     let account_id = -i32::try_from(stamp % 1_000_000_000 + 1)?;
     let target_id = 1_500_000_000 + i32::try_from(stamp % 500_000_000)?;
+    let target_email = format!("target-test-{stamp}@example.invalid");
+    let email_id = target_id - 1_000_000_000;
     let deletion_id = i64::try_from(stamp % 1_000_000_000_000 + 1)?;
     let identity_id = Uuid::from_u128((stamp << 32) | u128::from(std::process::id()));
     let target_identity_id = Uuid::from_u128(identity_id.as_u128() + 1);
@@ -92,10 +94,15 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         client.query_client().exec("INSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, $password, false, $name, '', '', $email, false, false, CurrentUtcDatetime())")
             .param("$id", target_id).param("$password", password)
             .param("$name", format!("target-test-{stamp}"))
-            .param("$email", format!("target-test-{stamp}@example.invalid")).await?;
+            .param("$email", target_email.clone()).await?;
         client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($user, $identity, $subject, CurrentUtcDatetime())")
             .param("$user", target_id).param("$identity", target_identity_id)
             .param("$subject", format!("target-subject-{stamp}")).await?;
+        client.query_client().exec("INSERT INTO accounts_accountemaillookup (user_id, email_key) VALUES ($id, $email)")
+            .param("$id", target_id).param("$email", target_email.clone()).await?;
+        client.query_client().exec("INSERT INTO account_emailaddress (id, user_id, email, verified, primary) VALUES ($id, $user_id, $email, true, true)")
+            .param("$id", email_id).param("$user_id", target_id)
+            .param("$email", target_email.clone()).await?;
         client.query_client().exec("INSERT INTO django_session (session_key, session_data, expire_date) VALUES ($key, $data, CAST($expires AS Datetime))")
             .param("$key", token.clone()).param("$data", encoded)
             .param("$expires", now + Duration::from_secs(3600)).await?;
@@ -104,12 +111,15 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
 
         let path = format!("/api/v1/auth/admin/deletions/{deletion_id}");
         let account_path = format!("/api/v1/auth/admin/accounts/{target_id}");
+        let email_path = format!("/api/v1/auth/admin/accounts/search?email={target_email}");
         let cookie = format!("sessionid={token}");
         let (status, _) = get(&app, &path, None, None).await?;
         ensure!(status == StatusCode::UNAUTHORIZED);
         let (status, _) = get(&app, &path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::FORBIDDEN);
         let (status, _) = get(&app, &account_path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::FORBIDDEN);
+        let (status, _) = get(&app, &email_path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::FORBIDDEN);
         client.query_client().exec("UPDATE auth_user SET is_staff = true WHERE id = $id")
             .param("$id", account_id).await?;
@@ -134,6 +144,24 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             && body["account"]["public_subject"] == format!("target-subject-{stamp}")
             && body["account"]["has_mfa"] == false, "operator account lookup: {body}");
         ensure!(!body.to_string().contains(password), "password hash exposed to operator UI");
+        let (status, body) = get(&app, &email_path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::OK && body["account"]["id"] == target_id,
+            "verified email lookup: {body}");
+        let (status, _) = get(&app, &email_path, Some(&cookie), Some("invalid")).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED, "invalid header fell back to cookie for email lookup");
+        let (status, _) = get(&app, "/api/v1/auth/admin/accounts/search?email=bad", Some(&cookie), None).await?;
+        ensure!(status == StatusCode::BAD_REQUEST);
+        client.query_client().exec("UPDATE account_emailaddress SET verified = false WHERE id = $id")
+            .param("$id", email_id).await?;
+        let (status, _) = get(&app, &email_path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::NOT_FOUND, "unverified email returned an account");
+        client.query_client().exec("UPDATE account_emailaddress SET verified = true WHERE id = $id")
+            .param("$id", email_id).await?;
+        client.query_client().exec("INSERT INTO accounts_accountemaillookup (user_id, email_key) VALUES ($id, $email)")
+            .param("$id", target_id + 1).param("$email", target_email.clone()).await?;
+        let (status, body) = get(&app, &email_path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::CONFLICT && body["code"] == "ACCOUNT_EMAIL_AMBIGUOUS",
+            "ambiguous email selected an account: {body}");
         let (status, _) = get(&app, &account_path, Some(&cookie), Some("invalid")).await?;
         ensure!(status == StatusCode::UNAUTHORIZED, "invalid header fell back to cookie for account lookup");
         let (status, _) = get(&app, "/api/v1/auth/admin/accounts/0", Some(&cookie), None).await?;
@@ -178,6 +206,21 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         .query_client()
         .exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
         .param("$id", target_id)
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM accounts_accountemaillookup WHERE user_id = $id")
+        .param("$id", target_id)
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM accounts_accountemaillookup WHERE user_id = $id")
+        .param("$id", target_id + 1)
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM account_emailaddress WHERE id = $id")
+        .param("$id", email_id)
         .await?;
     client
         .query_client()
