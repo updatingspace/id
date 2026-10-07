@@ -131,6 +131,13 @@ pub async fn exchange_code(
                 if code_client != metadata.id || redirect != request.redirect_uri || expires_at <= now || used_at.is_some() {
                     return Ok(Err(ExchangeFailure::InvalidGrant));
                 }
+                let mut client_redirects = tx.query_row("SELECT CAST(redirect_uris AS Utf8) AS redirects FROM idp_oidcclient WHERE id = $id")
+                    .param("$id", metadata.id).await?;
+                let redirects: String = client_redirects.remove_field_by_name("redirects")?.try_into()?;
+                let redirects: Vec<String> = serde_json::from_str(&redirects).map_err(ydb::YdbOrCustomerError::from_err)?;
+                if !redirects.iter().any(|allowed| allowed == &redirect) {
+                    return Ok(Err(ExchangeFailure::InvalidGrant));
+                }
                 if challenge.is_empty() {
                     if metadata.is_public || !request.code_verifier.is_empty() {
                         return Ok(Err(ExchangeFailure::InvalidGrant));

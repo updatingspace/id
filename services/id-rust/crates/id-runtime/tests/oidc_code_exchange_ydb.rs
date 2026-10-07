@@ -119,6 +119,12 @@ async fn code_is_single_use_and_signed_subject_remains_stable() -> Result<()> {
         ensure!(matches!(exchange_code(&client, keys.clone(), "https://id.example.invalid", "local-refresh-salt", wrong, now).await?, Err(ExchangeFailure::InvalidGrant)));
         let mut wrong = request.clone(); wrong.redirect_uri = "https://rp.example.invalid/other".into();
         ensure!(matches!(exchange_code(&client, keys.clone(), "https://id.example.invalid", "local-refresh-salt", wrong, now).await?, Err(ExchangeFailure::InvalidGrant)));
+        client.query_client().exec("UPDATE idp_oidcclient SET redirect_uris = Unwrap(CAST('[\"https://rp.example.invalid/new\"]' AS Json)) WHERE id = $id")
+            .param("$id", client_pk).await?;
+        ensure!(matches!(exchange_code(&client, keys.clone(), "https://id.example.invalid", "local-refresh-salt", request.clone(), now).await?, Err(ExchangeFailure::InvalidGrant)),
+            "authorization code survived removal of its redirect URI");
+        client.query_client().exec("UPDATE idp_oidcclient SET redirect_uris = Unwrap(CAST('[\"https://rp.example.invalid/callback\"]' AS Json)) WHERE id = $id")
+            .param("$id", client_pk).await?;
 
         let mut tasks = tokio::task::JoinSet::new();
         for _ in 0..25 {
