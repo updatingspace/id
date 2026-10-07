@@ -146,11 +146,21 @@ async fn one_registration_after_concurrent_completion_and_replay() -> Result<()>
         ensure!(matches!(status, StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED)
             && matches!(response["code"].as_str(), Some("INVALID_PASSKEY" | "UNAUTHORIZED")), "replay accepted");
         let mut query = client.query_client();
-        let mut stream = query.query("SELECT type FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $id")
+        let mut stream = query.query("SELECT type, CAST(data AS Utf8) AS data FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $id")
             .param("$id", user_id).await?;
         let mut kinds = Vec::new();
         while let Some(rows) = stream.next_result_set().await? {
-            for mut row in rows { let kind: String = row.remove_field_by_name("type")?.try_into()?; kinds.push(kind); }
+            for mut row in rows {
+                let kind: String = row.remove_field_by_name("type")?.try_into()?;
+                let data: String = row.remove_field_by_name("data")?.try_into()?;
+                if kind == "webauthn" {
+                    let data: Value = serde_json::from_str(&data)?;
+                    ensure!(data["passwordless"] == true
+                        && data["credential"]["clientExtensionResults"] == json!({}),
+                        "discoverable choice was not persisted without credProps");
+                }
+                kinds.push(kind);
+            }
         }
         stream.close().await?;
         kinds.sort();
