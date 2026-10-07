@@ -1,5 +1,6 @@
 //! Bounded-memory private S3 upload for an NDJSON account export.
-//! Multipart upload uses one 5 MiB part buffer; a failed upload is aborted.
+//! Multipart upload uses one 5 MiB part buffer. Failed or uncertain uploads
+//! are aborted and their unpublished object keys are deleted best-effort.
 
 use crate::{
     data_export::{ExportManifest, write_ndjson_with_avatar, write_ndjson_with_avatar_for_escrow},
@@ -220,6 +221,9 @@ impl S3Export {
             Err(_) => {
                 producer.abort();
                 let _ = producer.await;
+                // Cancellation can race an S3 commit. This attempt's key is
+                // never published to YDB, so removing it is always safe.
+                self.remove_uncertain_object(&key).await;
                 bail!("export upload exceeded claim lease safety window");
             }
         };
@@ -229,11 +233,11 @@ impl S3Export {
                 Ok(Err(error)) => {
                     // A partial export must never be published. This key is
                     // unique to the claim; deletion is safe to retry.
-                    let _ = self.delete_object(&key).await;
+                    self.remove_uncertain_object(&key).await;
                     Err(error.context("export producer failed"))
                 }
                 Err(error) => {
-                    let _ = self.delete_object(&key).await;
+                    self.remove_uncertain_object(&key).await;
                     Err(error).context("export producer task failed")
                 }
             },
@@ -255,14 +259,21 @@ impl S3Export {
         let first_size = fill(&mut reader, &mut buffer).await?;
         if first_size < PART_SIZE {
             buffer.truncate(first_size);
-            let response = self
-                .send(Method::PUT, key, "", buffer, Some("application/x-ndjson"))
-                .await?;
-            ensure!(
-                response.status() == StatusCode::OK,
-                "export object PUT was not acknowledged"
-            );
-            return Ok(());
+            let result = async {
+                let response = self
+                    .send(Method::PUT, key, "", buffer, Some("application/x-ndjson"))
+                    .await?;
+                ensure!(
+                    response.status() == StatusCode::OK,
+                    "export object PUT was not acknowledged"
+                );
+                Ok(())
+            }
+            .await;
+            if result.is_err() {
+                self.remove_uncertain_object(key).await;
+            }
+            return result;
         }
         let upload_id = self.start(key).await?;
         let result = self
@@ -270,8 +281,17 @@ impl S3Export {
             .await;
         if result.is_err() {
             let _ = self.abort(key, &upload_id).await;
+            // Abort cannot remove a multipart object whose completion reached
+            // S3 but whose acknowledgement was lost.
+            self.remove_uncertain_object(key).await;
         }
         result
+    }
+
+    async fn remove_uncertain_object(&self, key: &str) {
+        if let Err(error) = self.delete_object(key).await {
+            tracing::warn!(error = %error, "uncertain export object cleanup deferred to lifecycle");
+        }
     }
 
     async fn upload_parts<R: AsyncRead + Unpin>(

@@ -19,7 +19,10 @@ struct Recording {
     parts: Vec<Vec<u8>>,
     completed: usize,
     aborted: usize,
+    deleted: usize,
     fail_complete: bool,
+    lose_single_ack: bool,
+    lose_complete_ack: bool,
 }
 
 async fn s3(State(recording): State<Arc<Mutex<Recording>>>, request: Request) -> Response<Body> {
@@ -48,7 +51,15 @@ async fn s3(State(recording): State<Arc<Mutex<Recording>>>, request: Request) ->
     match (method, query.as_str()) {
         (Method::PUT, "") => {
             state.single = body.to_vec();
-            response(StatusCode::OK, "", None)
+            response(
+                if state.lose_single_ack {
+                    StatusCode::SERVICE_UNAVAILABLE
+                } else {
+                    StatusCode::OK
+                },
+                "",
+                None,
+            )
         }
         (Method::POST, "uploads=") => response(
             StatusCode::OK,
@@ -72,7 +83,11 @@ async fn s3(State(recording): State<Arc<Mutex<Recording>>>, request: Request) ->
             } else {
                 state.completed += 1;
                 response(
-                    StatusCode::OK,
+                    if state.lose_complete_ack {
+                        StatusCode::SERVICE_UNAVAILABLE
+                    } else {
+                        StatusCode::OK
+                    },
                     "<CompleteMultipartUploadResult><Bucket>private-exports</Bucket><Key>exports/user_7/test/attempt.ndjson</Key></CompleteMultipartUploadResult>",
                     None,
                 )
@@ -80,6 +95,12 @@ async fn s3(State(recording): State<Arc<Mutex<Recording>>>, request: Request) ->
         }
         (Method::DELETE, "uploadId=synthetic%2Bid") => {
             state.aborted += 1;
+            response(StatusCode::NO_CONTENT, "", None)
+        }
+        (Method::DELETE, "") => {
+            state.deleted += 1;
+            state.single.clear();
+            state.completed = 0;
             response(StatusCode::NO_CONTENT, "", None)
         }
         _ => response(StatusCode::BAD_REQUEST, "", None),
@@ -99,9 +120,13 @@ fn response(status: StatusCode, body: &str, etag: Option<&str>) -> Response<Body
 
 async fn fixture(
     fail_complete: bool,
+    lose_single_ack: bool,
+    lose_complete_ack: bool,
 ) -> Result<(S3Export, Arc<Mutex<Recording>>, tokio::task::JoinHandle<()>)> {
     let state = Arc::new(Mutex::new(Recording {
         fail_complete,
+        lose_single_ack,
+        lose_complete_ack,
         ..Recording::default()
     }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -122,7 +147,7 @@ async fn fixture(
 
 #[tokio::test]
 async fn puts_small_archive_and_uses_multipart_for_large_archive() -> Result<()> {
-    let (uploader, state, server) = fixture(false).await?;
+    let (uploader, state, server) = fixture(false, false, false).await?;
     let key = "exports/user_7/test/attempt.ndjson";
     let small = b"{\"category\":\"account\"}\n";
     uploader.upload_stream(key, &small[..]).await?;
@@ -135,7 +160,8 @@ async fn puts_small_archive_and_uses_multipart_for_large_archive() -> Result<()>
             && result.parts[0].len() == 5 * 1024 * 1024
             && result.parts[1].len() == 17
             && result.completed == 1
-            && result.aborted == 0,
+            && result.aborted == 0
+            && result.deleted == 0,
         "S3 upload did not preserve bytes or multipart boundaries"
     );
     server.abort();
@@ -144,7 +170,7 @@ async fn puts_small_archive_and_uses_multipart_for_large_archive() -> Result<()>
 
 #[tokio::test]
 async fn rejects_embedded_completion_error_and_aborts_upload() -> Result<()> {
-    let (uploader, state, server) = fixture(true).await?;
+    let (uploader, state, server) = fixture(true, false, false).await?;
     let large = vec![b'X'; 5 * 1024 * 1024 + 1];
     ensure!(
         uploader
@@ -154,8 +180,45 @@ async fn rejects_embedded_completion_error_and_aborts_upload() -> Result<()> {
     );
     let result = state.lock().await;
     ensure!(
-        result.completed == 0 && result.aborted == 1,
-        "failed completion was not aborted"
+        result.completed == 0 && result.aborted == 1 && result.deleted == 1,
+        "failed completion was not aborted and cleaned"
+    );
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn removes_small_object_after_lost_put_acknowledgement() -> Result<()> {
+    let (uploader, state, server) = fixture(false, true, false).await?;
+    ensure!(
+        uploader
+            .upload_stream("exports/user_7/test/attempt.ndjson", &b"archive"[..])
+            .await
+            .is_err()
+    );
+    let result = state.lock().await;
+    ensure!(
+        result.single.is_empty() && result.deleted == 1,
+        "ambiguous small object was left behind"
+    );
+    server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn removes_completed_multipart_after_lost_acknowledgement() -> Result<()> {
+    let (uploader, state, server) = fixture(false, false, true).await?;
+    let large = vec![b'X'; 5 * 1024 * 1024 + 1];
+    ensure!(
+        uploader
+            .upload_stream("exports/user_7/test/attempt.ndjson", &large[..])
+            .await
+            .is_err()
+    );
+    let result = state.lock().await;
+    ensure!(
+        result.completed == 0 && result.aborted == 1 && result.deleted == 1,
+        "ambiguous multipart object was left behind"
     );
     server.abort();
     Ok(())

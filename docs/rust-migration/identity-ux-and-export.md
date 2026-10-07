@@ -137,7 +137,11 @@ and SMTP still needs an end-to-end rehearsal. A separate
 opt-in expiry sweep deletes
 private objects before erasing escrow metadata. Recovery from
 ambiguous external outcomes, self-service cancellation, production
-key rotation/configuration and browser checks remain. Delayed
+key rotation/configuration and browser checks remain. A local S3 HTTP
+regression now covers lost single-PUT and multipart-completion acknowledgements:
+the unpublished attempt key is deleted best-effort instead of being left until
+bucket lifecycle. A lost delete acknowledgement or a commit that completes
+after that deletion still needs an orphan-sweep rehearsal. Delayed
 export is not enabled in production.
 
 The isolated cutover/finalization regression now confirms that newly written
