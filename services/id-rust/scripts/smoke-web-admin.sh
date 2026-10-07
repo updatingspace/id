@@ -30,6 +30,11 @@ http.createServer(async (request, response) => {
   if (url.pathname === '/api/v1/auth/admin/me') {
     response.writeHead(200, {'content-type':'application/json'});
     response.end('{"operator":true}');
+  } else if (url.pathname === '/api/v1/auth/admin/exports/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') {
+    response.writeHead(200, {'content-type':'application/json'});
+    response.end(JSON.stringify({operation:{id:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      status:'cooldown',escrow_state:'sealed',archive_sealed:true,
+      release_at:1791400000,expires_at:1791486400}}));
   } else if (url.pathname === '/api/v1/auth/admin/accounts/42') {
     response.writeHead(200, {'content-type':'application/json'});
     response.end(JSON.stringify({account:{id:42,email:'<script>bad()</script>@example.invalid',
@@ -91,6 +96,15 @@ html="$(<"${scratch_dir}/account.html")"
 [[ "${html}" == *'Связь не найдена'* ]]
 [[ "${html}" != *'<script>bad()'* ]]
 [[ "${html}" == *'&#60;script&#62;bad()&#60;/script&#62;'* ]]
+export_html="$(curl --silent --show-error --fail --max-time 5 -H 'Cookie: sessionid=valid' \
+  "http://127.0.0.1:${web_port}/admin/exports/?id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")"
+[[ "${export_html}" == *'Ожидание выдачи'* && "${export_html}" == *'24-часовое ожидание'* ]]
+[[ "${export_html}" != *'private-recipient-envelope'* && "${export_html}" != *'private-archive'* ]]
+export_guest="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
+  "http://127.0.0.1:${web_port}/admin/exports/")"
+export_invalid="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
+  -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/exports/?id=bad")"
+[[ "${export_guest}" == 303 && "${export_invalid}" == 400 ]]
 active_html="$(curl --silent --show-error --fail --max-time 5 -H 'Cookie: sessionid=valid' \
   "http://127.0.0.1:${web_port}/admin/accounts/?id=43")"
 [[ "${active_html}" == *'/admin/accounts/suspend?id=43'* ]]

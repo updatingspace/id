@@ -16,7 +16,7 @@ use serde::Serialize;
 use sha2::Sha256;
 use std::{
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
 use ydb::{Client, IndexStatus, IndexType, Transaction, TxMode, Value, closure};
@@ -35,6 +35,84 @@ pub struct ExportOperation {
     pub status: String,
     pub manifest: Option<serde_json::Value>,
     pub expires_at: Option<SystemTime>,
+}
+
+/// Operator-facing lifecycle only. Never expose owner, recipient, manifest,
+/// private object key or a download capability through this view.
+#[derive(Debug, Serialize)]
+pub struct OperatorExportStatus {
+    pub id: String,
+    pub status: String,
+    pub escrow_state: Option<String>,
+    pub archive_sealed: bool,
+    pub release_at: Option<u64>,
+    pub expires_at: Option<u64>,
+}
+
+pub async fn read_operator_status(
+    client: &Client,
+    id: &str,
+) -> Result<Option<OperatorExportStatus>> {
+    ensure!(
+        id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "invalid export operation ID"
+    );
+    let id = id.to_owned();
+    client
+        .query_client()
+        .retry_tx(closure!([id], async |tx: &mut Transaction| {
+            let Some(mut operation) = tx
+                .query_row(format!(
+                    "SELECT status, object_key, expires_at FROM `{TABLE}` WHERE id = $id"
+                ))
+                .param("$id", id.clone())
+                .optional()
+                .await?
+            else {
+                return Ok(None);
+            };
+            let status: String = operation.remove_field_by_name("status")?.try_into()?;
+            let object_key: String = operation.remove_field_by_name("object_key")?.try_into()?;
+            let operation_expiry: Option<SystemTime> =
+                operation.remove_field_by_name("expires_at")?.try_into()?;
+            let escrow = tx
+                .query_row("SELECT state, release_at, expires_at, object_key, delivery_state FROM id_data_export_escrow WHERE id = $id")
+                .param("$id", id.clone())
+                .optional()
+                .await?;
+            let (escrow_state, release_at, escrow_expiry, escrow_sealed, delivery_sent) =
+                if let Some(mut escrow) = escrow {
+                    let state: String = escrow.remove_field_by_name("state")?.try_into()?;
+                    let release: SystemTime =
+                        escrow.remove_field_by_name("release_at")?.try_into()?;
+                    let expiry: SystemTime =
+                        escrow.remove_field_by_name("expires_at")?.try_into()?;
+                    let key: String = escrow.remove_field_by_name("object_key")?.try_into()?;
+                    let delivery: String =
+                        escrow.remove_field_by_name("delivery_state")?.try_into()?;
+                    (Some(state), Some(release), Some(expiry), !key.is_empty(), delivery == "sent")
+                } else {
+                    (None, None, None, false, false)
+                };
+            let status = if status == "cooldown" && delivery_sent {
+                "ready".to_owned()
+            } else {
+                status
+            };
+            let seconds = |value: SystemTime| value.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+            Ok(Some(OperatorExportStatus {
+                id: id.clone(),
+                status,
+                escrow_state,
+                archive_sealed: !object_key.is_empty() || escrow_sealed,
+                release_at: release_at.map(seconds),
+                expires_at: escrow_expiry.or(operation_expiry).map(seconds),
+            }))
+        }))
+        .isolation(TxMode::SnapshotReadOnly)
+        .timeout(Duration::from_secs(5))
+        .await
+        .context("read operator export lifecycle")
 }
 
 #[derive(Debug)]

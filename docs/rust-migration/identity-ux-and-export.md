@@ -31,7 +31,12 @@ The account lookup added alongside it accepts an exact numeric ID or a verified
 primary email. Email search uses a bounded POST body at both Topcoat and API;
 the address is not put into Gateway URLs. Ambiguous ownership fails closed.
 The opt-in Gateway template includes the read-only page and API routes. A
-separate `gateway_rust_admin_suspend` gate stages one write action: a review
+third operator task checks an export by its opaque request ID, including the
+post-deletion escrow state, snapshot confirmation, release time and expiry. It
+does not disclose the recipient, manifest, object key or download capability.
+The page distinguishes snapshot preparation, cooldown and delivery; it cannot
+send a link or bypass the 24-hour hold. A separate
+`gateway_rust_admin_suspend` gate stages one write action: a review
 screen shows the exact target and consequences; the operator chooses a fixed
 reason and confirms with their current password. The API requires an active
 staff and superuser session with bound MFA proof, limits password attempts,
@@ -40,7 +45,7 @@ blocks self/other-operator suspension, revokes credentials and writes an audit
 record. Ambiguous identity ownership or an unknown commit result fails closed.
 Production admin and suspension remain disabled until a complete operator
 rehearsal passes. This is **not** parity with the old admin: client, consent,
-export, audit, retry and bootstrap tasks still need dedicated screens or
+export retry, audit and bootstrap tasks still need dedicated screens or
 documented `idctl` procedures.
 
 UI acceptance for each flow is a browser test at 320, 390 and desktop widths,
@@ -293,7 +298,7 @@ an unverified address shows a confirmation path and no submit control. The
 deletion HTTP endpoint is restricted to local debug YDB and its own source
 labels it incomplete. Therefore a production deletion control must **not**
 be added by merely linking a form to that endpoint. The Rust web has read-only
-operator lookups for deletion requests, exact account IDs and verified primary
+operator lookups for deletion and export requests, exact account IDs and verified primary
 email addresses, gated off in
 production; other admin tasks remain open parity gaps. After retiring the React Gateway
 fallback on 2026-10-07, production `/admin/` returns an honest 404 rather

@@ -123,6 +123,7 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
     let target_email = format!("target-test-{stamp}@example.invalid");
     let email_id = target_id - 1_000_000_000;
     let deletion_id = i64::try_from(stamp % 1_000_000_000_000 + 1)?;
+    let export_id = format!("{stamp:032x}");
     let identity_id = Uuid::from_u128((stamp << 32) | u128::from(std::process::id()));
     let target_identity_id = Uuid::from_u128(identity_id.as_u128() + 1);
     let token = format!("admin-test-{stamp}");
@@ -173,13 +174,24 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             .param("$expires", now + Duration::from_secs(3600)).await?;
         client.query_client().exec("INSERT INTO accounts_accountdeletionrequest (id, user_id, status, requested_at, reason) VALUES ($id, $user, 'pending', CurrentUtcDatetime(), 'private test reason')")
             .param("$id", deletion_id).param("$user", target_id).await?;
+        client.query_client().exec("INSERT INTO id_data_export_operation (id, user_id, status, attempts, next_attempt_at, claim_token, object_key, manifest, created_at) VALUES ($id, 0, 'cooldown', 1, CurrentUtcDatetime(), '', '', '', CurrentUtcDatetime())")
+            .param("$id", export_id.clone()).await?;
+        client.query_client().exec("INSERT INTO id_data_export_escrow (id, user_id, encrypted_email, state, release_at, expires_at, object_key, manifest, notice_state, delivery_state, created_at) VALUES ($id, 0, 'private-recipient-envelope', 'sealed', CAST($release AS Datetime), CAST($expiry AS Datetime), 'exports/escrow/private-archive', '{}', 'sent', 'pending', CurrentUtcDatetime())")
+            .param("$id", export_id.clone())
+            .param("$release", now + Duration::from_secs(86400))
+            .param("$expiry", now + Duration::from_secs(172800)).await?;
 
         let path = format!("/api/v1/auth/admin/deletions/{deletion_id}");
+        let export_path = format!("/api/v1/auth/admin/exports/{export_id}");
         let account_path = format!("/api/v1/auth/admin/accounts/{target_id}");
         let cookie = format!("sessionid={token}");
         let (status, _) = get(&app, &path, None, None).await?;
         ensure!(status == StatusCode::UNAUTHORIZED);
+        let (status, _) = get(&app, &export_path, None, None).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED);
         let (status, _) = get(&app, &path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::FORBIDDEN);
+        let (status, _) = get(&app, &export_path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::FORBIDDEN);
         let (status, _) = get(&app, &account_path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::FORBIDDEN);
@@ -207,6 +219,31 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         ensure!(status == StatusCode::OK && body["operation"]["status"] == "pending");
         ensure!(body["operation"]["cleanup_completed"] == false);
         ensure!(!body.to_string().contains("private test reason") && !body.to_string().contains("admin-test-"));
+        let (status, body) = get(&app, &export_path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::OK
+            && body["operation"]["id"] == export_id
+            && body["operation"]["status"] == "cooldown"
+            && body["operation"]["escrow_state"] == "sealed"
+            && body["operation"]["archive_sealed"] == true
+            && body["operation"]["release_at"].as_u64().is_some()
+            && body["operation"]["expires_at"].as_u64().is_some(),
+            "operator export lifecycle: {body}");
+        ensure!(!body.to_string().contains("private-recipient-envelope")
+            && !body.to_string().contains("private-archive")
+            && !body.to_string().contains("manifest"),
+            "operator export response leaked private data");
+        client.query_client().exec("UPDATE id_data_export_escrow SET delivery_state = 'sent', release_at = CAST($release AS Datetime) WHERE id = $id")
+            .param("$id", export_id.clone())
+            .param("$release", now - Duration::from_secs(1)).await?;
+        let (status, body) = get(&app, &export_path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::OK && body["operation"]["status"] == "ready",
+            "delivered export still looked in cooldown: {body}");
+        let (status, _) = get(&app, &export_path, Some(&cookie), Some("invalid")).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED, "invalid header fell back to cookie for export lookup");
+        let (status, _) = get(&app, "/api/v1/auth/admin/exports/bad", Some(&cookie), None).await?;
+        ensure!(status == StatusCode::BAD_REQUEST);
+        let (status, _) = get(&app, "/api/v1/auth/admin/exports/00000000000000000000000000000000", Some(&cookie), None).await?;
+        ensure!(status == StatusCode::NOT_FOUND);
         let (status, body) = get(&app, &account_path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::OK && body["account"]["id"] == target_id
             && body["account"]["is_active"] == false
@@ -337,12 +374,24 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             .param("$id", account_id).await?;
         let (status, _) = get(&app, &path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::UNAUTHORIZED);
+        let (status, _) = get(&app, &export_path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED);
         Ok(())
     }.await;
     client
         .query_client()
         .exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
         .param("$id", deletion_id)
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM id_data_export_escrow WHERE id = $id")
+        .param("$id", export_id.clone())
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM id_data_export_operation WHERE id = $id")
+        .param("$id", export_id)
         .await?;
     client
         .query_client()

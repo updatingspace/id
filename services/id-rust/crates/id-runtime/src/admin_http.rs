@@ -5,6 +5,7 @@ use crate::{
     account_deletion,
     admin_suspend::{self, Preflight, SuspendInput, SuspendResult, SuspensionReason},
     cache_store::CacheStore,
+    data_export_operation,
     ids::PublicSubject,
     logout_http::{cookie_value, csrf_allowed},
     me_http::env_flag,
@@ -155,7 +156,8 @@ pub fn router(config: Arc<AdminReadConfig>) -> Router {
         .route("/api/v1/auth/admin/me", get(operator_session))
         .route("/api/v1/auth/admin/accounts/search", post(account_by_email))
         .route("/api/v1/auth/admin/accounts/{id}", get(account_status))
-        .route("/api/v1/auth/admin/deletions/{id}", get(deletion_status));
+        .route("/api/v1/auth/admin/deletions/{id}", get(deletion_status))
+        .route("/api/v1/auth/admin/exports/{id}", get(export_status));
     if config.suspend_enabled {
         app = app.route(
             "/api/v1/auth/admin/accounts/{id}/suspend",
@@ -318,6 +320,24 @@ async fn deletion_status(
         return error(StatusCode::BAD_REQUEST, "INVALID_OPERATION_ID");
     }
     match account_deletion::read_status(&config.client, id).await {
+        Ok(Some(operation)) => json_response(StatusCode::OK, json!({"operation": operation})),
+        Ok(None) => error(StatusCode::NOT_FOUND, "OPERATION_NOT_FOUND"),
+        Err(_) => error(StatusCode::SERVICE_UNAVAILABLE, "OPERATION_UNAVAILABLE"),
+    }
+}
+
+async fn export_status(
+    State(config): State<Arc<AdminReadConfig>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(response) = authorize(&config, &headers).await {
+        return *response;
+    }
+    if id.len() != 32 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return error(StatusCode::BAD_REQUEST, "INVALID_OPERATION_ID");
+    }
+    match data_export_operation::read_operator_status(&config.client, &id).await {
         Ok(Some(operation)) => json_response(StatusCode::OK, json!({"operation": operation})),
         Ok(None) => error(StatusCode::NOT_FOUND, "OPERATION_NOT_FOUND"),
         Err(_) => error(StatusCode::SERVICE_UNAVAILABLE, "OPERATION_UNAVAILABLE"),

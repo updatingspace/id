@@ -85,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
             .app_context(admin::AdminApi::from_env()?)
             .route(admin::page)
             .route(admin::page_slash)
+            .route(admin::export_page)
             .route(admin::account_page)
             .route(admin::account_page_slash)
             .route(admin::account_search_page)

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Проверка копии данных — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-9">
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержанию</a>
+  <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторский доступ</span></header>
+  <main id="main">
+    <nav aria-label="Навигация"><a href="/account">Мой аккаунт</a><span aria-hidden="true">/</span><span>Состояние копии данных</span></nav>
+    <div class="page-heading">
+      <p class="eyebrow">Копии данных · только просмотр</p>
+      <h1>Проверка запроса на копию</h1>
+      <p class="intro">Укажите номер запроса из обращения. Здесь видны только этапы подготовки и доставки: содержимое архива и адрес получателя не раскрываются.</p>
+    </div>
+    <div class="workspace">
+      <div class="task-column">
+        <section class="lookup-panel" aria-labelledby="lookup-title">
+          <h2 id="lookup-title">Поиск по номеру</h2>
+          <form action="/admin/exports/" method="get">
+            <label for="export-id">Номер запроса</label>
+            <div class="search-row">
+              <input id="export-id" name="id" inputmode="text" pattern="[0-9a-fA-F]{32}" maxlength="32" value="{{ lookup_id }}" aria-describedby="export-help" required>
+              <button type="submit">Проверить</button>
+            </div>
+            <p id="export-help" class="field-help">32 шестнадцатеричных символа. Поиск не меняет заявку.</p>
+          </form>
+        </section>
+        {% if not_found %}<section class="result-panel" role="status"><h2>Запрос не найден</h2><p>Проверьте номер. Отсутствие результата здесь не доказывает, что письмо не отправлялось.</p></section>{% endif %}
+        {% if let Some(item) = operation %}
+        <section class="result-panel" aria-labelledby="operation-title">
+          <h2 id="operation-title">Запрос № {{ item.id }}</h2>
+          <dl>
+            <dt>Состояние</dt><dd><strong class="status">{{ item.status_label() }}</strong></dd>
+            <dt>Снимок данных</dt><dd>{% if item.archive_sealed %}Подготовлен{% else %}Не подтверждён{% endif %}</dd>
+            {% if item.release_at.is_some() %}<dt>Выдача не раньше</dt><dd>{{ item.release_label() }}</dd>{% endif %}
+            {% if item.expires_at.is_some() %}<dt>Срок доступа</dt><dd>{{ item.expiry_label() }}</dd>{% endif %}
+          </dl>
+          <div class="next-step"><h3>Следующее действие</h3><p>{{ item.next_step() }}</p></div>
+        </section>
+        {% endif %}
+      </div>
+    </div>
+    <aside class="scope-panel" aria-labelledby="scope-title">
+      <h2 id="scope-title">Как трактовать состояние</h2>
+      <p>Готовый снимок не означает, что 24-часовое ожидание закончилось или ссылка отправлена. Отозванный запрос не даёт доступа к архиву.</p>
+      <p>Если письмо или очистка не подтверждены, проверьте jobs и операторский журнал. Не запрашивайте у пользователя ссылку или код доступа.</p>
+      <p><a href="/admin/">Проверить удаление аккаунта</a> · <a href="/admin/accounts/">Проверить аккаунт</a></p>
+    </aside>
+  </main>
+</body>
+</html>

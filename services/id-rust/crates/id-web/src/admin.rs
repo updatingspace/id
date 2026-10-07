@@ -14,6 +14,7 @@ pub(crate) struct AdminApi {
     client: reqwest::Client,
     operator_url: Url,
     deletion_url: Url,
+    export_url: Url,
     account_url: Url,
     account_search_url: Url,
 }
@@ -34,10 +35,12 @@ impl AdminApi {
             bail!("ID_WEB_API_ORIGIN must be HTTPS or a local HTTP origin");
         }
         let mut deletion_url = operator_url.clone();
+        let mut export_url = operator_url.clone();
         let mut account_url = operator_url.clone();
         let mut account_search_url = operator_url.clone();
         operator_url.set_path("/api/v1/auth/admin/me");
         deletion_url.set_path("/api/v1/auth/admin/deletions/");
+        export_url.set_path("/api/v1/auth/admin/exports/");
         account_url.set_path("/api/v1/auth/admin/accounts/");
         account_search_url.set_path("/api/v1/auth/admin/accounts/search");
         Ok(Self {
@@ -47,6 +50,7 @@ impl AdminApi {
                 .build()?,
             operator_url,
             deletion_url,
+            export_url,
             account_url,
             account_search_url,
         })
@@ -56,6 +60,75 @@ impl AdminApi {
 #[derive(Deserialize)]
 struct DeletionResponse {
     operation: DeletionOperation,
+}
+
+#[derive(Deserialize)]
+struct ExportResponse {
+    operation: OperatorExport,
+}
+
+#[derive(Deserialize)]
+struct OperatorExport {
+    id: String,
+    status: String,
+    archive_sealed: bool,
+    release_at: Option<u64>,
+    expires_at: Option<u64>,
+}
+
+impl OperatorExport {
+    fn status_label(&self) -> &'static str {
+        match self.status.as_str() {
+            "pending_delayed" => "Заявка принята",
+            "running_delayed" => "Готовится копия",
+            "cooldown" => "Ожидание выдачи",
+            "ready" => "Ссылка отправлена",
+            "succeeded" => "Архив подготовлен",
+            "failed" => "Подготовка не удалась",
+            "cancelled" => "Запрос отозван",
+            "expired" => "Срок доступа истёк",
+            _ => "Требует проверки",
+        }
+    }
+
+    fn next_step(&self) -> &'static str {
+        match self.status.as_str() {
+            "pending_delayed" | "running_delayed" => {
+                "Дождитесь завершения снимка. Не подтверждайте готовность копии пользователю."
+            }
+            "cooldown" => {
+                "Архив подготовлен, но 24-часовое ожидание ещё не завершилось. Ссылку раньше срока не выдавайте."
+            }
+            "ready" => {
+                "Ссылка отправлена на подтверждённый адрес. При проблеме с доставкой проверьте очередь писем; не раскрывайте архив в админке."
+            }
+            "succeeded" => {
+                "Это прежний немедленный экспорт. Проверьте срок доступа к архиву; новый запрос должен использовать задержанную выдачу."
+            }
+            "failed" => {
+                "Проверьте задачу в журнале и безопасный повтор. Не сообщайте, что копия готова."
+            }
+            "cancelled" | "expired" => {
+                "Доступ закрыт. Проверьте завершение очистки приватного объекта при необходимости."
+            }
+            _ => "Сверьте состояние через idctl и журнал jobs, прежде чем отвечать пользователю.",
+        }
+    }
+
+    fn release_label(&self) -> String {
+        format_timestamp(self.release_at)
+    }
+
+    fn expiry_label(&self) -> String {
+        format_timestamp(self.expires_at)
+    }
+}
+
+fn format_timestamp(value: Option<u64>) -> String {
+    value
+        .and_then(|seconds| chrono::DateTime::from_timestamp(i64::try_from(seconds).ok()?, 0))
+        .map(|value| value.format("%d.%m.%Y %H:%M UTC").to_string())
+        .unwrap_or_else(|| "не указано".into())
 }
 
 #[derive(Deserialize)]
@@ -152,6 +225,14 @@ struct AdminPage<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "admin-exports.html")]
+struct ExportPage<'a> {
+    lookup_id: &'a str,
+    operation: Option<&'a OperatorExport>,
+    not_found: bool,
+}
+
+#[derive(Template)]
 #[template(path = "admin-account.html")]
 struct AccountPage<'a> {
     lookup_id: &'a str,
@@ -184,6 +265,11 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
 #[route(GET "/admin/")]
 pub(crate) async fn page_slash(cx: &Cx) -> topcoat::Result<Response> {
     render_page(cx).await
+}
+
+#[route(GET "/admin/exports/")]
+pub(crate) async fn export_page(cx: &Cx) -> topcoat::Result<Response> {
+    render_export_page(cx).await
 }
 
 #[route(GET "/admin/accounts")]
@@ -568,6 +654,113 @@ fn render(
         .body(Body::from(html))?)
 }
 
+async fn render_export_page(cx: &Cx) -> topcoat::Result<Response> {
+    let api = app_context::<AdminApi>(cx);
+    let cookie = request::headers(cx)
+        .get("cookie")
+        .and_then(|value| value.to_str().ok());
+    let operator = api
+        .client
+        .get(api.operator_url.clone())
+        .header(reqwest::header::ACCEPT, "application/json");
+    let operator = if let Some(cookie) = cookie {
+        operator.header(reqwest::header::COOKIE, cookie)
+    } else {
+        operator
+    };
+    let operator = match operator.send().await {
+        Ok(response) => response,
+        Err(_) => return problem(503, "Не удалось проверить права. Попробуйте позже."),
+    };
+    match operator.status().as_u16() {
+        200 => {}
+        401 => return redirect_to_login("/login?next=%2Fadmin%2Fexports%2F"),
+        403 => return problem(403, "У вас нет доступа к операторскому разделу."),
+        _ => return problem(503, "Не удалось проверить права. Попробуйте позже."),
+    }
+    let query = request::uri(cx).query().unwrap_or("");
+    if query.is_empty() {
+        return render_export("", None, false);
+    }
+    if query.len() > 80 {
+        return problem(400, "Укажите корректный номер запроса.");
+    }
+    let fields = url::form_urlencoded::parse(query.as_bytes()).collect::<Vec<_>>();
+    let [(key, value)] = fields.as_slice() else {
+        return problem(400, "Укажите только номер запроса.");
+    };
+    if key != "id" || value.len() != 32 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return problem(400, "Укажите корректный номер запроса.");
+    }
+    let id = value.to_ascii_lowercase();
+    let mut url = api.export_url.clone();
+    url.set_path(&format!("/api/v1/auth/admin/exports/{id}"));
+    let lookup = api
+        .client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/json");
+    let lookup = if let Some(cookie) = cookie {
+        lookup.header(reqwest::header::COOKIE, cookie)
+    } else {
+        lookup
+    };
+    let mut lookup = match lookup.send().await {
+        Ok(response) => response,
+        Err(_) => return problem(503, "Не удалось загрузить запрос. Попробуйте позже."),
+    };
+    match lookup.status().as_u16() {
+        200 => {}
+        401 => return redirect_to_login("/login?next=%2Fadmin%2Fexports%2F"),
+        403 => return problem(403, "У вас нет доступа к операторскому разделу."),
+        404 => return render_export(&id, None, true),
+        _ => return problem(503, "Не удалось загрузить запрос. Попробуйте позже."),
+    }
+    let mut body = Vec::new();
+    loop {
+        let chunk = match lookup.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => return problem(503, "Не удалось загрузить запрос. Попробуйте позже."),
+        };
+        if body.len().saturating_add(chunk.len()) > 16 * 1024 {
+            return problem(503, "Некорректный ответ сервиса запросов.");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let result: ExportResponse = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(_) => return problem(503, "Некорректный ответ сервиса запросов."),
+    };
+    if result.operation.id != id {
+        return problem(503, "Некорректный ответ сервиса запросов.");
+    }
+    render_export(&id, Some(&result.operation), false)
+}
+
+fn render_export(
+    lookup_id: &str,
+    operation: Option<&OperatorExport>,
+    not_found: bool,
+) -> topcoat::Result<Response> {
+    let html = ExportPage {
+        lookup_id,
+        operation,
+        not_found,
+    }
+    .render()
+    .map_err(|error| topcoat::Error::msg(error.to_string()))?;
+    Ok(Response::builder()
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Referrer-Policy", "no-referrer")
+        .header(
+            "Content-Security-Policy",
+            "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        )
+        .body(Body::from(html))?)
+}
+
 fn redirect_to_login(location: &'static str) -> topcoat::Result<Response> {
     Ok(Response::builder()
         .status(303)
@@ -703,6 +896,38 @@ mod tests {
         assert_eq!(operation.status_label(), "Очистка завершена");
         operation.status = "failed".into();
         assert_eq!(operation.status_label(), "Нужна проверка оператора");
+    }
+
+    #[test]
+    fn export_page_uses_plain_language_and_never_renders_raw_status() -> Result<()> {
+        let mut operation = OperatorExport {
+            id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            status: "cooldown".into(),
+            archive_sealed: true,
+            release_at: Some(1_791_400_000),
+            expires_at: Some(1_791_486_400),
+        };
+        let html = ExportPage {
+            lookup_id: &operation.id,
+            operation: Some(&operation),
+            not_found: false,
+        }
+        .render()?;
+        assert!(html.contains("Ожидание выдачи"));
+        assert!(html.contains("24-часовое ожидание"));
+        assert!(html.contains("Подготовлен"));
+        assert!(html.contains("UTC"));
+        assert!(!html.contains("download_url"));
+        operation.status = "<script>bad()</script>".into();
+        let html = ExportPage {
+            lookup_id: &operation.id,
+            operation: Some(&operation),
+            not_found: false,
+        }
+        .render()?;
+        assert!(!html.contains("<script>bad()</script>"));
+        assert!(html.contains("Требует проверки"));
+        Ok(())
     }
 
     #[test]

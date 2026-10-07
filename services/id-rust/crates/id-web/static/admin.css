@@ -27,6 +27,7 @@ nav { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: clamp(1.5rem, 4
 .page-heading { max-width: 43rem; }
 h1 { margin: .25rem 0 .75rem; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.15; }
 h2 { margin: 0 0 .55rem; font-size: clamp(1.25rem, 2.5vw, 1.5rem); }
+.result-panel h2 { overflow-wrap: anywhere; }
 h3 { margin: 0 0 .25rem; font-size: 1rem; }
 p { margin: .4rem 0 1rem; }
 .eyebrow { color: #3154bc; font-size: .8rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
