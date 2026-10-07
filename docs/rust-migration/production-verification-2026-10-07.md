@@ -41,8 +41,17 @@ targets.
 The local Passkey registration fix accepts a missing optional `credProps.rk`
 response while rejecting explicit `rk=false`, persists the selected
 passwordless mode, and has a real local-YDB concurrency/replay regression.
-That test and the inventory unit test passed locally; Rust formatting, check
-and lint passed. CI has a mandatory YDB registration step, but the updated
+The user reported `INVALID_PASSKEY` from mobile registration. Both live
+`/api/v1/auth/passkeys/{begin,complete}` Gateway routes target the API container
+above. Its active revision predates the 2026-10-07 `credProps` fix and the old
+code rejects absent `rk` with this exact public error. This is a strong cause,
+not proof of the iPhone's unobserved credential payload: the sampled production
+logs did not expose the rejection category for this attempt.
+
+The local YDB regression passed with an omitted `credProps` result, including
+20 concurrent completion attempts and replay rejection. The native Chromium
+WebAuthn journey through Topcoat, Rust API and YDB also passed with an omitted
+extension result. CI has a mandatory YDB registration step, but the updated
 branch has not run on remote CI and the fix is not in the active API revision.
 Physical iPhone verification remains required after deployment.
 
