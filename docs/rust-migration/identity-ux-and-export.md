@@ -154,20 +154,25 @@ forever for an archive that could not be prepared. The exact retry budget and
 failure notification timing still need operational tuning under real storage
 outages.
 
-An authenticated owner can now revoke a delayed request from its status page;
+An authenticated owner can revoke a delayed request from its status page;
 the Rust API checks the owner and CSRF, cancels both mail intents and revokes
 the capability in one YDB transaction, then deletes the private object. A
 failed object deletion stays private and is retried by expiry jobs. After
-account deletion, the owner session no longer exists, so an unexpected
-request can still be revoked by an operator using the opaque request ID shown
-in the notification. `idctl data-export-cancel <id>` is read-only;
+account deletion, the first notice supplies a separate cancellation capability
+in the fragment of `/data/export/cancel`. Its Topcoat page requires an explicit
+button press and sends the token in a same-origin POST body without cookies.
+The cancellation capability cannot download an archive, and the later download
+capability cannot cancel one. The API revokes the escrow and both mail intents
+in a YDB transaction, then deletes any private archive. An operator can also
+use the opaque request ID shown in the notice: `idctl data-export-cancel <id>` is read-only;
 `idctl data-export-cancel <id> --apply` atomically revokes mail and download
 access, then deletes the private object and clears its reference. If Object
 Storage deletion fails, the command reports that the link is already revoked
 and must be retried; lifecycle and the expiry worker remain fallback cleanup.
 An SMTP send already in flight may still deliver a now-useless link. Operator
-authentication and request verification are operational controls for this
-CLI. A recovery channel for cancellation after account deletion remains open.
+authentication and request verification remain operational controls for this
+CLI. The public cancellation route is off until the delayed-export rollout is
+enabled across API, web, jobs and Gateway.
 
 Target flow:
 

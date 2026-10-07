@@ -12,6 +12,7 @@ const { chromium } = require(playwrightPath);
 const operation = '0123456789abcdef0123456789abcdef';
 const validToken = Buffer.alloc(32, 0x42).toString('base64url');
 const invalidToken = Buffer.alloc(32, 0x43).toString('base64url');
+const cancelToken = Buffer.alloc(32, 0x44).toString('base64url');
 
 async function freePort() {
   const server = http.createServer();
@@ -33,6 +34,7 @@ async function main() {
   web.stderr.on('data', chunk => { webLog += chunk.toString(); });
   const requests = [];
   const redemptions = [];
+  const cancellations = [];
   const proxy = http.createServer(async (request, response) => {
     requests.push({ url: request.url, referer: request.headers.referer || '' });
     const pathname = new URL(request.url, origin).pathname;
@@ -46,6 +48,23 @@ async function main() {
       response.setHeader('cache-control', 'no-store');
       if (body?.token === validToken) {
         response.end(JSON.stringify({ download_url: `${origin}/archive/${operation}`, expires_in_seconds: 60 }));
+      } else {
+        response.writeHead(404);
+        response.end(JSON.stringify({ code: 'NOT_FOUND' }));
+      }
+      return;
+    }
+    if (pathname === `/api/v1/auth/data/exports/${operation}/cancel`) {
+      let raw = '';
+      for await (const chunk of request) raw += chunk;
+      let body;
+      try { body = JSON.parse(raw); } catch { body = null; }
+      cancellations.push({ method: request.method, cookie: request.headers.cookie || '', body });
+      response.setHeader('content-type', 'application/json');
+      response.setHeader('cache-control', 'no-store');
+      if (body?.token === cancelToken) {
+        response.writeHead(202);
+        response.end(JSON.stringify({ status: 'cancelled', cleanup_pending: false }));
       } else {
         response.writeHead(404);
         response.end(JSON.stringify({ code: 'NOT_FOUND' }));
@@ -110,12 +129,38 @@ async function main() {
     await incomplete.goto(`${origin}/data/export?id=${operation}#short`);
     assert.equal(await incomplete.locator('#export-download').isDisabled(), true);
     assert.equal(redemptions.length, 2);
+    const cancel = await context.newPage();
+    const cancelHtml = await cancel.goto(`${origin}/data/export/cancel?id=${operation}#${cancelToken}`);
+    assert.equal(cancelHtml.status(), 200);
+    assert.equal(cancelHtml.headers()['cache-control'], 'no-store');
+    assert.equal(cancelHtml.headers()['referrer-policy'], 'no-referrer');
+    assert.equal(cancel.url(), `${origin}/data/export/cancel?id=${operation}`);
+    await cancel.locator('#export-cancel').click();
+    await cancel.waitForFunction(() => document.getElementById('export-status')?.textContent.includes('отменён'));
+    assert.match(await cancel.locator('#export-status').innerText(), /отменён/);
+    assert.deepEqual(cancellations[0], { method: 'POST', cookie: '', body: { token: cancelToken } });
+    const wrongCancel = await context.newPage();
+    await wrongCancel.goto(`${origin}/data/export/cancel?id=${operation}#${validToken}`);
+    await wrongCancel.locator('#export-cancel').click();
+    await wrongCancel.locator('#export-error:not([hidden])').waitFor();
+    assert.deepEqual(cancellations[1], { method: 'POST', cookie: '', body: { token: validToken } });
+    const incompleteCancel = await context.newPage();
+    await incompleteCancel.goto(`${origin}/data/export/cancel?id=${operation}#short`);
+    assert.equal(await incompleteCancel.locator('#export-cancel').isDisabled(), true);
+    assert.equal(cancellations.length, 2);
+    const mobile = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const mobileCancel = await mobile.newPage();
+    await mobileCancel.goto(`${origin}/data/export/cancel?id=${operation}#${cancelToken}`);
+    assert.equal(await mobileCancel.locator('#export-cancel').isVisible(), true);
+    assert.equal(await mobileCancel.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
+      'cancellation page overflows a phone viewport');
+    await mobile.close();
     assert.equal(requests.filter(request => request.url.startsWith('/archive/')).length, 1);
     for (const request of requests) {
-      assert.equal(request.url.includes(validToken) || request.url.includes(invalidToken), false);
-      assert.equal(request.referer.includes(validToken) || request.referer.includes(invalidToken), false);
+      assert.equal([validToken, invalidToken, cancelToken].some(token => request.url.includes(token)), false);
+      assert.equal([validToken, invalidToken, cancelToken].some(token => request.referer.includes(token)), false);
     }
-    console.log('PASS: Topcoat export link keeps bearer in POST body, starts download and handles expiry');
+    console.log('PASS: Topcoat export download and post-deletion cancel links keep separate bearers in POST bodies');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => proxy.close(resolve));

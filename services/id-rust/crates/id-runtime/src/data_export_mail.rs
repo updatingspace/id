@@ -95,6 +95,14 @@ impl MailConfig {
         url.set_fragment(Some(&self.key.capability(id)?));
         Ok(url.to_string())
     }
+
+    fn cancel_link(&self, id: &str) -> Result<String> {
+        ensure!(valid_export_id(id), "invalid export ID");
+        let mut url = self.public_origin.join("/data/export/cancel")?;
+        url.query_pairs_mut().append_pair("id", id);
+        url.set_fragment(Some(&self.key.cancel_capability(id)?));
+        Ok(url.to_string())
+    }
 }
 
 pub async fn ensure_schema(client: &Client) -> Result<()> {
@@ -307,9 +315,10 @@ fn render(
         Kind::Notice => (
             "Запрошена копия данных UpdSpace ID",
             format!(
-                "Для вашего аккаунта принят запрос на копию данных. Мы подготовим архив; ссылка для получения будет отправлена на этот адрес не раньше {}. Номер запроса: {}. Если запрос сделали не вы, проверьте безопасность аккаунта UpdSpace ID и сообщите этот номер в поддержку: запрос и будущую ссылку можно отозвать.\n",
+                "Для вашего аккаунта принят запрос на копию данных. Мы подготовим архив; ссылка для получения будет отправлена на этот адрес не раньше {}. Номер запроса: {}.\n\nЕсли запрос сделали не вы или вы передумали, отмените его по ссылке:\n{}\n\nОтмена работает и после удаления аккаунта. Эта ссылка не открывает архив. Не пересылайте письмо другим людям.\n",
                 chrono::DateTime::<chrono::Utc>::from(claimed.release_at).to_rfc3339(),
                 claimed.export_id,
+                config.cancel_link(&claimed.export_id)?,
             ),
         ),
         Kind::Delivery if claimed.snapshot_failed => (
@@ -400,6 +409,10 @@ mod tests {
             link.query() == Some("id=0123456789abcdef0123456789abcdef")
                 && link.fragment().is_some()
         );
+        let cancel = Url::parse(&config.cancel_link("0123456789abcdef0123456789abcdef")?)?;
+        ensure!(cancel.path() == "/data/export/cancel");
+        ensure!(cancel.query() == link.query());
+        ensure!(cancel.fragment().is_some() && cancel.fragment() != link.fragment());
         ensure!(MailConfig::new(config.key, "https://other.invalid/path").is_err());
         Ok(())
     }

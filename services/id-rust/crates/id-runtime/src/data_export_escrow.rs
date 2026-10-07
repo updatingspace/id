@@ -131,6 +131,29 @@ impl ExportEscrowKey {
         Ok(decoded.len() == expected.len() && bool::from(decoded.ct_eq(&expected)))
     }
 
+    /// Sent with the immediate notice, before any archive is available. This
+    /// purpose-separated token can revoke the export but cannot download it.
+    pub fn cancel_capability(&self, id: &str) -> Result<String> {
+        validate_id(id)?;
+        let capability_key = self.subkey(b"cancel-capability")?;
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&capability_key)?;
+        mac.update(b"updspace-id:export-cancel:v1\0");
+        mac.update(id.as_bytes());
+        Ok(URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
+    }
+
+    pub fn verifies_cancel_capability(&self, id: &str, supplied: &str) -> Result<bool> {
+        validate_id(id)?;
+        if supplied.len() > 64 {
+            return Ok(false);
+        }
+        let Ok(decoded) = URL_SAFE_NO_PAD.decode(supplied) else {
+            return Ok(false);
+        };
+        let expected = URL_SAFE_NO_PAD.decode(self.cancel_capability(id)?)?;
+        Ok(decoded.len() == expected.len() && bool::from(decoded.ct_eq(&expected)))
+    }
+
     fn subkey(&self, purpose: &[u8]) -> Result<[u8; 32]> {
         let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.0)?;
         mac.update(b"updspace-id:export-escrow-key:v1\0");
@@ -512,6 +535,20 @@ pub async fn cancel_owned(client: &Client, id: &str, owner: i32) -> Result<Optio
     cancel_scoped(client, id, Some(owner)).await
 }
 
+/// A notice recipient can cancel even after account deletion revoked the
+/// session. The token never grants access to the archive.
+pub async fn cancel_with_capability(
+    client: &Client,
+    key: &ExportEscrowKey,
+    id: &str,
+    supplied: &str,
+) -> Result<Option<String>> {
+    if !valid_capability_request(id, supplied) || !key.verifies_cancel_capability(id, supplied)? {
+        return Ok(None);
+    }
+    cancel_scoped(client, id, None).await
+}
+
 async fn cancel_scoped(
     client: &Client,
     id: &str,
@@ -629,6 +666,12 @@ mod tests {
         assert!(!key.verifies_capability(other, &token)?);
         assert!(!key.verifies_capability(id, "wrong")?);
         assert_eq!(token, key.capability(id)?);
+        let cancel = key.cancel_capability(id)?;
+        assert!(key.verifies_cancel_capability(id, &cancel)?);
+        assert!(!key.verifies_cancel_capability(other, &cancel)?);
+        assert!(!key.verifies_cancel_capability(id, &token)?);
+        assert!(!key.verifies_capability(id, &cancel)?);
+        assert_eq!(cancel, key.cancel_capability(id)?);
         Ok(())
     }
 

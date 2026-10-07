@@ -596,6 +596,29 @@ paths:
         type: serverless_containers
         container_id: ${rust_sessions_mutations_container_id}
         service_account_id: ${gateway_service_account_id}
+  /api/v1/auth/data/exports/{id}/cancel:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
+    options:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_sessions_mutations_container_id}
+        service_account_id: ${gateway_service_account_id}
 %{ endif ~}
 
 %{ if gateway_rust_account_deletion && !gateway_use_rust ~}
@@ -945,6 +968,12 @@ paths:
 %{ endif ~}
 %{ if gateway_rust_export_delayed ~}
   /data/export:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+  /data/export/cancel:
     get:
       x-yc-apigateway-integration:
         type: serverless_containers

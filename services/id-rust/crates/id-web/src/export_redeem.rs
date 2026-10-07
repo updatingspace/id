@@ -28,6 +28,27 @@ pub(crate) async fn script() -> Result<Response> {
         .body(Body::from(include_str!("../static/export-redeem.js")))?)
 }
 
+#[route(GET "/data/export/cancel")]
+pub(crate) async fn cancel_page(_cx: &Cx) -> Result<Response> {
+    Ok(Response::builder()
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Referrer-Policy", "no-referrer")
+        .header("X-Robots-Tag", "noindex, nofollow")
+        .header("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        .body(Body::from(include_str!("../templates/export-cancel.html")))?)
+}
+
+#[route(GET "/_id/export-cancel.js")]
+pub(crate) async fn cancel_script() -> Result<Response> {
+    Ok(Response::builder()
+        .header("Content-Type", "text/javascript; charset=utf-8")
+        .header("Cache-Control", "public, max-age=3600")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(include_str!("../static/export-cancel.js")))?)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -35,5 +56,8 @@ mod tests {
         let html = include_str!("../templates/export-redeem.html");
         assert!(html.contains("export-download"));
         assert!(!html.contains("{{"));
+        let cancel_html = include_str!("../templates/export-cancel.html");
+        assert!(cancel_html.contains("export-cancel"));
+        assert!(!cancel_html.contains("{{"));
     }
 }

@@ -69,7 +69,9 @@ async fn main() -> anyhow::Result<()> {
         }
         router = router
             .route(export_redeem::page)
-            .route(export_redeem::script);
+            .route(export_redeem::script)
+            .route(export_redeem::cancel_page)
+            .route(export_redeem::cancel_script);
     }
     if std::env::var("ID_WEB_ADMIN_ENABLED").as_deref() == Ok("true") {
         router = router

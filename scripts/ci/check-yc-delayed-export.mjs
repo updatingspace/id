@@ -111,8 +111,10 @@ try {
         ['/api/v1/auth/data/exports/{id}', 'delete'],
         ['/api/v1/auth/data/exports/{id}/download', 'get'],
         ['/api/v1/auth/data/exports/{id}/redeem', 'post'],
+        ['/api/v1/auth/data/exports/{id}/cancel', 'post'],
       ]) gatewayRoute(spec, path, method, containerIds.api, 'Rust mutations API');
       gatewayRoute(spec, '/data/export', 'get', containerIds.web, 'Topcoat web');
+      gatewayRoute(spec, '/data/export/cancel', 'get', containerIds.web, 'Topcoat web');
       gatewayRoute(spec, '/_id/{file+}', 'get', containerIds.web, 'Topcoat web');
     }
   }

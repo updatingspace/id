@@ -31,6 +31,12 @@ verification pages are static HTML templates with browser behavior in
 `static/recovery.js`; their Rust handlers only select the document and set
 security headers. Frontend authors can change their layout and copy without
 editing API or router code, while keeping the form IDs used by the script.
+The public export download and cancellation pages follow the same split. They
+read an operation ID from the query and a bearer token from the URL fragment,
+remove the fragment from browser history, and POST the token without cookies to
+the API. The immediate notice contains only the cancellation token; the later
+delivery email contains a separate download token. Neither token is rendered
+into SSR HTML.
 The opt-in `/admin/` area offers read-only deletion-request and account lookups
 by exact ID or verified primary email. It verifies the operator session through `id-api` before
 rendering and does not query YDB. Its templates and stylesheet are

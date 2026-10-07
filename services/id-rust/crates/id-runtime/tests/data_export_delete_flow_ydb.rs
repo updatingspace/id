@@ -104,10 +104,13 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
         .param("$id", first_event).await?;
 
     let (sender, mut receiver) = tokio::sync::mpsc::channel::<String>(2);
+    let deleted_s3_keys = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let deleted_for_server = deleted_s3_keys.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let s3 = Router::new().fallback(any(move |request: Request<Body>| {
         let sender = sender.clone();
+        let deleted = deleted_for_server.clone();
         async move {
             match *request.method() {
                 axum::http::Method::PUT => {
@@ -121,6 +124,13 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
                 }
                 axum::http::Method::GET => {
                     (StatusCode::OK, format!("<ListBucketResult><Name>private-exports</Name><Prefix>exports/user_{owner}/</Prefix><IsTruncated>false</IsTruncated></ListBucketResult>"))
+                }
+                axum::http::Method::DELETE => {
+                    let Ok(mut keys) = deleted.lock() else {
+                        return (StatusCode::INTERNAL_SERVER_ERROR, String::new());
+                    };
+                    keys.push(request.uri().path().to_owned());
+                    (StatusCode::NO_CONTENT, String::new())
                 }
                 _ => (StatusCode::METHOD_NOT_ALLOWED, String::new()),
             }
@@ -652,13 +662,27 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
     );
     let mail_bodies = tokio::time::timeout(Duration::from_secs(5), smtp).await???;
     drop(mail_jobs);
-    let delivery_body = mail_bodies
+    // The SMTP fixture captures wire bytes; lettre folds quoted-printable
+    // lines, while a mail client shows the unfolded links to the recipient.
+    let readable_mail_bodies = mail_bodies
         .iter()
-        .find(|body| body.contains("data/export") && body.contains(&id))
+        .map(|body| body.replace("=\r\n", "").replace("=3D", "="))
+        .collect::<Vec<_>>();
+    let delivery_body = readable_mail_bodies
+        .iter()
+        .find(|body| body.contains("data/export?id=") && body.contains(&id))
         .context("timed delivery mail missing")?;
     ensure!(
-        delivery_body.contains("data/export") && delivery_body.contains(&id),
+        delivery_body.contains("data/export?id=") && delivery_body.contains(&id),
         "timed mail omitted the deleted account's archive link"
+    );
+    let notice_body = readable_mail_bodies
+        .iter()
+        .find(|body| body.contains("data/export/cancel?id=") && body.contains(&id))
+        .context("immediate notice lacked a self-service cancellation link")?;
+    ensure!(
+        !notice_body.contains(&capability),
+        "notice disclosed download capability"
     );
     let mut sent = client
         .query_client()
@@ -772,6 +796,102 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
     ensure!(
         expired.status() == StatusCode::NOT_FOUND,
         "expired post-deletion capability remained redeemable"
+    );
+
+    // Restore only the synthetic archive's delivery window to verify that a
+    // notice recipient can still revoke it after the account is gone.
+    client
+        .query_client()
+        .exec("UPDATE id_data_export_escrow SET expires_at = CAST($expires AS Datetime) WHERE id = $id")
+        .param("$expires", SystemTime::now() + Duration::from_secs(3600))
+        .param("$id", id.clone())
+        .await?;
+    let cancel_path = format!("/api/v1/auth/data/exports/{id}/cancel");
+    let wrong_cancel = export
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(&cancel_path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"token": capability}).to_string(),
+                ))?,
+        )
+        .await?;
+    ensure!(
+        wrong_cancel.status() == StatusCode::NOT_FOUND,
+        "download token cancelled export"
+    );
+    let cancel_token = escrow_key.cancel_capability(&id)?;
+    let wrong_download = export
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/auth/data/exports/{id}/redeem"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"token": cancel_token}).to_string(),
+                ))?,
+        )
+        .await?;
+    ensure!(
+        wrong_download.status() == StatusCode::NOT_FOUND,
+        "cancel token downloaded archive"
+    );
+    let cancelled_after_deletion = export
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(&cancel_path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"token": cancel_token}).to_string(),
+                ))?,
+        )
+        .await?;
+    ensure!(
+        cancelled_after_deletion.status() == StatusCode::ACCEPTED,
+        "notice recipient could not cancel after deletion"
+    );
+    let cancelled_body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(cancelled_after_deletion.into_body(), 4096).await?)?;
+    ensure!(
+        cancelled_body["status"] == "cancelled",
+        "cancellation receipt missing"
+    );
+    if !real_s3 {
+        ensure!(
+            cancelled_body["cleanup_pending"] == false,
+            "mock S3 cleanup did not finish"
+        );
+        let deleted_keys = deleted_s3_keys
+            .lock()
+            .map_err(|_| anyhow::anyhow!("S3 delete tracker poisoned"))?;
+        ensure!(
+            deleted_keys
+                .iter()
+                .any(|path| path.contains(&format!("exports/escrow/{id}/"))),
+            "post-deletion cancellation did not delete the private archive"
+        );
+    }
+    let revoked_download = export
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/auth/data/exports/{id}/redeem"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::json!({"token": capability}).to_string(),
+                ))?,
+        )
+        .await?;
+    ensure!(
+        revoked_download.status() == StatusCode::NOT_FOUND,
+        "cancelled archive remained redeemable"
     );
 
     server.abort();

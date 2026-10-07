@@ -87,8 +87,8 @@ run `scripts/ci/check-yc-delayed-export.mjs` with
 active Gateway; set `EXPECTED_BUILD_ID` to the
 tested deployment SHA. The check verifies flags, the same versioned escrow
 key binding, private bucket, public origin, recovery timer and exact Gateway
-routes for request, status, cancellation, download, redemption and delivery
-page without printing
+routes for request, status, owner and email-link cancellation, download,
+redemption, delivery and cancellation pages without printing
 secrets. A passing configuration check still requires the full mail, storage,
 deletion and redemption rehearsal.
 Do not set the delayed flag until the corresponding jobs, SMTP, Object Storage,

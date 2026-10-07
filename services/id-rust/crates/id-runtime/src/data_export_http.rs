@@ -212,6 +212,10 @@ pub fn router(config: Arc<ExportHttpConfig>) -> Router {
             "/api/v1/auth/data/exports/{id}/redeem",
             post(redeem).options(preflight),
         )
+        .route(
+            "/api/v1/auth/data/exports/{id}/cancel",
+            post(cancel_with_notice).options(preflight),
+        )
         .with_state(config)
 }
 
@@ -219,6 +223,51 @@ pub fn router(config: Arc<ExportHttpConfig>) -> Router {
 #[serde(deny_unknown_fields)]
 struct RedeemInput {
     token: String,
+}
+
+async fn cancel_with_notice(
+    State(config): State<Arc<ExportHttpConfig>>,
+    Path(id): Path<String>,
+    request: Request,
+) -> Response {
+    let Some(escrow_key) = config.escrow_key.as_deref() else {
+        return error(StatusCode::NOT_FOUND, "NOT_FOUND");
+    };
+    if !request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
+        })
+    {
+        return error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_MEDIA_TYPE");
+    }
+    let Ok(body) = to_bytes(request.into_body(), 1024).await else {
+        return error(StatusCode::BAD_REQUEST, "VALIDATION_ERROR");
+    };
+    let Ok(input) = serde_json::from_slice::<RedeemInput>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "VALIDATION_ERROR");
+    };
+    let object_key = match data_export_escrow::cancel_with_capability(
+        &config.client,
+        escrow_key,
+        &id,
+        &input.token,
+    )
+    .await
+    {
+        Ok(Some(value)) => value,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "NOT_FOUND"),
+        Err(failure) => {
+            tracing::warn!(?failure, "export notice cancellation failed");
+            return error(StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE");
+        }
+    };
+    finish_cancel(&config, &id, &object_key).await
 }
 
 async fn redeem(
@@ -510,11 +559,15 @@ async fn cancel_inner(config: &ExportHttpConfig, id: &str, headers: &HeaderMap) 
             return error(StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE");
         }
     };
+    finish_cancel(config, id, &key).await
+}
+
+async fn finish_cancel(config: &ExportHttpConfig, id: &str, key: &str) -> Response {
     // The transaction already revoked both mail intents and any capability.
     // A failed object deletion remains private and is retried by expiry jobs.
     let cleanup_pending = if key.is_empty() {
         false
-    } else if let Err(failure) = config.storage.delete_object(&key).await {
+    } else if let Err(failure) = config.storage.delete_object(key).await {
         tracing::warn!(?failure, "cancelled export object cleanup deferred");
         true
     } else {
@@ -523,7 +576,7 @@ async fn cancel_inner(config: &ExportHttpConfig, id: &str, headers: &HeaderMap) 
     let cleanup_pending = if cleanup_pending {
         true
     } else {
-        match data_export_escrow::forget_cancelled(&config.client, id, &key).await {
+        match data_export_escrow::forget_cancelled(&config.client, id, key).await {
             Ok(true) => false,
             Ok(false) | Err(_) => true,
         }
