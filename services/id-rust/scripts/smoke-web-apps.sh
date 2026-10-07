@@ -65,7 +65,7 @@ html="$(<"${scratch_dir}/apps.html")"
 [[ "${html}" == *'Подключённые приложения'* ]]
 [[ "${html}" == *'Пилотное приложение'* ]]
 [[ "${html}" == *'data-revoke-app="pilot-client"'* ]]
-[[ "${html}" == *'src="/_id/apps.js"'* ]]
+[[ "${html}" == *'src="/_id/apps.js?'* ]]
 curl --silent --show-error --fail --max-time 5 \
   "http://127.0.0.1:${web_port}/_id/apps.js" >"${scratch_dir}/apps.js"
 [[ "$(<"${scratch_dir}/apps.js")" == *'/api/v1/auth/oauth/apps/revoke'* ]]

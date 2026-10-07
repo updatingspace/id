@@ -48,7 +48,7 @@ for ((attempt=0; attempt<30; attempt++)); do
     exit 1
   fi
   if curl --silent --fail --max-time 2 -H 'Cookie: sessionid=valid' \
-    "http://127.0.0.1:${web_port}/account" >"${scratch_dir}/account.html"; then
+    "http://127.0.0.1:${web_port}/account?section=profile" >"${scratch_dir}/account.html"; then
     ready=true
     break
   fi
@@ -63,7 +63,7 @@ html="$(<"${scratch_dir}/account.html")"
 [[ "${html}" == *'value="1990-01-02"'* ]]
 [[ "${html}" == *'src="/_id/profile.js"'* ]]
 curl --silent --show-error --fail --max-time 5 -D "${scratch_dir}/headers" \
-  -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/account" > /dev/null
+  -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/account?section=profile" > /dev/null
 headers="$(<"${scratch_dir}/headers")"
 [[ "${headers,,}" == *"content-security-policy: default-src 'none'; script-src 'self'"* ]]
 [[ "${headers,,}" == *'cache-control: no-store'* ]]

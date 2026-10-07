@@ -36,7 +36,7 @@ html="$(<"${scratch_dir}/login.html")"
 [[ "${html}" == *'<form id="login-form" method="post" action="/login">'* ]]
 [[ "${html}" == *'<fieldset id="mfa-fields"'* ]]
 [[ "${html}" == *'id="passkey-login"'* ]]
-[[ "${html}" == *'src="/_id/login.js"'* ]]
+[[ "${html}" == *'src="/_id/login.js?'* ]]
 
 curl --silent --show-error --fail --max-time 5 -D "${scratch_dir}/headers" \
   "http://127.0.0.1:${web_port}/login" > /dev/null
