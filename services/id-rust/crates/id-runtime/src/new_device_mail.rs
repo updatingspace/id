@@ -1184,6 +1184,8 @@ mod tests {
             "SMTP fixture test requires local YDB"
         );
         let client = Arc::new(crate::connect_ydb().await?);
+        crate::password_mail::ensure_schema(&client).await?;
+        crate::security_mail::ensure_schema(&client).await?;
         let stamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_micros();
