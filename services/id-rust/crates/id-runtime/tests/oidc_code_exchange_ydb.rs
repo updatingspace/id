@@ -125,6 +125,14 @@ async fn code_is_single_use_and_signed_subject_remains_stable() -> Result<()> {
             "authorization code survived removal of its redirect URI");
         client.query_client().exec("UPDATE idp_oidcclient SET redirect_uris = Unwrap(CAST('[\"https://rp.example.invalid/callback\"]' AS Json)) WHERE id = $id")
             .param("$id", client_pk).await?;
+        let duplicate_pk = client_pk - 100;
+        client.query_client().exec("UPSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'Ambiguous OIDC client', '', '', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\",\"email\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
+            .param("$id", duplicate_pk).param("$client_id", client_id.clone())
+            .param("$redirects", r#"["https://rp.example.invalid/callback"]"#).await?;
+        ensure!(matches!(exchange_code(&client, keys.clone(), "https://id.example.invalid", "local-refresh-salt", request.clone(), now).await?, Err(ExchangeFailure::InvalidClient)),
+            "ambiguous client exchanged an authorization code");
+        client.query_client().exec("DELETE FROM idp_oidcclient WHERE id = $id")
+            .param("$id", duplicate_pk).await?;
 
         let mut tasks = tokio::task::JoinSet::new();
         for _ in 0..25 {
@@ -203,9 +211,19 @@ async fn code_is_single_use_and_signed_subject_remains_stable() -> Result<()> {
         let offline_tokens = exchange_code(&client, keys.clone(), "https://id.example.invalid", "local-refresh-salt", offline_request, now).await?
             .map_err(|failure| anyhow::anyhow!("offline code rejected: {failure:?}"))?;
         ensure!(offline_tokens.scope == "openid email offline_access" && offline_tokens.refresh_token.is_some(), "offline code did not issue refresh");
+        let offline_refresh = offline_tokens.refresh_token.context("offline refresh")?;
+        client.query_client().exec("UPSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'Ambiguous OIDC client', '', '', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\",\"email\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
+            .param("$id", duplicate_pk).param("$client_id", client_id.clone())
+            .param("$redirects", r#"["https://rp.example.invalid/callback"]"#).await?;
+        ensure!(matches!(rotate(&client, keys.clone(), "https://id.example.invalid", "local-refresh-salt", RefreshRequest {
+            client_id: client_id.clone(), client_secret: None,
+            refresh_token: offline_refresh.clone(), scope: None,
+        }, now).await?, Err(ExchangeFailure::InvalidClient)), "ambiguous client rotated a refresh token");
+        client.query_client().exec("DELETE FROM idp_oidcclient WHERE id = $id")
+            .param("$id", duplicate_pk).await?;
         let first_refresh = rotate(&client, keys.clone(), "https://id.example.invalid", "local-refresh-salt", RefreshRequest {
             client_id: client_id.clone(), client_secret: None,
-            refresh_token: offline_tokens.refresh_token.context("offline refresh")?, scope: None,
+            refresh_token: offline_refresh, scope: None,
         }, now).await?.map_err(|failure| anyhow::anyhow!("Rust-issued refresh rejected: {failure:?}"))?;
         ensure!(first_refresh.refresh_token.is_some(), "Rust-issued refresh did not rotate");
         let competing_refresh = first_refresh.refresh_token.context("second-generation refresh")?;
@@ -344,6 +362,11 @@ async fn code_is_single_use_and_signed_subject_remains_stable() -> Result<()> {
         .query_client()
         .exec("DELETE FROM idp_oidcauthorizationcode WHERE code = $code")
         .param("$code", disabled_code)
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM idp_oidcclient WHERE id = $id")
+        .param("$id", client_pk - 100)
         .await?;
     client
         .query_client()

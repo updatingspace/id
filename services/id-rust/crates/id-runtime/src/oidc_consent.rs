@@ -2,6 +2,7 @@
 
 use crate::{
     oidc_authorize::redirect_uri_with,
+    oidc_client::unique_client_pk_tx,
     session_store::{LEGACY_BACKENDS, restore_django_session_tx},
     tx_retry::retry_known_abort,
 };
@@ -78,8 +79,12 @@ pub async fn decide(
                 let method: String = request.remove_field_by_name("code_challenge_method")?.try_into()?;
                 let expiry: SystemTime = request.remove_field_by_name("expires_at")?.try_into()?;
                 if expiry <= now { return Ok(DecisionOutcome::Expired) }
-                let Some(mut client_row) = tx.query_row("SELECT CAST(redirect_uris AS Utf8) AS redirects, CAST(allowed_scopes AS Utf8) AS allowed FROM idp_oidcclient WHERE id = $id")
+                let Some(mut client_row) = tx.query_row("SELECT client_id, CAST(redirect_uris AS Utf8) AS redirects, CAST(allowed_scopes AS Utf8) AS allowed FROM idp_oidcclient WHERE id = $id")
                     .param("$id", client_pk).optional().await? else { return Ok(DecisionOutcome::InvalidClient) };
+                let client_id: String = client_row.remove_field_by_name("client_id")?.try_into()?;
+                if !unique_client_pk_tx(tx, &client_id, client_pk).await? {
+                    return Ok(DecisionOutcome::InvalidClient);
+                }
                 let redirects: String = client_row.remove_field_by_name("redirects")?.try_into()?;
                 let redirects: Vec<String> = serde_json::from_str(&redirects).map_err(ydb::YdbOrCustomerError::from_err)?;
                 if !redirects.contains(&redirect_uri) { return Ok(DecisionOutcome::InvalidClient) }

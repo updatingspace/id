@@ -65,10 +65,18 @@ pub(crate) async fn authenticate(
 
 async fn read_client(client: &Client, client_id: &str) -> Result<Option<ClientMeta>> {
     let mut query = client.query_client();
-    let Some(mut row) = query.query_row("SELECT id, client_id, client_secret_hash, is_public, CAST(grant_types AS Utf8) AS grants FROM idp_oidcclient VIEW oidc_client_id_idx WHERE client_id = $client_id LIMIT 1")
-        .param("$client_id", client_id.to_owned()).optional().await? else {
+    let mut stream = query.query("SELECT id, client_id, client_secret_hash, is_public, CAST(grant_types AS Utf8) AS grants FROM idp_oidcclient VIEW oidc_client_id_idx WHERE client_id = $client_id LIMIT 2")
+        .param("$client_id", client_id.to_owned()).await?;
+    let mut rows = Vec::with_capacity(2);
+    while let Some(set) = stream.next_result_set().await? {
+        rows.extend(set);
+    }
+    stream.close().await?;
+    if rows.len() != 1 {
+        // An ambiguous client ID cannot safely authenticate either record.
         return Ok(None);
-    };
+    }
+    let mut row = rows.remove(0);
     let grants: String = row.remove_field_by_name("grants")?.try_into()?;
     Ok(Some(ClientMeta {
         id: row.remove_field_by_name("id")?.try_into()?,
@@ -86,11 +94,34 @@ pub(crate) async fn read_client_tx(
     let Some(mut row) = tx.query_row("SELECT id, client_id, client_secret_hash, is_public, CAST(grant_types AS Utf8) AS grants FROM idp_oidcclient WHERE id = $id")
         .param("$id", client_id).optional().await? else { return Ok(None); };
     let grants: String = row.remove_field_by_name("grants")?.try_into()?;
-    Ok(Some(ClientMeta {
+    let metadata = ClientMeta {
         id: row.remove_field_by_name("id")?.try_into()?,
         client_id: row.remove_field_by_name("client_id")?.try_into()?,
         secret_hash: row.remove_field_by_name("client_secret_hash")?.try_into()?,
         is_public: row.remove_field_by_name("is_public")?.try_into()?,
         grant_types: serde_json::from_str(&grants).map_err(ydb::YdbOrCustomerError::from_err)?,
-    }))
+    };
+    if !unique_client_pk_tx(tx, &metadata.client_id, metadata.id).await? {
+        return Ok(None);
+    }
+    Ok(Some(metadata))
+}
+
+pub(crate) async fn unique_client_pk_tx(
+    tx: &mut Transaction,
+    client_id: &str,
+    expected_pk: i64,
+) -> ydb::YdbResultWithCustomerErr<bool> {
+    let mut stream = tx
+        .query("SELECT id FROM idp_oidcclient VIEW oidc_client_id_idx WHERE client_id = $client_id LIMIT 2")
+        .param("$client_id", client_id.to_owned())
+        .await?;
+    let mut ids: Vec<i64> = Vec::with_capacity(2);
+    while let Some(set) = stream.next_result_set().await? {
+        for mut row in set {
+            ids.push(row.remove_field_by_name("id")?.try_into()?);
+        }
+    }
+    stream.close().await?;
+    Ok(ids.len() == 1 && ids[0] == expected_pk)
 }

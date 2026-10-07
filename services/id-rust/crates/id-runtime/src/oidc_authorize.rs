@@ -181,8 +181,13 @@ async fn authorize_request(
             (session.clone(), codec.clone(), scopes.clone(), code.clone(), request_id.clone(), client_id.clone(), redirect_uri.clone(), state.clone(), nonce.clone(), challenge.clone(), method.clone(), prompt.clone(), backends.clone());
         async {
             client.query_client().retry_tx(closure!([session, codec, scopes, code, request_id, client_id, redirect_uri, state, nonce, challenge, method, prompt, backends, mode], async |tx: &mut Transaction| {
-                let Some(mut row) = tx.query_row("SELECT id, name, logo_url, CAST(redirect_uris AS Utf8) AS redirects, CAST(allowed_scopes AS Utf8) AS allowed, CAST(response_types AS Utf8) AS responses, CAST(grant_types AS Utf8) AS grants, is_public FROM idp_oidcclient VIEW oidc_client_id_idx WHERE client_id = $client_id LIMIT 1")
-                    .param("$client_id", client_id.clone()).optional().await? else { return Ok(Authorization::InvalidClient) };
+                let mut clients = tx.query("SELECT id, name, logo_url, CAST(redirect_uris AS Utf8) AS redirects, CAST(allowed_scopes AS Utf8) AS allowed, CAST(response_types AS Utf8) AS responses, CAST(grant_types AS Utf8) AS grants, is_public FROM idp_oidcclient VIEW oidc_client_id_idx WHERE client_id = $client_id LIMIT 2")
+                    .param("$client_id", client_id.clone()).await?;
+                let mut rows = Vec::with_capacity(2);
+                while let Some(set) = clients.next_result_set().await? { rows.extend(set); }
+                clients.close().await?;
+                if rows.len() != 1 { return Ok(Authorization::InvalidClient) }
+                let mut row = rows.remove(0);
                 let client_pk: i64 = row.remove_field_by_name("id")?.try_into()?;
                 let client_name: String = row.remove_field_by_name("name")?.try_into()?;
                 let client_logo_url: String = row.remove_field_by_name("logo_url")?.try_into()?;

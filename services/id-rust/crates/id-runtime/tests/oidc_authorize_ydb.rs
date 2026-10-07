@@ -195,6 +195,14 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
         client.query_client().exec("UPSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'OIDC pilot', '', '', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\",\"email\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
             .param("$id", client_pk).param("$client_id", client_id.clone())
             .param("$redirects", r#"["https://rp.example.invalid/callback"]"#).await?;
+        let duplicate_pk = client_pk - 100;
+        client.query_client().exec("UPSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'Ambiguous OIDC client', '', '', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\",\"email\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
+            .param("$id", duplicate_pk).param("$client_id", client_id.clone())
+            .param("$redirects", r#"["https://rp.example.invalid/callback"]"#).await?;
+        let (status, location) = get(&app, &authorize_uri, Some(&format!("sessionid={session}")), None).await?;
+        ensure!(status == StatusCode::NOT_FOUND && location.is_none(), "ambiguous client issued an authorization response");
+        client.query_client().exec("DELETE FROM idp_oidcclient WHERE id = $id")
+            .param("$id", duplicate_pk).await?;
         let (status, location) = get(&app, &authorize_uri, Some(&format!("sessionid={session}")), None).await?;
         ensure!(status == StatusCode::FOUND && location.context("consent redirect")?.contains("error=consent_required"));
         let prepare_uri = authorize_uri.replacen("/oauth/authorize?", "/oauth/authorize/prepare?", 1).replace("&prompt=none", "");
@@ -208,6 +216,13 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
         let body = json!({"request_id":request_id,"scopes":["openid","email"],"remember":true});
         let (status, _, _) = call_json(&app, "POST", "/oauth/authorize/approve", &browser_cookie, None, Some(body.clone())).await?;
         ensure!(status == StatusCode::FORBIDDEN, "approval without CSRF passed");
+        client.query_client().exec("UPSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'Ambiguous OIDC client', '', '', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\",\"email\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
+            .param("$id", duplicate_pk).param("$client_id", client_id.clone())
+            .param("$redirects", r#"["https://rp.example.invalid/callback"]"#).await?;
+        let (status, _, _) = call_json(&app, "POST", "/oauth/authorize/approve", &browser_cookie, Some(csrf), Some(body.clone())).await?;
+        ensure!(status == StatusCode::BAD_REQUEST, "pending consent issued a code for an ambiguous client");
+        client.query_client().exec("DELETE FROM idp_oidcclient WHERE id = $id")
+            .param("$id", duplicate_pk).await?;
         let (status, _, approved) = call_json(&app, "POST", "/oauth/authorize/approve", &browser_cookie, Some(csrf), Some(body.clone())).await?;
         ensure!(status == StatusCode::OK && approved["redirect_uri"].as_str().is_some_and(|uri| uri.contains("code=")), "approval failed: {approved}");
         let (status, _, _) = call_json(&app, "POST", "/oauth/authorize/approve", &browser_cookie, Some(csrf), Some(body)).await?;
@@ -405,6 +420,11 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
             .param("$id", id)
             .await?;
     }
+    client
+        .query_client()
+        .exec("DELETE FROM idp_oidcclient WHERE id = $id")
+        .param("$id", client_pk - 100)
+        .await?;
     client
         .query_client()
         .exec("DELETE FROM idp_oidcclient WHERE id = $id")
