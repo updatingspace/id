@@ -33,6 +33,12 @@ production admin remain disabled; physical iPhone Passkey registration and
 24-hour export delivery have not been verified. This is not full release
 sign-off.
 
+The following `d189a0c` CI run reached Rust unit tests and failed because the
+operator command's required-job fixture still named the removed gate. The
+next candidate checks the reusable extended integration job directly and
+limits Rust build parallelism to reduce peak resource use. This is a source
+correction awaiting CI, not a new production revision.
+
 ## Later production update on 2026-10-07
 
 The tested commit `d8efc8a324a298c78b62c4c37a07955ee6143772` was

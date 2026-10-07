@@ -11,7 +11,7 @@ const REQUIRED_JOBS: [&str; 5] = [
     "Rust YDB schema and auth integration",
     "Terraform validate",
     "OpenTofu validate",
-    "Rust extended integration gate",
+    "rust-extended / Rust auth, YDB and Topcoat integration",
 ];
 
 fn validate_run(run: &Value, sha: &str, repository: &str) -> Result<u64> {
@@ -203,10 +203,17 @@ mod tests {
     #[test]
     fn required_jobs_match_current_ci_workflow() {
         let workflow = include_str!("../../../../../../../.github/workflows/ci-cd.yml");
-        let jobs = workflow
+        let mut jobs = workflow
             .lines()
             .filter_map(|line| line.strip_prefix("    name: "))
+            .map(str::to_owned)
             .collect::<Vec<_>>();
+        let extended = include_str!("../../../../../../../.github/workflows/rust-pilot.yml");
+        let extended_job = extended
+            .lines()
+            .find_map(|line| line.strip_prefix("    name: "))
+            .expect("extended workflow job name");
+        jobs.push(format!("rust-extended / {extended_job}"));
         assert_eq!(jobs, REQUIRED_JOBS);
     }
 
