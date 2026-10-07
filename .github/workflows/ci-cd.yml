@@ -116,6 +116,17 @@ jobs:
           cargo run --locked -p id-runtime --bin idctl -- cache-schema
           cargo run --locked -p id-runtime --bin idctl -- cache-schema
 
+      - name: Verify Passkey registration with missing client extension output
+        env:
+          ID_AUTH_TOTP_PILOT_ENABLED: "true"
+          ID_AUTH_PASSKEY_REGISTRATION_PILOT_ENABLED: "true"
+          ID_MFA_SEAL_KEY_B64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+          ID_WEBAUTHN_RP_ID: id.example.invalid
+          ID_WEBAUTHN_ORIGIN: https://id.example.invalid
+        run: |
+          cargo run --locked -p id-runtime --bin idctl -- passkey-index
+          cargo test --locked -p id-runtime --test passkey_registration_ydb -- --ignored
+
       - name: Verify Rust OIDC form authorization on local YDB
         env:
           YDB_CREDENTIALS_MODE: anonymous
