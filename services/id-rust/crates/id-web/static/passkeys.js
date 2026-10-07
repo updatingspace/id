@@ -61,16 +61,33 @@
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30000);
     try {
-      const response = await fetch(path, {
-        method: "POST",
-        credentials: "include",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfCookie() },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      const body = await response.json();
+      const uncertain = (failure) => {
+        const error = new Error("Результат неизвестен. Возможно, ключ уже добавлен, а резервные коды не показаны. Не повторяйте добавление: сначала обновите список ключей и проверьте резервные коды.");
+        error.uncertainPasskey = true;
+        error.cause = failure;
+        return error;
+      };
+      let response;
+      try {
+        response = await fetch(path, {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": csrfCookie() },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } catch (failure) {
+        throw path.endsWith("/complete") ? uncertain(failure) : failure;
+      }
+      let body;
+      try {
+        body = await response.json();
+      } catch (failure) {
+        throw path.endsWith("/complete") ? uncertain(failure) : failure;
+      }
       if (!response.ok) {
+        if (path.endsWith("/complete") && response.status >= 500) throw uncertain();
         throw new Error(typeof body.message === "string" ? body.message : "Не удалось изменить ключ доступа.");
       }
       return body;
@@ -80,12 +97,14 @@
   }
 
   const register = document.getElementById("passkey-register");
+  const review = document.getElementById("passkey-review");
   const nameInput = document.getElementById("passkey-name");
   const message = document.getElementById("passkey-register-message");
   const recovery = document.getElementById("passkey-recovery");
   const recoveryList = document.getElementById("passkey-recovery-codes");
   let codesVisible = false;
-  if (register && nameInput && message && recovery && recoveryList) {
+  if (register && review && nameInput && message && recovery && recoveryList) {
+    review.addEventListener("click", () => window.location.reload());
     register.addEventListener("click", async () => {
       if (register.disabled) return;
       if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.create) {
@@ -100,6 +119,7 @@
         return;
       }
       register.disabled = true;
+      let needsReview = false;
       error.hidden = true;
       try {
         const begin = await post("/api/v1/auth/passkeys/begin", { passwordless: true });
@@ -129,14 +149,21 @@
           window.location.reload();
         }
       } catch (failure) {
-        if (failure?.name === "NotAllowedError" || failure?.name === "AbortError") {
+        if (failure?.uncertainPasskey) {
+          needsReview = true;
+          review.hidden = false;
+          const empty = document.getElementById("passkeys-empty");
+          if (empty) empty.hidden = true;
+          error.textContent = failure.message;
+          review.focus();
+        } else if (failure?.name === "NotAllowedError" || failure?.name === "AbortError") {
           error.textContent = "Создание ключа отменено или ответ не подтверждён. Обновите список перед повтором.";
         } else {
           error.textContent = failure instanceof Error ? failure.message : "Не удалось добавить ключ доступа.";
         }
         error.hidden = false;
       } finally {
-        register.disabled = false;
+        register.disabled = needsReview;
       }
     });
   }

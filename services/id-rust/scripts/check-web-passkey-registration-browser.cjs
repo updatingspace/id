@@ -36,6 +36,7 @@ async function main() {
   web.stderr.on('data', chunk => { webLog += chunk.toString(); });
   let begun = 0;
   let completed = 0;
+  let uncertainRegistered = false;
   const proxy = http.createServer(async (request, response) => {
     const pathname = new URL(request.url, origin).pathname;
     if (pathname === '/api/v1/auth/me') {
@@ -45,8 +46,10 @@ async function main() {
       return;
     }
     if (pathname === '/api/v1/auth/security') {
-      reply(response, 200, { mfa: { has_totp: false, has_webauthn: false,
-        has_recovery_codes: false, recovery_codes_left: 0 }, authenticators: [] });
+      reply(response, 200, { mfa: { has_totp: false, has_webauthn: uncertainRegistered,
+        has_recovery_codes: uncertainRegistered, recovery_codes_left: uncertainRegistered ? 10 : 0 },
+      authenticators: uncertainRegistered ? [{ id: '72', name: 'Uncertain passkey', type: 'webauthn',
+        created_at: 1, last_used_at: null, is_passwordless: true }] : [] });
       return;
     }
     if (pathname === '/api/v1/auth/passkeys/begin' || pathname === '/api/v1/auth/passkeys/complete') {
@@ -68,10 +71,19 @@ async function main() {
         } } });
       } else {
         completed += 1;
-        assert.equal(payload.name, 'My passkey');
+        assert.ok(['My passkey', 'Uncertain passkey'].includes(payload.name));
         assert.equal(payload.credential.rawId, Buffer.from([8, 9]).toString('base64url'));
         assert.equal(payload.credential.response.attestationObject, Buffer.from([10, 11]).toString('base64url'));
         assert.equal(payload.credential.response.clientDataJSON, Buffer.from([12, 13]).toString('base64url'));
+        if (payload.name === 'Uncertain passkey') {
+          uncertainRegistered = true;
+          // The server committed and sent headers, but the JSON body was lost.
+          // Closing before headers may make Chromium retry the POST itself.
+          response.writeHead(200, { 'Content-Type': 'application/json' });
+          response.write('{"recovery_codes":');
+          setTimeout(() => response.destroy(), 10);
+          return;
+        }
         reply(response, 200, { recovery_codes: ['12345678', '87654321'], authenticator: { id: '42' } });
       }
       return;
@@ -99,7 +111,7 @@ async function main() {
     const context = await browser.newContext();
     await context.addCookies([{ name: 'sessionid', value: 'synthetic', url: origin }]);
     const page = await context.newPage();
-    await page.addInitScript(() => {
+    await context.addInitScript(() => {
       window.PublicKeyCredential = class PublicKeyCredential {};
       Object.defineProperty(navigator, 'credentials', { configurable: true, value: {
         create: async ({ publicKey }) => {
@@ -127,7 +139,24 @@ async function main() {
     assert.equal(begun, 1);
     assert.equal(completed, 1);
     assert.equal(await page.locator('#passkey-register').isHidden(), true);
-    console.log('PASS: Topcoat passkey registration bridge, CSRF and one-time recovery codes');
+    const uncertainPage = await context.newPage();
+    await uncertainPage.setViewportSize({ width: 390, height: 844 });
+    await uncertainPage.goto(`${origin}/account?section=security`);
+    await uncertainPage.locator('#passkey-name').fill('Uncertain passkey');
+    await uncertainPage.locator('#passkey-register').click();
+    await uncertainPage.locator('#passkey-review:not([hidden])').waitFor();
+    assert.equal(await uncertainPage.locator('#passkey-register').isDisabled(), true);
+    assert.match(await uncertainPage.locator('#passkey-error').innerText(), /Результат неизвестен/);
+    assert.equal(await uncertainPage.locator('#passkeys-empty').isHidden(), true);
+    assert.equal(await uncertainPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    if (process.env.ID_PASSKEY_UNCERTAIN_SCREENSHOT_PATH) {
+      await uncertainPage.screenshot({ path: process.env.ID_PASSKEY_UNCERTAIN_SCREENSHOT_PATH, fullPage: true });
+    }
+    assert.equal(completed, 2);
+    await uncertainPage.locator('#passkey-review').click();
+    await uncertainPage.getByText('Uncertain passkey', { exact: true }).waitFor();
+    assert.equal(completed, 2, 'unknown result caused an automatic retry');
+    console.log('PASS: Topcoat passkey registration, recovery codes and unknown-result review');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => proxy.close(resolve));
