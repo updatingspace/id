@@ -28,7 +28,19 @@ async function main() {
       hasUserVerification: true, isUserVerified: true,
       automaticPresenceSimulation: true,
     } });
+    // Safari may omit this optional extension result. Keep the real browser
+    // ceremony, but exercise the exact payload that the old API rejected.
+    await page.addInitScript(() => {
+      Object.defineProperty(PublicKeyCredential.prototype, 'getClientExtensionResults', {
+        configurable: true, value: () => ({}),
+      });
+    });
     const ceremony = [];
+    let extensionResults;
+    page.on('request', request => {
+      if (new URL(request.url()).pathname !== '/api/v1/auth/passkeys/complete') return;
+      extensionResults = request.postDataJSON()?.credential?.clientExtensionResults;
+    });
     page.on('response', async response => {
       if (!/\/api\/v1\/auth\/passkeys\/(begin|complete)$/.test(new URL(response.url()).pathname)) return;
       let code = '';
@@ -48,6 +60,7 @@ async function main() {
         .then(async () => { throw new Error(`registration failed: ${await page.locator('#passkey-error').innerText()}; ${JSON.stringify(ceremony)}`); }),
     ]);
     assert.equal(await page.locator('#passkey-recovery-codes li').count(), 10);
+    assert.deepEqual(extensionResults, {}, 'test must send a credential without credProps');
     assert.deepEqual(ceremony.map(step => step.status), [200, 200]);
     console.log('PASS: native Chromium WebAuthn registration through Topcoat, Rust API and YDB');
   } finally {
