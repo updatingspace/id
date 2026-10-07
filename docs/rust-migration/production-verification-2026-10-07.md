@@ -3,6 +3,36 @@
 This document retains the earlier point-in-time observations below. They are
 not a release sign-off and no longer describe the active revisions.
 
+## Current production state on 2026-10-07
+
+The five active Rust containers serve the CI-tested `22fccafb72459352235eb8ad841b372ef48d2c20`
+images: API digest `sha256:9cf891c59a11089517a3af74204cf1fcc8bc1bd1560ede8f0030c0f01d342607`,
+Topcoat digest `sha256:8527f4012047e8ab6a0988910ad0f003c16b25671387fa9290b2063f6f9575d5`,
+and jobs digest `sha256:8a678ed608a474bd845103a9ccbe278d5b68625c4683e7027103a75aa6925ed5`.
+The five active revision digests and `BUILD_ID` were verified with
+`check-yc-rust-rollout.mjs --deployed`. The four containers that use the
+runtime Lockbox secret are bound to version `e6q9lm8k2k3bo0efe5b1`; the
+previous version remains ACTIVE for rollback. All public API, OIDC, session,
+mutation and Topcoat asset-MIME smoke profiles passed after rebinding. A live
+Portal → Topcoat consent → Portal SSO cycle passed on a synthetic account
+before the secret rebinding; its secret values other than the new export escrow
+key were unchanged.
+
+The automatic deployment for that tested source, run `37650626628`, failed
+after creating the API revision and then restored the captured revisions.
+The exact API smoke failure was not available in the public GitHub annotation;
+the same image digest passed operator-run public smoke and was deployed directly.
+Commit `cee552d` added a sanitized smoke failure annotation. Both parallel
+CI runs for that commit failed before deployment. The main run's five executed
+jobs all passed, but its redundant final integration gate never appeared as a
+job; the branch run also had one failing email-change integration step. The
+gate has been removed from the next candidate because the reusable extended
+integration job already contributes its result to the workflow. This
+automatic-deploy gap remains open. Delayed export and
+production admin remain disabled; physical iPhone Passkey registration and
+24-hour export delivery have not been verified. This is not full release
+sign-off.
+
 ## Later production update on 2026-10-07
 
 The tested commit `d8efc8a324a298c78b62c4c37a07955ee6143772` was
