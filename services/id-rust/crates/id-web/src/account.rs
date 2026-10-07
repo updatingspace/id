@@ -199,9 +199,16 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     };
     let (user, cookies) = match profile {
         Profile::Guest(cookies) => {
+            let return_path = request::uri(cx)
+                .path_and_query()
+                .map(|value| value.as_str())
+                .unwrap_or("/account");
+            let query = url::form_urlencoded::Serializer::new(String::new())
+                .append_pair("next", return_path)
+                .finish();
             let mut response = Response::builder()
                 .status(303)
-                .header("Location", "/login?next=%2Faccount")
+                .header("Location", format!("/login?{query}"))
                 .header("Cache-Control", "no-store");
             for cookie in cookies {
                 response = response.header("Set-Cookie", cookie);

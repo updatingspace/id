@@ -28,6 +28,14 @@ replacement for API-provided values.
 The account SSR handler calls `id-api` with the request cookie and renders its
 response; it does not implement identity business rules.
 
+Successful authenticator setup updates the visible status without reloading,
+so newly issued recovery codes remain available. The saved-codes action releases
+the leave-page warning and reloads the authoritative account state. This also
+applies to passkey setup and recovery-code rotation. The Chromium regression
+`scripts/check-web-totp-state-browser.cjs` covers failed confirmation, successful
+setup, code retention and explicit completion; it uses a synthetic API and does
+not replace the Rust/YDB enrollment tests.
+
 The deletion review at `/account?section=delete` is hidden unless
 `ID_WEB_DELETION_ENABLED=true` and both export UI flags are also enabled. It
 explains immediate loss of access, asynchronous cleanup and how an export
@@ -99,3 +107,8 @@ The web image is built by `Dockerfile.web`; a frontend change produces a new
 Browser checks use the small, locked Playwright runner in
 `services/id-rust/browser-tests`. Install it with `npm ci` there; the Topcoat
 smoke scripts resolve this package without installing the old React frontend.
+`scripts/check-web-login-state-browser.cjs` exercises actual Topcoat pages with
+a synthetic API: return to the requested account section, clearing MFA after
+credential edits, cancellation during form-token preparation, and delayed login
+responses. Credential fields become read-only while a login POST is in flight
+because that request may already have issued a session cookie.

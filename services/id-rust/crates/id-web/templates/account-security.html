@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Безопасность — UpdSpace ID</title>
   <link rel="stylesheet" href="/_id/account.css?v=ux-20261008-1" />
-  {% if show_totp_setup %}<script src="/_id/totp.js" defer></script>{% endif %}
+  {% if show_totp_setup %}<script src="/_id/totp.js?v=20261008-1" defer></script>{% endif %}
   {% if show_totp_disable %}<script src="/_id/totp-disable.js" defer></script>{% endif %}
-  {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js" defer></script>{% endif %}
-  {% if show_passkey_script %}<script src="/_id/passkeys.js?v=20261007-4" defer></script>{% endif %}
+  {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js?v=20261008-1" defer></script>{% endif %}
+  {% if show_passkey_script %}<script src="/_id/passkeys.js?v=20261008-1" defer></script>{% endif %}
   {% if password_change_enabled %}<script src="/_id/password-change.js" defer></script>{% endif %}
   {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
 </head>
@@ -21,7 +21,7 @@
     <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
     <section aria-labelledby="passkeys-title">
       <h2 id="passkeys-title">Ключи доступа</h2>
-      <p>Ключ позволяет подтверждать вход с помощью защиты телефона или компьютера. Состояние: <strong>{{ passkeys_status }}</strong>.</p>
+      <p>Ключ позволяет подтверждать вход с помощью защиты телефона или компьютера. Состояние: <strong id="passkeys-status">{{ passkeys_status }}</strong>.</p>
       {% if passkey_registration_enabled %}
       <div id="passkey-registration">
         <p>Назовите ключ так, чтобы позднее узнать своё устройство. После нажатия браузер попросит подтвердить добавление.</p>
@@ -36,6 +36,7 @@
           <h3>Резервные коды</h3>
           <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
           <ul id="passkey-recovery-codes"></ul>
+          <button id="passkey-recovery-saved" type="button">Я сохранил коды — продолжить</button>
         </div>
       </div>
       {% endif %}
@@ -72,7 +73,7 @@
     </section>
     <section aria-labelledby="totp-title">
       <h2 id="totp-title">Приложение с кодами</h2>
-      <p>Подтверждайте вход одноразовым кодом из приложения. Состояние: <strong>{{ totp_status }}</strong>.</p>
+      <p>Подтверждайте вход одноразовым кодом из приложения. Состояние: <strong id="totp-status">{{ totp_status }}</strong>.</p>
       {% if show_totp_setup %}
       <div id="totp-setup">
         <button id="totp-begin" type="button">Настроить приложение с кодами</button>
@@ -90,6 +91,7 @@
           <h3>Резервные коды</h3>
           <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
           <ul id="totp-recovery-codes"></ul>
+          <button id="totp-recovery-saved" type="button">Я сохранил коды — продолжить</button>
         </div>
         <p id="totp-message" role="status" aria-live="polite" hidden></p>
         <p id="totp-error" role="alert" hidden></p>
@@ -105,7 +107,7 @@
     </section>
     <section aria-labelledby="recovery-title">
       <h2 id="recovery-title">Резервные коды</h2>
-      <p>Используйте их, если основной способ подтверждения недоступен. Состояние: <strong>{{ recovery_status }}</strong>; осталось: <strong>{{ recovery_left }}</strong>.</p>
+      <p>Используйте их, если основной способ подтверждения недоступен. Состояние: <strong id="recovery-status">{{ recovery_status }}</strong>; осталось: <strong id="recovery-left">{{ recovery_left }}</strong>.</p>
       {% if show_recovery_rotation %}
       <div id="recovery-rotation">
         <p>При обновлении все прежние резервные коды перестанут работать. Новый набор будет показан только здесь.</p>
@@ -113,6 +115,7 @@
         <div id="recovery-rotation-result" hidden>
           <p>Сохраните новые коды отдельно от устройства для входа. Каждый код используется один раз.</p>
           <ul id="recovery-rotation-codes"></ul>
+          <button id="recovery-rotation-saved" type="button">Я сохранил коды — продолжить</button>
         </div>
         <p id="recovery-rotation-error" role="alert" hidden></p>
       </div>

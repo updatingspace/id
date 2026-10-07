@@ -193,6 +193,12 @@ jobs:
       - name: Browser → Topcoat inline passkey management
         working-directory: services/id-rust
         run: node scripts/check-web-passkey-management-browser.cjs
+      - name: Browser → Topcoat TOTP state and saved recovery codes
+        working-directory: services/id-rust
+        run: node scripts/check-web-totp-state-browser.cjs
+      - name: Browser → Topcoat login MFA state and account return path
+        working-directory: services/id-rust
+        run: node scripts/check-web-login-state-browser.cjs
       - name: Browser → Topcoat public export-link security and expiry
         working-directory: services/id-rust
         run: node scripts/check-web-export-redeem-browser.cjs

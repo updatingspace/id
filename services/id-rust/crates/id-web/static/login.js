@@ -11,6 +11,29 @@
   const mfaCode = document.getElementById("mfa-code");
   const passkeyButton = document.getElementById("passkey-login");
   if (!form || !submit || !error || !status || !mfaFields || !mfaMethod || !mfaCode) return;
+  const email = form.elements.email;
+  const password = form.elements.password;
+  let credentialsVersion = 0;
+  let activeAttempt = null;
+
+  function credentialsChanged() {
+    credentialsVersion += 1;
+    mfaFields.hidden = true;
+    mfaCode.required = false;
+    mfaCode.value = "";
+    error.hidden = true;
+    status.hidden = true;
+    // Preparing a form token has no login side effect. A submitted login may
+    // already have issued a cookie, so only its result can finish that attempt.
+    if (activeAttempt && !activeAttempt.sending) {
+      activeAttempt.controller.abort();
+      activeAttempt = null;
+      submit.disabled = false;
+      if (passkeyButton) passkeyButton.disabled = false;
+    }
+  }
+  email.addEventListener("input", credentialsChanged);
+  password.addEventListener("input", credentialsChanged);
 
   if (passkeyButton && window.isSecureContext && window.PublicKeyCredential && navigator.credentials?.get) {
     passkeyButton.hidden = false;
@@ -239,6 +262,14 @@
     status.hidden = false;
     status.textContent = "Проверяем данные…";
     const timeout = new AbortController();
+    const attempt = {
+      controller: timeout,
+      version: credentialsVersion,
+      email: email.value,
+      password: password.value,
+      sending: false,
+    };
+    activeAttempt = attempt;
     const timer = setTimeout(() => timeout.abort(), 30000);
     try {
       const issued = await fetch("/api/v1/auth/form_token?purpose=login", {
@@ -248,18 +279,22 @@
         signal: timeout.signal,
       });
       const formToken = await jsonResponse(issued);
+      if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
       if (!issued.ok || typeof formToken.form_token !== "string") {
         throw new Error(formToken.message || "Не удалось подготовить вход. Попробуйте ещё раз.");
       }
       const payload = {
-        email: form.elements.email.value,
-        password: form.elements.password.value,
+        email: attempt.email,
+        password: attempt.password,
         form_token: formToken.form_token,
       };
       if (!mfaFields.hidden && mfaCode.value.trim()) {
         payload[mfaMethod.value === "recovery" ? "recovery_code" : "mfa_code"] = mfaCode.value.trim();
       }
       const csrf = csrfCookie();
+      attempt.sending = true;
+      email.readOnly = true;
+      password.readOnly = true;
       const result = await fetch("/api/v1/auth/login", {
         method: "POST",
         credentials: "include",
@@ -274,6 +309,7 @@
       });
       const body = await jsonResponse(result);
       if (!result.ok) {
+        if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
         if (body.code === "MFA_REQUIRED") {
           mfaFields.hidden = false;
           mfaCode.required = true;
@@ -288,13 +324,19 @@
       clearLegacyToken();
       window.location.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
     } catch (cause) {
+      if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
       showError(cause && cause.name === "AbortError"
         ? "Превышено время ожидания. Попробуйте ещё раз."
         : cause instanceof Error ? cause.message : "Не удалось войти. Попробуйте ещё раз.");
     } finally {
       clearTimeout(timer);
-      submit.disabled = false;
-      if (passkeyButton) passkeyButton.disabled = false;
+      if (activeAttempt === attempt) {
+        activeAttempt = null;
+        email.readOnly = false;
+        password.readOnly = false;
+        submit.disabled = false;
+        if (passkeyButton) passkeyButton.disabled = false;
+      }
     }
   });
 

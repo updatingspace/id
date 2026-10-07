@@ -37,6 +37,7 @@ async function main() {
   let begun = 0;
   let completed = 0;
   let uncertainRegistered = false;
+  let successfulRegistration = false;
   const proxy = http.createServer(async (request, response) => {
     const pathname = new URL(request.url, origin).pathname;
     if (pathname === '/api/v1/auth/me') {
@@ -46,10 +47,12 @@ async function main() {
       return;
     }
     if (pathname === '/api/v1/auth/security') {
-      reply(response, 200, { mfa: { has_totp: false, has_webauthn: uncertainRegistered,
-        has_recovery_codes: uncertainRegistered, recovery_codes_left: uncertainRegistered ? 10 : 0 },
+      reply(response, 200, { mfa: { has_totp: false, has_webauthn: uncertainRegistered || successfulRegistration,
+        has_recovery_codes: uncertainRegistered || successfulRegistration, recovery_codes_left: uncertainRegistered ? 10 : successfulRegistration ? 2 : 0 },
       authenticators: uncertainRegistered ? [{ id: '72', name: 'Uncertain passkey', type: 'webauthn',
-        created_at: 1, last_used_at: null, is_passwordless: true }] : [] });
+        created_at: 1, last_used_at: null, is_passwordless: true }] : successfulRegistration ? [{
+        id: '42', name: 'My passkey', type: 'webauthn', created_at: 1, last_used_at: null, is_passwordless: true,
+      }] : [] });
       return;
     }
     if (pathname === '/api/v1/auth/passkeys/begin' || pathname === '/api/v1/auth/passkeys/complete') {
@@ -88,6 +91,7 @@ async function main() {
           setTimeout(() => response.destroy(), 10);
           return;
         }
+        successfulRegistration = true;
         reply(response, 200, { recovery_codes: ['12345678', '87654321'], authenticator: { id: '42' } });
       }
       return;
@@ -143,6 +147,18 @@ async function main() {
     assert.equal(begun, 1);
     assert.equal(completed, 1);
     assert.equal(await page.locator('#passkey-register').isHidden(), true);
+    assert.equal(await page.locator('#passkeys-status').innerText(), 'Есть');
+    assert.equal(await page.locator('#passkeys-empty').isHidden(), true);
+    assert.equal(await page.locator('#recovery-status').innerText(), 'Есть');
+    assert.equal(await page.locator('#recovery-left').innerText(), '2');
+    let unexpectedDialog = false;
+    page.on('dialog', async dialog => { unexpectedDialog = true; await dialog.accept(); });
+    await page.locator('#passkey-recovery-saved').click();
+    await page.locator('.passkey-row strong').filter({ hasText: 'My passkey' }).waitFor();
+    assert.equal(unexpectedDialog, false, 'saved codes must release the leave-page warning');
+    assert.equal(await page.locator('#passkey-recovery').isHidden(), true);
+    assert.equal(completed, 1, 'completion must only refresh the list, not create another key');
+    successfulRegistration = false;
     const rejectedPage = await context.newPage();
     await rejectedPage.setViewportSize({ width: 390, height: 844 });
     await rejectedPage.goto(`${origin}/account?section=security`);

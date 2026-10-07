@@ -50,6 +50,8 @@
       result.hidden = false;
       button.hidden = true;
       codesVisible = true;
+      document.getElementById("recovery-status").textContent = "Есть";
+      document.getElementById("recovery-left").textContent = String(body.recovery_codes.length);
       rotationKey = null;
     } catch (failure) {
       error.textContent = failure instanceof Error && failure.name !== "AbortError"
@@ -61,6 +63,11 @@
       clearTimeout(timer);
       busy = false;
     }
+  });
+
+  document.getElementById("recovery-rotation-saved")?.addEventListener("click", () => {
+    codesVisible = false;
+    window.location.reload();
   });
 
   window.addEventListener("beforeunload", (event) => {

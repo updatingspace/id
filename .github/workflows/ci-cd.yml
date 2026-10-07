@@ -324,6 +324,12 @@ jobs:
       - name: Verify inline passkey management in Chromium
         run: node scripts/check-web-passkey-management-browser.cjs
 
+      - name: Verify TOTP status and recovery-code completion in Chromium
+        run: node scripts/check-web-totp-state-browser.cjs
+
+      - name: Verify login MFA state and account return path in Chromium
+        run: node scripts/check-web-login-state-browser.cjs
+
       - name: Verify gated account deletion review in Chromium
         run: bash scripts/smoke-web-deletion.sh
 

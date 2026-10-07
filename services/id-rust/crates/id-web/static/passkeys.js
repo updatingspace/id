@@ -144,6 +144,11 @@
           }
           recovery.hidden = false;
           codesVisible = true;
+          document.getElementById("passkeys-status").textContent = "Есть";
+          document.getElementById("recovery-status").textContent = "Есть";
+          document.getElementById("recovery-left").textContent = String(result.recovery_codes.length);
+          const empty = document.getElementById("passkeys-empty");
+          if (empty) empty.hidden = true;
           message.textContent = "Ключ добавлен. Сохраните резервные коды перед уходом со страницы.";
           message.hidden = false;
           register.hidden = true;
@@ -171,6 +176,11 @@
       }
     });
   }
+
+  document.getElementById("passkey-recovery-saved")?.addEventListener("click", () => {
+    codesVisible = false;
+    window.location.reload();
+  });
 
   window.addEventListener("beforeunload", (event) => {
     if (!codesVisible) return;
