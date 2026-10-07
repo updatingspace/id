@@ -54,6 +54,10 @@ password. Browser JavaScript sends the confirmation to `id-api` with CSRF and
 re-reads the account before claiming success. Unknown outcomes are shown as
 uncertain. The production operator area and this action remain disabled until
 an operator rehearsal. Other operator tasks are not yet available in this UI.
+`scripts/smoke-web-admin-live.sh` exercises lookup, deletion status and
+suspension confirmation in Chromium against actual Topcoat, Rust API and local
+YDB. It uses synthetic accounts and checks the final access state in YDB; it
+does not replace a production operator rehearsal.
 
 Run from `services/id-rust`:
 
