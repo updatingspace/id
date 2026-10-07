@@ -178,13 +178,13 @@ WebAuthn и других интерактивных действий. Веб-с�
   для задержанной выдачи ещё не проверен.
   `POST /api/v1/auth/login` включается через
   `ID_AUTH_LOGIN_PILOT_ENABLED=true`; вне локального debug/YDB `/local`
-  дополнительно требуется `ID_RUST_EARLY_ROLLOUT_ENABLED=true`. В production
-  маршрут пока доступен только напрямую на приватном Rust API-контейнере,
-  Gateway по-прежнему отправляет публичный POST в Python:
+  дополнительно требуется `ID_RUST_EARLY_ROLLOUT_ENABLED=true`. По проверке
+  Gateway 7 октября production направляет публичный POST в Rust API; прежняя
+  заметка о Python-маршруте относилась к переходному пилоту. Обработчик
   проверяет JSON, Origin/CSRF, одноразовый form-token и общий login rate-limit;
   после preflight выдаёт cookie/session/JWT. TOTP и recovery code проверяются
   и потребляются в транзакции выдачи; некорректный MFA не выдаёт credentials.
-  Настоящий Axum→YDB→Python тест прошёл. В той же транзакции Rust записывает
+  Переходный Axum→YDB→Python тест прошёл до удаления Python runtime. В той же транзакции Rust записывает
   историю входа, устройство и outbox уведомления о новом устройстве.
   `POST /api/v1/auth/logout` включается отдельно через локальный
   `ID_AUTH_LOGOUT_PILOT_ENABLED=true` при `DJANGO_DEBUG=true` и YDB `/local`
@@ -338,7 +338,7 @@ WebAuthn и других интерактивных действий. Веб-с�
   HTTP smoke проверяет SSR, CSP и гостевой редирект. Chromium E2E на локальной
   YDB через `scripts/check-web-profile-live.cjs` подтвердил сохранение и
   повторную загрузку, включая отказ без CSRF. Gateway, Firefox/WebKit и
-  остальные разделы кабинета ещё не проверены; форма не заменяет React.
+  остальные разделы кабинета требуют отдельной проверки через production Gateway.
   При `ID_WEB_PREFERENCES_PILOT_ENABLED=true` появляется
   `/account?section=privacy`: SSR-загрузка настроек и зон, форма с CSRF и
   same-origin PATCH. Chromium E2E на локальной YDB и production проверил
@@ -513,16 +513,17 @@ WebAuthn и других интерактивных действий. Веб-с�
   cargo test --locked -p id-runtime --test passkey_login_ydb -- --ignored
   ```
 
-  Production включать нельзя: старый Python writer ещё не поддерживает этот
-  индекс во время смешанного canary; также нужны browser E2E, реальный
-  authenticator и аудит действующих credentials.
+  Ограничение о старом Python writer относилось к смешанному canary и больше
+  не применимо к текущей Rust-only маршрутизации. До заявления о полном
+  принятии нужны browser E2E, реальный authenticator и аудит действующих
+  credentials.
   Ранее выпущенные ключи по-прежнему читаются Rust-аудитом.
   Ротация требует свежей MFA-сессии, сохраняет один новый набор при повторе
   запроса и не раскрывает код после его использования.
   `scripts/smoke-web-totp-live.sh` отдельно проводит Chromium через Topcoat,
   same-origin proxy, Rust API и локальную YDB. Это ещё не допуск в production:
-  нужны тест через настоящий Gateway, Firefox/WebKit, совместимый Python writer
-  для смешанного canary, rollback-проверка на общем YDB и проверка хранения
+  нужны тест через настоящий Gateway, Firefox/WebKit,
+  rollback-проверка на общем YDB и проверка хранения
   ключа в Lockbox. Результаты записаны
   [в проверке](../../docs/rust-migration/verification-2026-10-04-totp-enrollment.md).
 - `id-jobs`: отдельный Rust worker для уведомлений о новом устройстве.

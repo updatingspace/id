@@ -19,7 +19,8 @@ async function main() {
       { name: 'csrftoken', value: 'abcdefghijklmnopqrstuvwxyzABCDEF', url: origin, sameSite: 'Lax' },
     ]);
     for (const width of [320, 390, 1280]) {
-      const page = await context.newPage({ viewport: { width, height: 820 } });
+      const page = await context.newPage();
+      await page.setViewportSize({ width, height: 820 });
       const deletion = await page.goto(`${origin}/admin/?deletion=${fixture.deletion_id}`);
       assert.equal(deletion.status(), 200);
       assert.equal(deletion.headers()['cache-control'], 'no-store');
