@@ -28,16 +28,48 @@ async function main() {
   const origin = `http://127.0.0.1:${proxyPort}`;
   const binary = path.resolve(process.env.ID_RUST_BIN_DIR || path.join(root, 'target/debug'), 'id-web');
   const web = spawn(binary, [], { env: { ...process.env, HOST: '127.0.0.1', PORT: String(webPort),
-    ID_WEB_EXPORT_REDEEM_PILOT_ENABLED: 'true' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    ID_WEB_EXPORT_REDEEM_PILOT_ENABLED: 'true', ID_WEB_ACCOUNT_PILOT_ENABLED: 'true',
+    ID_WEB_EXPORTS_ENABLED: 'true', ID_WEB_API_ORIGIN: origin }, stdio: ['ignore', 'pipe', 'pipe'] });
   let webLog = '';
   web.stdout.on('data', chunk => { webLog += chunk.toString(); });
   web.stderr.on('data', chunk => { webLog += chunk.toString(); });
   const requests = [];
   const redemptions = [];
   const cancellations = [];
+  const ownerRequests = [];
+  const ownerCancellations = [];
   const proxy = http.createServer(async (request, response) => {
     requests.push({ url: request.url, referer: request.headers.referer || '' });
     const pathname = new URL(request.url, origin).pathname;
+    if (pathname === '/api/v1/auth/me') {
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.end(JSON.stringify({ user: request.headers.cookie?.includes('sessionid=owner') ? {
+        username: 'owner', email: 'owner@example.invalid', email_verified: true, has_2fa: true,
+      } : null }));
+      return;
+    }
+    if (pathname === '/api/v1/auth/data/exports' && request.method === 'POST') {
+      let raw = '';
+      for await (const chunk of request) raw += chunk;
+      ownerRequests.push({ cookie: request.headers.cookie || '', csrf: request.headers['x-csrftoken'],
+        idempotency: request.headers['idempotency-key'], body: JSON.parse(raw) });
+      response.writeHead(202, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.end(JSON.stringify({ id: operation, status: 'pending_delayed' }));
+      return;
+    }
+    if (pathname === `/api/v1/auth/data/exports/${operation}` && request.method === 'GET') {
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.end(JSON.stringify({ id: operation, status: 'cooldown', release_at: '2026-10-08T12:00:00Z',
+        expires_at: null, manifest: { format: 'updspace-id-ndjson-v1', consistency: 'snapshot',
+          categories: [{ category: 'profile', records: 1 }], excluded: [] } }));
+      return;
+    }
+    if (pathname === `/api/v1/auth/data/exports/${operation}` && request.method === 'DELETE') {
+      ownerCancellations.push({ cookie: request.headers.cookie || '', csrf: request.headers['x-csrftoken'] });
+      response.writeHead(202, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.end(JSON.stringify({ status: 'cancelled' }));
+      return;
+    }
     if (pathname === `/api/v1/auth/data/exports/${operation}/redeem`) {
       let raw = '';
       for await (const chunk of request) raw += chunk;
@@ -98,6 +130,39 @@ async function main() {
     }
     browser = await chromium.launch({ headless: true,
       ...(process.env.ID_CHROMIUM_PATH ? { executablePath: process.env.ID_CHROMIUM_PATH } : {}) });
+    const ownerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ownerContext.addCookies([
+      { name: 'sessionid', value: 'owner', url: origin },
+      { name: 'csrftoken', value: 'a'.repeat(32), url: origin },
+    ]);
+    const owner = await ownerContext.newPage();
+    const ownerHtml = await owner.goto(`${origin}/account?section=data`);
+    assert.equal(ownerHtml.status(), 200);
+    assert.match(await owner.locator('main').innerText(), /Подождите 24 часа/);
+    assert.match(await owner.locator('main').innerText(), /Ссылка отмены из первого письма работает и после удаления аккаунта/);
+    assert.equal(await owner.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
+      'export request page overflows a phone viewport');
+    await owner.locator('#export-password').fill('synthetic-password');
+    await owner.locator('#export-mfa').fill('123456');
+    await owner.locator('#export-form button[type="submit"]').click();
+    await owner.waitForURL(`${origin}/account?section=data&export=${operation}`);
+    assert.equal(ownerRequests.length, 1);
+    assert.equal(ownerRequests[0].csrf, 'a'.repeat(32));
+    assert.match(ownerRequests[0].cookie, /sessionid=owner/);
+    assert.match(ownerRequests[0].idempotency, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(ownerRequests[0].body, { password: 'synthetic-password', mfa_code: '123456' });
+    assert.match(await owner.locator('main').innerText(), /Копия подготовлена и хранится приватно/);
+    assert.equal(await owner.locator('a[href$="/download"]').count(), 0);
+    await owner.locator('#export-cancel-start').click();
+    assert.equal(await owner.locator('#export-cancel-confirm').isVisible(), true);
+    await owner.locator('#export-cancel-keep').click();
+    assert.equal(ownerCancellations.length, 0);
+    await owner.locator('#export-cancel-start').click();
+    await owner.locator('#export-cancel-confirm').click();
+    await owner.getByRole('heading', { name: 'Запрос отозван' }).waitFor();
+    assert.deepEqual(ownerCancellations, [{ cookie: 'sessionid=owner; csrftoken=' + 'a'.repeat(32),
+      csrf: 'a'.repeat(32) }]);
+    await ownerContext.close();
     const context = await browser.newContext({ acceptDownloads: true });
     await context.addCookies([{ name: 'sessionid', value: 'deleted-account', url: origin }]);
     const page = await context.newPage();
@@ -160,7 +225,7 @@ async function main() {
       assert.equal([validToken, invalidToken, cancelToken].some(token => request.url.includes(token)), false);
       assert.equal([validToken, invalidToken, cancelToken].some(token => request.referer.includes(token)), false);
     }
-    console.log('PASS: Topcoat export download and post-deletion cancel links keep separate bearers in POST bodies');
+    console.log('PASS: Topcoat export request, cooldown, owner cancellation and post-deletion bearer links');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => proxy.close(resolve));
