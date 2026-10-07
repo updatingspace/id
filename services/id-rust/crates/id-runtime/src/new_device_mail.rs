@@ -1230,7 +1230,9 @@ mod tests {
                 .port(port).timeout(Some(Duration::from_secs(5))).build();
             let queue_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
             let queue_port = queue_listener.local_addr()?.port();
-            let (queue_sender, mut queue_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+            // The shared CI database may contain other due mail intents. Buffer the
+            // entire publish batch so the fixture cannot block before replying.
+            let (queue_sender, mut queue_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
             let queue_app = axum::Router::new().route("/", post(move |body: axum::body::Bytes| {
                 let sender = queue_sender.clone();
                 async move {
@@ -1254,19 +1256,27 @@ mod tests {
                 .body(Body::from(timer_body.to_string()))?;
             let response = app.clone().oneshot(request).await?;
             anyhow::ensure!(response.status() == StatusCode::OK, "mail publish timer failed");
-            let queue_body = tokio::time::timeout(Duration::from_secs(5), queue_receiver.recv()).await?
-                .context("mail publish timer sent no queue message")?;
-            let parameters: std::collections::HashMap<_, _> =
-                url::form_urlencoded::parse(&queue_body).into_owned().collect();
-            let intent: serde_json::Value = serde_json::from_str(parameters.get("MessageBody")
-                .context("mail queue message has no body")?)?;
-            anyhow::ensure!(intent["event_id"] == event_id && intent["kind"] == "new_device_mail");
+            let mut matched_intent = None;
+            for _ in 0..100 {
+                let queue_body = tokio::time::timeout(Duration::from_secs(5), queue_receiver.recv()).await?
+                    .context("mail publish timer sent no queue message")?;
+                let parameters: std::collections::HashMap<_, _> =
+                    url::form_urlencoded::parse(&queue_body).into_owned().collect();
+                let intent: serde_json::Value = serde_json::from_str(parameters.get("MessageBody")
+                    .context("mail queue message has no body")?)?;
+                if intent["event_id"] == event_id && intent["kind"] == "new_device_mail" {
+                    matched_intent = Some(intent);
+                    break;
+                }
+            }
+            let intent = matched_intent.context("mail publish timer omitted fixture event")?;
             queue_server.abort();
-            let request = Request::builder().method("POST").uri("/internal/jobs/recover")
+            let queue_body = serde_json::json!({"messages":[{"event_metadata":{"event_type":"yandex.cloud.events.messagequeue.QueueMessage"},"details":{"message":{"body":intent.to_string()}}}]});
+            let request = Request::builder().method("POST").uri("/internal/jobs/mail")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(timer_body.to_string()))?;
+                .body(Body::from(queue_body.to_string()))?;
             let response = app.oneshot(request).await?;
-            anyhow::ensure!(response.status() == StatusCode::OK, "timer invocation failed");
+            anyhow::ensure!(response.status() == StatusCode::OK, "mail queue invocation failed");
             let body = tokio::time::timeout(Duration::from_secs(5), server).await???;
             anyhow::ensure!(body.contains("Browser/1") && body.contains("192.0.2.5"));
             let mut row = client.query_client().query_row("SELECT status, attempts, sent_at FROM accounts_newdevicemailoutbox WHERE event_id = $id")

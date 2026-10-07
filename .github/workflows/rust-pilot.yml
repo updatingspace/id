@@ -231,8 +231,8 @@ jobs:
             const fs = require("node:fs");
             const output = fs.readFileSync(process.argv[1], "utf8").replace(/\x1b\[[0-9;]*m/g, "");
             const lines = output.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-            const errors = lines.filter(line => /^(Error:|error(?:\[|:)|thread .* panicked|test .* FAILED|failures:)/i.test(line));
-            const message = (errors.slice(-4).join(" | ") || lines.slice(-8).join(" | ") || "mail integration test failed").slice(0, 1500);
+            const errors = lines.filter(line => /^(Error:|Caused by:|error(?:\[|:)|thread .* panicked|test .* FAILED)/i.test(line));
+            const message = (errors.slice(0, 8).join(" | ") || lines.slice(-12).join(" | ") || "mail integration test failed").slice(0, 1500);
             console.log(`::error title=Mail integration test::${message.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A")}`);
           ' "$RUNNER_TEMP/id-mail-test.log"
           exit 1
