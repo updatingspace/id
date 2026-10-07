@@ -19,7 +19,6 @@ const ACCOUNT_CREDENTIAL_TABLES: &[&str] = &[
     "id_email_change",
     "id_email_claim",
     "core_usersessiontoken",
-    "token_blacklist_outstandingtoken",
 ];
 
 const IDENTITY_CREDENTIAL_TABLES: &[&str] = &[
@@ -748,27 +747,27 @@ pub async fn erase_credentials(client: &Client, id: i64) -> Result<Option<Creden
                     return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("deletion identity is not suspended")));
                 }
             }
+            // Delete outstanding JWT records and their dependent blacklist
+            // rows in bounded transactions. The account was disabled when the
+            // request was accepted, so another pending pass remains safe.
             let outstanding = related_i64(tx,
-                "SELECT id FROM token_blacklist_outstandingtoken VIEW token_blacklist_outstandingtoken_user_id_83bc629a WHERE user_id = $user_id LIMIT 1001",
+                "SELECT id FROM token_blacklist_outstandingtoken VIEW token_blacklist_outstandingtoken_user_id_83bc629a WHERE user_id = $user_id LIMIT 100",
                 account_id).await?;
+            let batch_full = outstanding.len() == 100;
             for token_id in outstanding {
                 tx.exec("DELETE FROM token_blacklist_blacklistedtoken WHERE token_id = $id")
                     .param("$id", token_id).await?;
+                tx.exec("DELETE FROM token_blacklist_outstandingtoken WHERE id = $id")
+                    .param("$id", token_id).await?;
             }
-            let social_accounts = related_i32(tx,
-                "SELECT id FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $user_id LIMIT 1001",
-                account_id).await?;
-            for social_account_id in social_accounts {
-                tx.exec("DELETE FROM socialaccount_socialtoken WHERE account_id = $id")
-                    .param("$id", social_account_id).await?;
+            if batch_full {
+                return Ok(Some(CredentialCleanup {
+                    id: id.to_string(), status,
+                    credential_stage_completed: false, cleanup_completed: false,
+                }));
             }
-            let email_addresses = related_i32(tx,
-                "SELECT id FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id LIMIT 1001",
-                account_id).await?;
-            for email_id in email_addresses {
-                tx.exec("DELETE FROM account_emailconfirmation WHERE email_address_id = $id")
-                    .param("$id", email_id).await?;
-            }
+            // Social tokens and email confirmations are removed with their
+            // parent rows after any accepted data-export snapshot is sealed.
             for table in ACCOUNT_CREDENTIAL_TABLES {
                 let column = if *table == "id_passkey_credential" { "account_id" } else { "user_id" };
                 tx.exec(format!("DELETE FROM `{table}` WHERE `{column}` = $id"))

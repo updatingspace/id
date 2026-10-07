@@ -311,10 +311,48 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
         .as_str()
         .context("deletion operation ID")?
         .parse()?;
-    let credential_stage = account_deletion_cleanup::erase_credentials(&client, deletion_id)
-        .await?
-        .context("deletion credential job lost request")?;
-    ensure!(credential_stage.credential_stage_completed && !credential_stage.cleanup_completed);
+    // Acceptance has already revoked access. Seed a large legacy token family
+    // to verify that physical cleanup resumes without a transaction-size cap.
+    let first_token = first_event + 10_000;
+    for offset in 0..201_i64 {
+        client.query_client().exec("INSERT INTO token_blacklist_outstandingtoken (id, user_id, jti, token, expires_at) VALUES ($id, $owner, $jti, 'synthetic-revoked-token', CAST($expires AS Datetime))")
+            .param("$id", first_token + offset).param("$owner", owner)
+            .param("$jti", format!("deletion-{stamp}-{offset}"))
+            .param("$expires", now + Duration::from_secs(3600)).await?;
+    }
+    client.query_client().exec("INSERT INTO token_blacklist_blacklistedtoken (id, token_id, blacklisted_at) VALUES ($id, $id, CurrentUtcDatetime())")
+        .param("$id", first_token).await?;
+    let mut credentials_complete = false;
+    for pass in 0..5 {
+        let stage = account_deletion_cleanup::erase_credentials(&client, deletion_id)
+            .await?
+            .context("deletion credential job lost request")?;
+        if pass == 0 {
+            ensure!(
+                !stage.credential_stage_completed,
+                "credential cleanup skipped its bounded first batch"
+            );
+        }
+        if stage.credential_stage_completed {
+            ensure!(!stage.cleanup_completed);
+            credentials_complete = true;
+            break;
+        }
+    }
+    ensure!(
+        credentials_complete,
+        "credential cleanup did not finish after bounded batches"
+    );
+    ensure!(
+        client
+            .query_client()
+            .query_row("SELECT id FROM token_blacklist_blacklistedtoken WHERE token_id = $id")
+            .param("$id", first_token)
+            .optional()
+            .await?
+            .is_none(),
+        "credential cleanup left an orphaned blacklist row"
+    );
     ensure!(
         account_deletion_cleanup::erase_avatar(&client, None, deletion_id)
             .await?
