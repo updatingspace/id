@@ -247,9 +247,9 @@ address, explains notice, 24-hour hold, expiry and post-deletion delivery;
 an unverified address shows a confirmation path and no submit control. The
 deletion HTTP endpoint is restricted to local debug YDB and its own source
 labels it incomplete. Therefore a production deletion control must **not**
-be added by merely linking a form to that endpoint. The Rust web has one
-read-only operator lookup for deletion requests, gated off in production;
-other admin tasks remain open parity gaps. After retiring the React Gateway
+be added by merely linking a form to that endpoint. The Rust web has read-only
+operator lookups for deletion requests and exact account IDs, gated off in
+production; other admin tasks remain open parity gaps. After retiring the React Gateway
 fallback on 2026-10-07, production `/admin/` returns an honest 404 rather
 than the old React shell. The local layout is not a completed admin console.
 
@@ -286,7 +286,7 @@ plain list of internals or a link to `/legacy/account` is not a replacement.
 
 ## Operator surface: screen contract
 
-The current Rust web service has one read-only operator task; it does not yet
+The current Rust web service has two read-only operator tasks; it does not yet
 replace the operator console. The public account pages must not be labelled
 an admin UI.
 The replacement belongs in a separate `/admin` area with its own navigation,

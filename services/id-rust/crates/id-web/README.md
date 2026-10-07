@@ -31,10 +31,12 @@ verification pages are static HTML templates with browser behavior in
 `static/recovery.js`; their Rust handlers only select the document and set
 security headers. Frontend authors can change their layout and copy without
 editing API or router code, while keeping the form IDs used by the script.
-The opt-in `/admin/` page is a read-only deletion-request lookup. It verifies
-the operator session through `id-api` before rendering and does not query YDB.
-Its template and stylesheet are frontend-owned; the API owns authorization and
-the request state. Other operator tasks are not yet available in this UI.
+The opt-in `/admin/` area offers read-only deletion-request and exact-ID
+account lookups. It verifies the operator session through `id-api` before
+rendering and does not query YDB. Its templates and stylesheet are
+frontend-owned; the API owns authorization and account/request state. Account
+lookup shows status and identity binding, not credentials or editing controls.
+Other operator tasks are not yet available in this UI.
 
 Run from `services/id-rust`:
 

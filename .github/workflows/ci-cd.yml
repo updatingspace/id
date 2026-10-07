@@ -60,6 +60,8 @@ jobs:
           cargo build --locked --release -p id-web
       - name: Topcoat security SSR smoke
         run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-security.sh
+      - name: Topcoat operator account SSR smoke
+        run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-admin.sh
       - name: Topcoat recovery SSR smoke
         run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-recovery.sh
       - name: Topcoat legacy form-token browser contract

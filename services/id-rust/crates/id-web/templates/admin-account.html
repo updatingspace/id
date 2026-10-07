@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Проверка аккаунта — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-4">
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержанию</a>
+  <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторский доступ</span></header>
+  <main id="main">
+    <nav aria-label="Навигация"><a href="/account">Мой аккаунт</a><span aria-hidden="true">/</span><a href="/admin/">Операторский раздел</a><span aria-hidden="true">/</span><span>Проверка аккаунта</span></nav>
+    <div class="page-heading">
+      <p class="eyebrow">Аккаунты · только просмотр</p>
+      <h1>Проверка аккаунта</h1>
+      <p class="intro">Найдите аккаунт по точному ID и проверьте его состояние и связь с identity. Этот экран не блокирует вход и не меняет данные пользователя.</p>
+    </div>
+    <div class="workspace">
+      <div class="task-column">
+        <section class="lookup-panel" aria-labelledby="lookup-title">
+          <h2 id="lookup-title">Поиск по ID аккаунта</h2>
+          <p>ID можно получить из обращения или операторского журнала. Поиск по адресу почты здесь пока недоступен.</p>
+          <form action="/admin/accounts/" method="get">
+            <label for="account-id">ID аккаунта</label>
+            <div class="search-row">
+              <input id="account-id" name="id" inputmode="numeric" pattern="[0-9]+" maxlength="10" value="{{ lookup_id }}" aria-describedby="account-help" required>
+              <button type="submit">Проверить</button>
+            </div>
+            <p id="account-help" class="field-help">Только цифры; поиск не изменяет аккаунт.</p>
+          </form>
+        </section>
+        {% if not_found %}<section class="result-panel" role="status"><h2>Аккаунт не найден</h2><p>Проверьте ID. Отсутствие результата не подтверждает, что данные были удалены из всех хранилищ.</p></section>{% endif %}
+        {% if let Some(item) = account %}
+        <section class="result-panel" aria-labelledby="account-title">
+          <h2 id="account-title">Аккаунт № {{ item.id }}</h2>
+          <dl>
+            <dt>Электронная почта</dt><dd>{{ item.email }}</dd>
+            <dt>Вход</dt><dd>{% if item.is_active %}Активен{% else %}Заблокирован{% endif %}</dd>
+            <dt>Операторская роль</dt><dd>{% if item.is_staff && item.is_superuser %}Есть{% else %}Нет{% endif %}</dd>
+            <dt>Дополнительная защита</dt><dd>{% if item.has_mfa %}Настроена{% else %}Не настроена{% endif %}</dd>
+            <dt>Identity</dt><dd>{% if let Some(identity) = item.identity_id %}{{ identity }}{% else %}Связь не найдена — нужна проверка{% endif %}</dd>
+            <dt>Публичный идентификатор</dt><dd>{% if let Some(subject) = item.public_subject %}{{ subject }}{% else %}Не найден — нужна проверка{% endif %}</dd>
+          </dl>
+          <div class="next-step"><h3>Как трактовать результат</h3><p>Состояние показано на момент запроса. Для расследования проверьте историю изменений и операционный журнал; эта страница не подтверждает доступность всех внешних сервисов.</p></div>
+        </section>
+        {% endif %}
+      </div>
+    </div>
+    <aside class="scope-panel" aria-labelledby="scope-title">
+      <h2 id="scope-title">Другие операторские задачи</h2>
+      <p><a href="/admin/">Проверить заявку на удаление</a>. Изменение статуса аккаунта и управление клиентами будут доступны только после отдельных проверок полномочий, аудита и результата операции.</p>
+    </aside>
+  </main>
+</body>
+</html>

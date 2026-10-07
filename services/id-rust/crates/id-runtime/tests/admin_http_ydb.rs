@@ -56,9 +56,10 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
     let app = id_runtime::admin_http::router(config);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
     let account_id = -i32::try_from(stamp % 1_000_000_000 + 1)?;
-    let target_id = account_id - 1;
+    let target_id = 1_500_000_000 + i32::try_from(stamp % 500_000_000)?;
     let deletion_id = i64::try_from(stamp % 1_000_000_000_000 + 1)?;
     let identity_id = Uuid::from_u128((stamp << 32) | u128::from(std::process::id()));
+    let target_identity_id = Uuid::from_u128(identity_id.as_u128() + 1);
     let token = format!("admin-test-{stamp}");
     let secret = std::env::var("DJANGO_SECRET_KEY")?;
     let codec = SessionCodec::new(secret.as_bytes(), &[])?;
@@ -88,6 +89,13 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($user, $identity, $subject, CurrentUtcDatetime())")
             .param("$user", account_id).param("$identity", identity_id)
             .param("$subject", format!("admin-test-subject-{stamp}")).await?;
+        client.query_client().exec("INSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, $password, false, $name, '', '', $email, false, false, CurrentUtcDatetime())")
+            .param("$id", target_id).param("$password", password)
+            .param("$name", format!("target-test-{stamp}"))
+            .param("$email", format!("target-test-{stamp}@example.invalid")).await?;
+        client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($user, $identity, $subject, CurrentUtcDatetime())")
+            .param("$user", target_id).param("$identity", target_identity_id)
+            .param("$subject", format!("target-subject-{stamp}")).await?;
         client.query_client().exec("INSERT INTO django_session (session_key, session_data, expire_date) VALUES ($key, $data, CAST($expires AS Datetime))")
             .param("$key", token.clone()).param("$data", encoded)
             .param("$expires", now + Duration::from_secs(3600)).await?;
@@ -95,10 +103,13 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             .param("$id", deletion_id).param("$user", target_id).await?;
 
         let path = format!("/api/v1/auth/admin/deletions/{deletion_id}");
+        let account_path = format!("/api/v1/auth/admin/accounts/{target_id}");
         let cookie = format!("sessionid={token}");
         let (status, _) = get(&app, &path, None, None).await?;
         ensure!(status == StatusCode::UNAUTHORIZED);
         let (status, _) = get(&app, &path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::FORBIDDEN);
+        let (status, _) = get(&app, &account_path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::FORBIDDEN);
         client.query_client().exec("UPDATE auth_user SET is_staff = true WHERE id = $id")
             .param("$id", account_id).await?;
@@ -116,6 +127,21 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         ensure!(status == StatusCode::OK && body["operation"]["status"] == "pending");
         ensure!(body["operation"]["cleanup_completed"] == false);
         ensure!(!body.to_string().contains("private test reason") && !body.to_string().contains("admin-test-"));
+        let (status, body) = get(&app, &account_path, Some(&cookie), None).await?;
+        ensure!(status == StatusCode::OK && body["account"]["id"] == target_id
+            && body["account"]["is_active"] == false
+            && body["account"]["identity_id"] == target_identity_id.to_string()
+            && body["account"]["public_subject"] == format!("target-subject-{stamp}")
+            && body["account"]["has_mfa"] == false, "operator account lookup: {body}");
+        ensure!(!body.to_string().contains(password), "password hash exposed to operator UI");
+        let (status, _) = get(&app, &account_path, Some(&cookie), Some("invalid")).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED, "invalid header fell back to cookie for account lookup");
+        let (status, _) = get(&app, "/api/v1/auth/admin/accounts/0", Some(&cookie), None).await?;
+        ensure!(status == StatusCode::BAD_REQUEST);
+        let (status, _) = get(&app, "/api/v1/auth/admin/accounts/2147483648", Some(&cookie), None).await?;
+        ensure!(status == StatusCode::BAD_REQUEST);
+        let (status, _) = get(&app, "/api/v1/auth/admin/accounts/2147483647", Some(&cookie), None).await?;
+        ensure!(status == StatusCode::NOT_FOUND);
         let (status, _) = get(&app, &path, Some(&cookie), Some("invalid")).await?;
         ensure!(status == StatusCode::UNAUTHORIZED, "invalid header fell back to cookie");
         let (status, _) = get(&app, "/api/v1/auth/admin/deletions/0", Some(&cookie), None).await?;
@@ -150,6 +176,11 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         .await?;
     client
         .query_client()
+        .exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
+        .param("$id", target_id)
+        .await?;
+    client
+        .query_client()
         .exec("DELETE FROM usid_user WHERE user_id = $id")
         .param("$id", identity_id)
         .await?;
@@ -157,6 +188,11 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         .query_client()
         .exec("DELETE FROM auth_user WHERE id = $id")
         .param("$id", account_id)
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM auth_user WHERE id = $id")
+        .param("$id", target_id)
         .await?;
     result
 }

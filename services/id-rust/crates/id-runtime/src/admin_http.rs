@@ -7,7 +7,7 @@ use crate::{
     me_store::restore_django_profile,
     session_store::{LEGACY_BACKENDS, session_codec_from_env},
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -16,14 +16,31 @@ use axum::{
     routing::get,
 };
 use id_compat::{headers::session_token, session::SessionCodec};
+use serde::Serialize;
 use serde_json::{Value, json};
-use std::{env, sync::Arc, time::SystemTime};
-use ydb::Client;
+use std::{
+    env,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
+use ydb::{Client, Transaction, TxMode, closure};
 
 pub struct AdminReadConfig {
     client: Arc<Client>,
     codec: Arc<SessionCodec>,
     session_cookie_name: String,
+}
+
+#[derive(Serialize)]
+struct AccountSnapshot {
+    id: i32,
+    email: String,
+    is_active: bool,
+    is_staff: bool,
+    is_superuser: bool,
+    has_mfa: bool,
+    identity_id: Option<uuid::Uuid>,
+    public_subject: Option<String>,
 }
 
 impl AdminReadConfig {
@@ -50,6 +67,7 @@ impl AdminReadConfig {
 pub fn router(config: Arc<AdminReadConfig>) -> Router {
     Router::new()
         .route("/api/v1/auth/admin/me", get(operator_session))
+        .route("/api/v1/auth/admin/accounts/{id}", get(account_status))
         .route("/api/v1/auth/admin/deletions/{id}", get(deletion_status))
         .with_state(config)
 }
@@ -83,6 +101,65 @@ async fn deletion_status(
         Ok(None) => error(StatusCode::NOT_FOUND, "OPERATION_NOT_FOUND"),
         Err(_) => error(StatusCode::SERVICE_UNAVAILABLE, "OPERATION_UNAVAILABLE"),
     }
+}
+
+async fn account_status(
+    State(config): State<Arc<AdminReadConfig>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(response) = authorize(&config, &headers).await {
+        return *response;
+    }
+    let Ok(id) = id.parse::<i32>() else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_ACCOUNT_ID");
+    };
+    if id <= 0 {
+        return error(StatusCode::BAD_REQUEST, "INVALID_ACCOUNT_ID");
+    }
+    match read_account(&config.client, id).await {
+        Ok(Some(account)) => json_response(StatusCode::OK, json!({"account": account})),
+        Ok(None) => error(StatusCode::NOT_FOUND, "ACCOUNT_NOT_FOUND"),
+        Err(err) => {
+            tracing::error!(error = %err, "operator account lookup failed");
+            error(StatusCode::SERVICE_UNAVAILABLE, "ACCOUNT_UNAVAILABLE")
+        }
+    }
+}
+
+async fn read_account(client: &Client, id: i32) -> Result<Option<AccountSnapshot>> {
+    client.query_client()
+        .retry_tx(closure!([id], async |tx: &mut Transaction| {
+            let Some(mut account) = tx.query_row("SELECT email, is_active, is_staff, is_superuser FROM auth_user WHERE id = $id")
+                .param("$id", *id).optional().await? else { return Ok(None) };
+            let email: String = account.remove_field_by_name("email")?.try_into()?;
+            let active: bool = account.remove_field_by_name("is_active")?.try_into()?;
+            let staff: bool = account.remove_field_by_name("is_staff")?.try_into()?;
+            let superuser: bool = account.remove_field_by_name("is_superuser")?.try_into()?;
+            let binding = tx.query_row("SELECT identity_id, public_subject FROM accounts_accountidentity WHERE user_id = $id")
+                .param("$id", *id).optional().await?;
+            let (identity_id, public_subject) = if let Some(mut binding) = binding {
+                let identity_id: Option<uuid::Uuid> = binding.remove_field_by_name("identity_id")?.try_into()?;
+                let public_subject: String = binding.remove_field_by_name("public_subject")?.try_into()?;
+                (identity_id, Some(public_subject))
+            } else { (None, None) };
+            let has_mfa = tx.query_row("SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $id LIMIT 1")
+                .param("$id", *id).optional().await?.is_some();
+            Ok(Some(AccountSnapshot {
+                id: *id,
+                email,
+                is_active: active,
+                is_staff: staff,
+                is_superuser: superuser,
+                has_mfa,
+                identity_id,
+                public_subject,
+            }))
+        }))
+        .isolation(TxMode::SnapshotReadOnly)
+        .timeout(Duration::from_secs(5))
+        .await
+        .context("read operator account snapshot")
 }
 
 async fn authorize(

@@ -14,6 +14,7 @@ pub(crate) struct AdminApi {
     client: reqwest::Client,
     operator_url: Url,
     deletion_url: Url,
+    account_url: Url,
 }
 
 impl AdminApi {
@@ -32,8 +33,10 @@ impl AdminApi {
             bail!("ID_WEB_API_ORIGIN must be HTTPS or a local HTTP origin");
         }
         let mut deletion_url = operator_url.clone();
+        let mut account_url = operator_url.clone();
         operator_url.set_path("/api/v1/auth/admin/me");
         deletion_url.set_path("/api/v1/auth/admin/deletions/");
+        account_url.set_path("/api/v1/auth/admin/accounts/");
         Ok(Self {
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
@@ -41,6 +44,7 @@ impl AdminApi {
                 .build()?,
             operator_url,
             deletion_url,
+            account_url,
         })
     }
 }
@@ -48,6 +52,23 @@ impl AdminApi {
 #[derive(Deserialize)]
 struct DeletionResponse {
     operation: DeletionOperation,
+}
+
+#[derive(Deserialize)]
+struct AccountResponse {
+    account: OperatorAccount,
+}
+
+#[derive(Deserialize)]
+struct OperatorAccount {
+    id: i32,
+    email: String,
+    is_active: bool,
+    is_staff: bool,
+    is_superuser: bool,
+    has_mfa: bool,
+    identity_id: Option<String>,
+    public_subject: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +116,14 @@ struct AdminPage<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "admin-account.html")]
+struct AccountPage<'a> {
+    lookup_id: &'a str,
+    account: Option<&'a OperatorAccount>,
+    not_found: bool,
+}
+
+#[derive(Template)]
 #[template(path = "admin-error.html")]
 struct AdminErrorPage<'a> {
     title: &'static str,
@@ -110,6 +139,126 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
 #[route(GET "/admin/")]
 pub(crate) async fn page_slash(cx: &Cx) -> topcoat::Result<Response> {
     render_page(cx).await
+}
+
+#[route(GET "/admin/accounts")]
+pub(crate) async fn account_page(cx: &Cx) -> topcoat::Result<Response> {
+    render_account_page(cx).await
+}
+
+#[route(GET "/admin/accounts/")]
+pub(crate) async fn account_page_slash(cx: &Cx) -> topcoat::Result<Response> {
+    render_account_page(cx).await
+}
+
+async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
+    let api = app_context::<AdminApi>(cx);
+    let cookie = request::headers(cx)
+        .get("cookie")
+        .and_then(|value| value.to_str().ok());
+    let operator = api
+        .client
+        .get(api.operator_url.clone())
+        .header(reqwest::header::ACCEPT, "application/json");
+    let operator = if let Some(cookie) = cookie {
+        operator.header(reqwest::header::COOKIE, cookie)
+    } else {
+        operator
+    };
+    let operator = match operator.send().await {
+        Ok(response) => response,
+        Err(_) => return problem(503, "Не удалось проверить права. Попробуйте позже."),
+    };
+    match operator.status().as_u16() {
+        200 => {}
+        401 => return redirect_to_login("/login?next=%2Fadmin%2Faccounts%2F"),
+        403 => return problem(403, "У вас нет доступа к операторскому разделу."),
+        _ => return problem(503, "Не удалось проверить права. Попробуйте позже."),
+    }
+    let query = request::uri(cx).query();
+    if query.is_some_and(|value| value.len() > 128) {
+        return problem(400, "Слишком длинный поисковый запрос.");
+    }
+    let requested = query.and_then(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(key, _)| key == "id")
+            .map(|(_, value)| value.into_owned())
+    });
+    let Some(id) = requested else {
+        return render_account("", None, false);
+    };
+    if id.is_empty() || id.len() > 10 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return problem(400, "Укажите корректный ID аккаунта.");
+    }
+    let Ok(parsed) = id.parse::<i32>() else {
+        return problem(400, "Укажите корректный ID аккаунта.");
+    };
+    if parsed <= 0 {
+        return problem(400, "Укажите корректный ID аккаунта.");
+    }
+    let mut url = api.account_url.clone();
+    url.set_path(&format!("/api/v1/auth/admin/accounts/{parsed}"));
+    let lookup = api
+        .client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/json");
+    let lookup = if let Some(cookie) = cookie {
+        lookup.header(reqwest::header::COOKIE, cookie)
+    } else {
+        lookup
+    };
+    let mut lookup = match lookup.send().await {
+        Ok(response) => response,
+        Err(_) => return problem(503, "Не удалось загрузить аккаунт. Попробуйте позже."),
+    };
+    match lookup.status().as_u16() {
+        200 => {}
+        401 => return redirect_to_login("/login?next=%2Fadmin%2Faccounts%2F"),
+        403 => return problem(403, "У вас нет доступа к операторскому разделу."),
+        404 => return render_account(&id, None, true),
+        _ => return problem(503, "Не удалось загрузить аккаунт. Попробуйте позже."),
+    }
+    let mut body = Vec::new();
+    loop {
+        let chunk = match lookup.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => return problem(503, "Не удалось загрузить аккаунт. Попробуйте позже."),
+        };
+        if body.len().saturating_add(chunk.len()) > 16 * 1024 {
+            return problem(503, "Некорректный ответ сервиса аккаунтов.");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let result: AccountResponse = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(_) => return problem(503, "Некорректный ответ сервиса аккаунтов."),
+    };
+    if result.account.id != parsed {
+        return problem(503, "Некорректный ответ сервиса аккаунтов.");
+    }
+    render_account(&id, Some(&result.account), false)
+}
+
+fn render_account(
+    lookup_id: &str,
+    account: Option<&OperatorAccount>,
+    not_found: bool,
+) -> topcoat::Result<Response> {
+    let html = AccountPage {
+        lookup_id,
+        account,
+        not_found,
+    }
+    .render()
+    .map_err(|error| topcoat::Error::msg(error.to_string()))?;
+    Ok(Response::builder()
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Referrer-Policy", "no-referrer")
+        .header("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        .body(Body::from(html))?)
 }
 
 async fn render_page(cx: &Cx) -> topcoat::Result<Response> {
@@ -132,7 +281,7 @@ async fn render_page(cx: &Cx) -> topcoat::Result<Response> {
     };
     match operator.status().as_u16() {
         200 => {}
-        401 => return redirect_to_login(),
+        401 => return redirect_to_login("/login?next=%2Fadmin%2F"),
         403 => return problem(403, "У вас нет доступа к операторскому разделу."),
         _ => return problem(503, "Не удалось проверить права. Попробуйте позже."),
     }
@@ -175,7 +324,7 @@ async fn render_page(cx: &Cx) -> topcoat::Result<Response> {
     };
     match lookup.status().as_u16() {
         200 => {}
-        401 => return redirect_to_login(),
+        401 => return redirect_to_login("/login?next=%2Fadmin%2F"),
         403 => return problem(403, "У вас нет доступа к операторскому разделу."),
         404 => return render(&id, None, true),
         _ => return problem(503, "Не удалось загрузить заявку. Попробуйте позже."),
@@ -226,10 +375,10 @@ fn render(
         .body(Body::from(html))?)
 }
 
-fn redirect_to_login() -> topcoat::Result<Response> {
+fn redirect_to_login(location: &'static str) -> topcoat::Result<Response> {
     Ok(Response::builder()
         .status(303)
-        .header("Location", "/login?next=%2Fadmin%2F")
+        .header("Location", location)
         .header("Cache-Control", "no-store")
         .body(Body::empty())?)
 }
@@ -272,6 +421,31 @@ pub(crate) async fn style() -> topcoat::Result<Response> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_page_escapes_identity_fields_and_explains_read_only_scope() -> Result<()> {
+        let account = OperatorAccount {
+            id: 42,
+            email: "<script>bad()</script>@example.invalid".into(),
+            is_active: false,
+            is_staff: false,
+            is_superuser: false,
+            has_mfa: true,
+            identity_id: None,
+            public_subject: Some("<script>subject</script>".into()),
+        };
+        let html = AccountPage {
+            lookup_id: "42",
+            account: Some(&account),
+            not_found: false,
+        }
+        .render()?;
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("Заблокирован"));
+        assert!(html.contains("Связь не найдена"));
+        assert!(html.contains("не блокирует вход"));
+        Ok(())
+    }
 
     #[test]
     fn page_escapes_operation_fields_and_explains_incomplete_cleanup() -> Result<()> {
