@@ -3,6 +3,23 @@
 This is a point-in-time observation, not a release sign-off. The unpublished
 `codex/rust-id-rollout-current` branch is ahead of the production images.
 
+## Follow-up preflight on the current candidate
+
+After local commit `6f72daf`, all API and web binaries passed `cargo check
+--locked`; `docker build --check` found no warnings in the API, web or jobs
+recipes. The public `web`, `api`, `oidc`, `sessions` and `mutations` HTTP smoke
+profiles passed again. These are unauthenticated checks of the active site,
+not evidence that this candidate has been deployed.
+
+A fresh read-only Gateway validation found 121 container integrations across
+the same four Rust serving containers, including both Passkey registration
+routes on the main Rust API. The five active container build markers remain
+`magic-link-7a9b8927` (API and jobs), `rust-oidc-discovery-20261005`
+(sessions), `export-20261006-api-private` (mutations) and `ux-20261006-3`
+(web). None identifies the current local commit. The iPhone Passkey fix and
+later OIDC/admin changes are therefore still unpublished and unverified in
+production.
+
 ## Observed deployment
 
 - The active ID API Gateway (`d5d6almt4c5i2ao9e4ha`) has 121 container
