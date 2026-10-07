@@ -31,6 +31,14 @@ This is a point-in-time observation, not a release sign-off. The unpublished
 - Browser inspection confirmed that `/account` redirects an unauthenticated
   visitor to `/login?next=%2Faccount`, with no console error on the home or
   login page. `/admin/` returns 404 in production.
+- A fresh browser read confirmed that the home page explains one account,
+  connected services and user-controlled access, and that
+  `/login?next=%2Faccount` serves the Topcoat login with password and passkey
+  actions. This is a public-page check, not an authenticated journey.
+- The strengthened public OIDC smoke passed against the live Gateway:
+  discovery has the exact ID issuer and authorize/token/UserInfo/revoke/JWKS
+  endpoints, advertises code + PKCE S256 and RS256, and JWKS contains one
+  usable signing key. It does not test code exchange or a relying party.
 
 These checks do not prove authenticated journeys, WebAuthn on a physical
 authenticator, account deletion, delayed export, operator parity or latency

@@ -8,6 +8,10 @@ const checks = {
     ['/readyz', 200, 'application/json'],
     ['/api/v1/auth/me', 200, 'application/json'],
   ],
+  oidc: [
+    ['/.well-known/openid-configuration', 200, 'application/json'],
+    ['/.well-known/jwks.json', 200, 'application/json'],
+  ],
   sessions: [
     ['/api/v1/auth/sessions', 401, 'application/json'],
   ],
@@ -33,7 +37,7 @@ const checks = {
     ['/_id/export-cancel.js', 200, 'javascript'],
   ],
 }[target];
-if (!checks) throw new Error('usage: smoke-yc-rust-http.mjs api|sessions|mutations|web|delayed-export');
+if (!checks) throw new Error('usage: smoke-yc-rust-http.mjs api|oidc|sessions|mutations|web|delayed-export');
 
 for (const [path, status, type, expectedBody] of checks) {
   let lastError;
@@ -57,6 +61,54 @@ for (const [path, status, type, expectedBody] of checks) {
     if (attempt < 11) await new Promise((resolve) => setTimeout(resolve, 5_000));
   }
   if (lastError) throw new Error(`${path}: expected ${status} ${type}, got ${lastError}`);
+}
+
+if (target === 'oidc') {
+  const issuer = new URL(baseUrl).origin;
+  const discovery = await fetch(`${issuer}/.well-known/openid-configuration`, {
+    signal: AbortSignal.timeout(15_000),
+  }).then(response => response.json());
+  const endpoints = {
+    issuer,
+    authorization_endpoint: `${issuer}/oauth/authorize`,
+    token_endpoint: `${issuer}/oauth/token`,
+    userinfo_endpoint: `${issuer}/oauth/userinfo`,
+    revocation_endpoint: `${issuer}/oauth/revoke`,
+    jwks_uri: `${issuer}/.well-known/jwks.json`,
+  };
+  for (const [field, expected] of Object.entries(endpoints)) {
+    if (discovery[field] !== expected) throw new Error(`OIDC ${field} differs from the public issuer`);
+  }
+  for (const [field, required] of Object.entries({
+    response_types_supported: 'code',
+    grant_types_supported: 'authorization_code',
+    subject_types_supported: 'public',
+    id_token_signing_alg_values_supported: 'RS256',
+    code_challenge_methods_supported: 'S256',
+    scopes_supported: 'openid',
+  })) {
+    if (!Array.isArray(discovery[field]) || !discovery[field].includes(required)) {
+      throw new Error(`OIDC ${field} omits ${required}`);
+    }
+  }
+  const jwks = await fetch(discovery.jwks_uri, {
+    signal: AbortSignal.timeout(15_000),
+  }).then(response => response.json());
+  if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) throw new Error('OIDC JWKS has no public keys');
+  const kids = new Set();
+  let signingKeys = 0;
+  for (const key of jwks.keys) {
+    if (typeof key.kid !== 'string' || !key.kid || kids.has(key.kid)) {
+      throw new Error('OIDC JWKS has a missing or duplicate kid');
+    }
+    kids.add(key.kid);
+    if (key.kty === 'RSA' && key.use === 'sig' && key.alg === 'RS256' &&
+      typeof key.n === 'string' && key.n.length >= 256 && typeof key.e === 'string' && key.e) {
+      signingKeys += 1;
+    }
+  }
+  if (!signingKeys) throw new Error('OIDC JWKS has no usable RS256 signing key');
+  console.log(`OIDC issuer, PKCE and ${signingKeys} signing key(s): valid`);
 }
 
 if (target === 'delayed-export') {

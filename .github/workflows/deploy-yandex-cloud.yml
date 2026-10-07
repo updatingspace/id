@@ -185,6 +185,7 @@ jobs:
           revision=$(yc serverless container revision list --container-id "$RUST_API_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
           node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_API_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
           node scripts/ci/smoke-yc-rust-http.mjs api
+          node scripts/ci/smoke-yc-rust-http.mjs oidc
       - name: Deploy Rust sessions API
         run: |
           set -euo pipefail
