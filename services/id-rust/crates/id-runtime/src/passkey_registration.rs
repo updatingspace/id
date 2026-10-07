@@ -165,7 +165,7 @@ pub async fn complete(
                 if !passkey_index::claim_in_tx(tx, &digest, row_id, user_id).await? { return Ok(CompleteOutcome::Duplicate) }
                 tx.exec("INSERT INTO mfa_authenticator (id, user_id, type, data, created_at) VALUES ($id, $user_id, 'webauthn', Unwrap(CAST($data AS Json)), CAST($now AS Datetime))")
                     .param("$id", row_id).param("$user_id", user_id)
-                    .param("$data", json!({"name":name,"credential":credential,"rust_passkey":passkey}).to_string())
+                    .param("$data", json!({"name":name,"credential":credential,"rust_passkey":passkey,"passwordless":passwordless}).to_string())
                     .param("$now", now).await?;
                 let recovery_codes = if factor_set.recovery { None } else {
                     let codes = id_compat::recovery::codes(recovery_seed).map_err(ydb::YdbOrCustomerError::from_err)?;

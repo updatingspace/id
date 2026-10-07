@@ -172,9 +172,13 @@ fn assemble(rows: Vec<AuthenticatorRow>) -> Result<SecuritySnapshot> {
                     created_at: epoch_seconds(row.created_at)?,
                     last_used_at: row.last_used_at.map(epoch_seconds).transpose()?,
                     is_passwordless: data
-                        .pointer("/credential/clientExtensionResults/credProps/rk")
+                        .get("passwordless")
                         .and_then(Value::as_bool)
-                        .unwrap_or(false),
+                        .unwrap_or_else(|| {
+                            data.pointer("/credential/clientExtensionResults/credProps/rk")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false)
+                        }),
                 });
             }
             _ => anyhow::bail!("unknown MFA authenticator type"),
@@ -205,6 +209,39 @@ mod tests {
         );
         assert!(recovery_left(&json!({"seed":"encrypted","used_mask":1024})).is_err());
         assert!(recovery_left(&json!({"migrated_codes":"bad"})).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn passkey_inventory_uses_stored_passwordless_choice_with_legacy_fallback() -> Result<()> {
+        let now = UNIX_EPOCH + Duration::from_secs(100);
+        let rows = [
+            (
+                1,
+                json!({"name":"Mobile passkey","passwordless":true,"credential":{"clientExtensionResults":{}}}),
+                true,
+            ),
+            (
+                2,
+                json!({"name":"Legacy passkey","credential":{"clientExtensionResults":{"credProps":{"rk":true}}}}),
+                true,
+            ),
+            (
+                3,
+                json!({"name":"Second factor","passwordless":false,"credential":{"clientExtensionResults":{"credProps":{"rk":true}}}}),
+                false,
+            ),
+        ];
+        for (id, data, expected) in rows {
+            let snapshot = assemble(vec![AuthenticatorRow {
+                id,
+                kind: "webauthn".into(),
+                data: data.to_string(),
+                created_at: now,
+                last_used_at: None,
+            }])?;
+            assert_eq!(snapshot.passkeys[0].is_passwordless, expected);
+        }
         Ok(())
     }
 }
