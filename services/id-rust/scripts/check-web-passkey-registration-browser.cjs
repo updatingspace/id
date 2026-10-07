@@ -71,10 +71,14 @@ async function main() {
         } } });
       } else {
         completed += 1;
-        assert.ok(['My passkey', 'Uncertain passkey'].includes(payload.name));
+        assert.ok(['My passkey', 'Rejected passkey', 'Uncertain passkey'].includes(payload.name));
         assert.equal(payload.credential.rawId, Buffer.from([8, 9]).toString('base64url'));
         assert.equal(payload.credential.response.attestationObject, Buffer.from([10, 11]).toString('base64url'));
         assert.equal(payload.credential.response.clientDataJSON, Buffer.from([12, 13]).toString('base64url'));
+        if (payload.name === 'Rejected passkey') {
+          reply(response, 400, { code: 'INVALID_PASSKEY', message: 'Не удалось проверить Passkey. Повторите добавление ключа.' });
+          return;
+        }
         if (payload.name === 'Uncertain passkey') {
           uncertainRegistered = true;
           // The server committed and sent headers, but the JSON body was lost.
@@ -139,6 +143,20 @@ async function main() {
     assert.equal(begun, 1);
     assert.equal(completed, 1);
     assert.equal(await page.locator('#passkey-register').isHidden(), true);
+    const rejectedPage = await context.newPage();
+    await rejectedPage.setViewportSize({ width: 390, height: 844 });
+    await rejectedPage.goto(`${origin}/account?section=security`);
+    await rejectedPage.locator('#passkey-name').fill('Rejected passkey');
+    await rejectedPage.locator('#passkey-register').click();
+    await rejectedPage.locator('#passkey-review:not([hidden])').waitFor();
+    assert.equal(await rejectedPage.locator('#passkey-register').isDisabled(), true);
+    assert.match(await rejectedPage.locator('#passkey-error').innerText(), /не привязан к вашему аккаунту.*мог сохраниться на устройстве/);
+    assert.doesNotMatch(await rejectedPage.locator('#passkey-error').innerText(), /Повторите добавление ключа/);
+    assert.equal(await rejectedPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(completed, 2);
+    await rejectedPage.locator('#passkey-review').click();
+    await rejectedPage.getByText('Ключей доступа нет.', { exact: true }).waitFor();
+    assert.equal(completed, 2, 'rejected credential caused an automatic retry');
     const uncertainPage = await context.newPage();
     await uncertainPage.setViewportSize({ width: 390, height: 844 });
     await uncertainPage.goto(`${origin}/account?section=security`);
@@ -152,11 +170,11 @@ async function main() {
     if (process.env.ID_PASSKEY_UNCERTAIN_SCREENSHOT_PATH) {
       await uncertainPage.screenshot({ path: process.env.ID_PASSKEY_UNCERTAIN_SCREENSHOT_PATH, fullPage: true });
     }
-    assert.equal(completed, 2);
+    assert.equal(completed, 3);
     await uncertainPage.locator('#passkey-review').click();
     await uncertainPage.getByText('Uncertain passkey', { exact: true }).waitFor();
-    assert.equal(completed, 2, 'unknown result caused an automatic retry');
-    console.log('PASS: Topcoat passkey registration, recovery codes and unknown-result review');
+    assert.equal(completed, 3, 'unknown result caused an automatic retry');
+    console.log('PASS: Topcoat passkey registration, recovery codes and rejected/unknown-result review');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => proxy.close(resolve));

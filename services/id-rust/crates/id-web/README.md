@@ -37,8 +37,9 @@ remove the fragment from browser history, and POST the token without cookies to
 the API. The immediate notice contains only the cancellation token; the later
 delivery email contains a separate download token. Neither token is rendered
 into SSR HTML.
-The opt-in `/admin/` area offers read-only deletion-request and account lookups
-by exact ID or verified primary email. It verifies the operator session through `id-api` before
+The opt-in `/admin/` area offers read-only deletion and export lookups by
+request ID, plus account lookup by exact numeric ID or verified primary email.
+It verifies the operator session through `id-api` before
 rendering and does not query YDB. Its templates and stylesheet are
 frontend-owned; the API owns authorization and account/request state. Account
 lookup shows effective ID access status (including a pending deletion, disabled
@@ -48,6 +49,8 @@ change access.
 Email lookup submits a read-only POST from the SSR form to `id-web`, then to
 `id-api`; the address is not placed in a page or API URL. Both responses use
 `Cache-Control: no-store`.
+Export lookup shows only lifecycle state, archive preparation and delivery
+times; it never exposes the recipient, object key or download capability.
 The separately gated suspension review checks the exact account, shows the
 effect on access, and requires a fixed reason plus the operator's current
 password. Browser JavaScript sends the confirmation to `id-api` with CSRF and

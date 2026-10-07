@@ -88,7 +88,9 @@
       }
       if (!response.ok) {
         if (path.endsWith("/complete") && response.status >= 500) throw uncertain();
-        throw new Error(typeof body.message === "string" ? body.message : "Не удалось изменить ключ доступа.");
+        const failure = new Error(typeof body?.message === "string" ? body.message : "Не удалось изменить ключ доступа.");
+        failure.invalidPasskey = path.endsWith("/complete") && body?.code === "INVALID_PASSKEY";
+        throw failure;
       }
       return body;
     } finally {
@@ -149,12 +151,14 @@
           window.location.reload();
         }
       } catch (failure) {
-        if (failure?.uncertainPasskey) {
+        if (failure?.uncertainPasskey || failure?.invalidPasskey) {
           needsReview = true;
           review.hidden = false;
           const empty = document.getElementById("passkeys-empty");
           if (empty) empty.hidden = true;
-          error.textContent = failure.message;
+          error.textContent = failure.invalidPasskey
+            ? "Не удалось добавить ключ. Он не привязан к вашему аккаунту, но мог сохраниться на устройстве. Проверьте список ключей перед новой попыткой."
+            : failure.message;
           review.focus();
         } else if (failure?.name === "NotAllowedError" || failure?.name === "AbortError") {
           error.textContent = "Создание ключа отменено или ответ не подтверждён. Обновите список перед повтором.";
