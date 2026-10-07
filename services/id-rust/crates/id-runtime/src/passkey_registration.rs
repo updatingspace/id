@@ -15,7 +15,9 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Webauthn};
+use webauthn_rs::prelude::{
+    PasskeyRegistration, RegisterPublicKeyCredential, Webauthn, WebauthnError,
+};
 use ydb::{Client, Transaction, TxMode, closure};
 
 const PENDING_KEY: &str = "id_rust_passkey_pending";
@@ -45,6 +47,26 @@ pub enum CompleteOutcome {
 pub struct RegistrationInput {
     pub name: String,
     pub credential: Value,
+}
+
+fn rejected(reason: &'static str) -> CompleteOutcome {
+    // Only a fixed category is logged: challenges, credentials and account
+    // identifiers must never enter application logs.
+    tracing::info!(reason, "passkey registration rejected");
+    CompleteOutcome::InvalidPasskey
+}
+
+fn verification_reason(error: &WebauthnError) -> &'static str {
+    match error {
+        WebauthnError::InvalidClientDataType => "client_data_type",
+        WebauthnError::MismatchedChallenge | WebauthnError::ChallengeNotFound => "challenge",
+        WebauthnError::InvalidRPOrigin => "origin",
+        WebauthnError::InvalidRPIDHash => "rp_id",
+        WebauthnError::UserNotPresent => "user_presence",
+        WebauthnError::UserNotVerified => "user_verification",
+        WebauthnError::AttestationNotSupported => "attestation_format",
+        _ => "webauthn_verification",
+    }
 }
 
 async fn verified_email(
@@ -147,19 +169,22 @@ pub async fn complete(
                 if factor_set.any && !session.mfa_verified { return Ok(CompleteOutcome::Unauthorized) }
                 let mut data = session_data(tx, codec.as_ref(), token).await?;
                 if !recent_auth(&data, now) { return Ok(CompleteOutcome::ReauthRequired) }
-                let Some(pending) = data.get(PENDING_KEY) else { return Ok(CompleteOutcome::InvalidPasskey) };
-                let Some(created_at) = pending.get("created_at").and_then(Value::as_u64) else { return Ok(CompleteOutcome::InvalidPasskey) };
-                if created_at > now_secs || now_secs - created_at >= CEREMONY_TTL { return Ok(CompleteOutcome::InvalidPasskey) }
+                let Some(pending) = data.get(PENDING_KEY) else { return Ok(rejected("missing_challenge")) };
+                let Some(created_at) = pending.get("created_at").and_then(Value::as_u64) else { return Ok(rejected("invalid_challenge_state")) };
+                if created_at > now_secs || now_secs - created_at >= CEREMONY_TTL { return Ok(rejected("expired_challenge")) }
                 let passwordless = pending.get("passwordless").and_then(Value::as_bool).unwrap_or(false);
-                let Some(state) = pending.get("state") else { return Ok(CompleteOutcome::InvalidPasskey) };
-                let Ok(state) = serde_json::from_value::<PasskeyRegistration>(state.clone()) else { return Ok(CompleteOutcome::InvalidPasskey) };
-                let Ok(response) = serde_json::from_value::<RegisterPublicKeyCredential>(credential.clone()) else { return Ok(CompleteOutcome::InvalidPasskey) };
-                let Ok(passkey) = webauthn.finish_passkey_registration(&response, &state) else { return Ok(CompleteOutcome::InvalidPasskey) };
+                let Some(state) = pending.get("state") else { return Ok(rejected("invalid_challenge_state")) };
+                let Ok(state) = serde_json::from_value::<PasskeyRegistration>(state.clone()) else { return Ok(rejected("invalid_challenge_state")) };
+                let Ok(response) = serde_json::from_value::<RegisterPublicKeyCredential>(credential.clone()) else { return Ok(rejected("credential_json")) };
+                let passkey = match webauthn.finish_passkey_registration(&response, &state) {
+                    Ok(passkey) => passkey,
+                    Err(failure) => return Ok(rejected(verification_reason(&failure))),
+                };
                 // credProps is an optional client extension result. A required
                 // residentKey request is enforced by the browser even when the
                 // extension omits rk; an explicit false still contradicts it.
                 let resident = credential.pointer("/clientExtensionResults/credProps/rk").and_then(Value::as_bool);
-                if passwordless && resident == Some(false) { return Ok(CompleteOutcome::InvalidPasskey) }
+                if passwordless && resident == Some(false) { return Ok(rejected("resident_key_false")) }
                 let digest = passkey_index::digest_of_bytes(passkey.cred_id().as_ref())
                     .map_err(|_| ydb::YdbOrCustomerError::from_err(std::io::Error::other("invalid credential ID")))?;
                 if !passkey_index::claim_in_tx(tx, &digest, row_id, user_id).await? { return Ok(CompleteOutcome::Duplicate) }
