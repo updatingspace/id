@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Удаление аккаунта — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261008-1" />
+  <script src="/_id/account-delete.js?v=20261007-2" defer></script>
+  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+</head>
+<body>
+  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
+  <main>
+    <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
+    <h1>Удалить аккаунт</h1>
+    <p class="page-intro">Проверьте, что хотите сохранить. После подтверждения доступ к UpdSpace ID закроется сразу, а очистка данных займёт время.</p>
+    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    <section aria-labelledby="before-delete-title">
+      <h2 id="before-delete-title">Перед удалением</h2>
+      <ol class="delete-steps">
+        <li><strong>Сохраните нужные данные.</strong> {% if exports_enabled %}<a href="/account?section=data">Запросите копию данных</a> до удаления.{% else %}Если вам нужна копия данных, обратитесь в поддержку до удаления.{% endif %} Уже принятый запрос на копию продолжит выполняться и после удаления аккаунта.</li>
+        <li><strong>Проверьте связанные сервисы.</strong> Вход через UpdSpace ID перестанет работать. Данные сторонних сервисов обрабатываются по их собственным правилам.</li>
+        <li><strong>Подтвердите удаление.</strong> Мы сразу закроем ваши сеансы и поставим очистку данных ID в очередь. Готовым удаление станет только после завершения очистки.</li>
+      </ol>
+    </section>
+    <section aria-labelledby="confirm-delete-title">
+      <h2 id="confirm-delete-title">Подтвердить запрос</h2>
+      <p>Аккаунт: <strong>{{ email }}</strong></p>
+      <form id="delete-account-form" action="/account?section=delete" method="post">
+        <label for="delete-password">Текущий пароль</label>
+        <input id="delete-password" name="password" type="password" autocomplete="current-password" required />
+        {% if has_mfa %}<label for="delete-mfa">Код приложения или резервный код</label>
+        <input id="delete-mfa" name="mfa_code" type="text" autocomplete="one-time-code" required />{% endif %}
+        <label class="delete-confirmation" for="delete-understood"><input id="delete-understood" name="understood" type="checkbox" required /> Я понимаю, что доступ закроется сразу, а очистка займёт время.</label>
+        <div class="review-actions"><button class="delete-button" type="submit">Удалить аккаунт</button><a href="/account">Оставить аккаунт</a></div>
+      </form>
+      <noscript><p>Для отправки запроса требуется JavaScript. Ваш аккаунт не удалён.</p></noscript>
+      <p id="delete-error" role="alert" hidden></p>
+      <div id="delete-result" role="status" tabindex="-1" hidden></div>
+    </section>
+  </main>
+</body>
+</html>

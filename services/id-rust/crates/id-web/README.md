@@ -26,8 +26,22 @@ templates: browser scripts use those hooks. Do not use `safe` or string
 replacement for API-provided values.
 
 The account SSR handler calls `id-api` with the request cookie and renders its
-response; it does not implement identity business rules. Recovery and email
-verification pages are static HTML templates with browser behavior in
+response; it does not implement identity business rules.
+
+The deletion review at `/account?section=delete` is hidden unless
+`ID_WEB_DELETION_ENABLED=true` and both export UI flags are also enabled. It
+explains immediate loss of access, asynchronous cleanup and how an export
+requested first survives deletion. The browser sends the password and MFA code
+directly to `id-api`; a lost response is shown as uncertain and is not retried
+automatically. Enable this page only after the API, jobs and recovery timer
+have passed the coordinated production gate. `scripts/smoke-web-deletion.sh`
+checks the review, mobile width and submission behavior against a mock API;
+`scripts/smoke-web-deletion-live.sh` drives a real browser through Topcoat and
+the Rust API on an explicitly disposable local YDB, then checks the accepted
+request and revoked session. The later cleanup and export-after-deletion flow
+has a separate YDB integration test.
+
+Recovery and email verification pages are static HTML templates with browser behavior in
 `static/recovery.js`; their Rust handlers only select the document and set
 security headers. Frontend authors can change their layout and copy without
 editing API or router code, while keeping the form IDs used by the script.

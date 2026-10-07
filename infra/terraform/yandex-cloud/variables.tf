@@ -668,7 +668,7 @@ variable "ydb_database_name" {
 }
 
 variable "frontend_bucket_name" {
-  description = "Optional explicit Object Storage bucket name for frontend assets."
+  description = "Deprecated input accepted during removal of the retired React bucket. It is no longer used."
   type        = string
   default     = ""
 }
@@ -740,6 +740,20 @@ variable "enable_rust_account_deletion_api" {
       (var.enable_rust_stack || var.gateway_rust_sessions_mutations_container_id != "")
     )
     error_message = "Account deletion requires delayed export, private recovery and a Rust mutation API container."
+  }
+}
+
+variable "enable_rust_account_deletion_ui" {
+  description = "Show the self-service deletion review only after the Rust API, delayed export and private cleanup timer are enabled."
+  type        = bool
+  default     = false
+
+  validation {
+    condition = !var.enable_rust_account_deletion_ui || (
+      var.enable_rust_account_deletion_api && var.enable_rust_export_delayed &&
+      var.enable_rust_deletion_recovery_timer
+    )
+    error_message = "Account deletion UI requires the deletion API, delayed export and private recovery timer."
   }
 }
 

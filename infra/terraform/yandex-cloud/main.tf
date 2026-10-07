@@ -85,13 +85,6 @@ resource "yandex_container_registry" "id" {
   name = "${local.name_prefix}-registry"
 }
 
-resource "yandex_storage_bucket" "frontend" {
-  access_key    = yandex_iam_service_account_static_access_key.automation.access_key
-  secret_key    = yandex_iam_service_account_static_access_key.automation.secret_key
-  bucket        = local.frontend_bucket_name
-  force_destroy = var.object_storage_force_destroy
-}
-
 resource "yandex_storage_bucket" "media" {
   access_key    = yandex_iam_service_account_static_access_key.automation.access_key
   secret_key    = yandex_iam_service_account_static_access_key.automation.secret_key

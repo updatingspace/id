@@ -49,9 +49,16 @@ jobs:
             echo 'Retired React Gateway fallback returned' >&2
             exit 1
           fi
+          if git grep -n -E 'resource "yandex_storage_bucket" "frontend"|yandex_storage_bucket\.frontend' -- infra/terraform/yandex-cloud; then
+            echo 'Retired React bucket returned to Terraform' >&2
+            exit 1
+          fi
       - name: Verify delayed-export deploy gate
         working-directory: .
         run: node scripts/ci/test-check-yc-delayed-export.mjs
+      - name: Verify account-deletion deploy gate
+        working-directory: .
+        run: node scripts/ci/test-check-yc-account-deletion.mjs
       - name: Verify production CI event gate
         working-directory: .
         run: node scripts/ci/test-verify-yc-workflow-event.mjs
@@ -286,11 +293,39 @@ jobs:
           cargo build --locked -p id-runtime --bins -p id-web
           bash scripts/smoke-web-recovery-live.sh
 
+      - name: Verify Chromium to Topcoat to Rust deletion on disposable YDB
+        env:
+          YDB_ENDPOINT: grpc://127.0.0.1:2137
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_DISPOSABLE_YDB: "true"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          docker run -d --rm --name id-deletion-browser-ydb --hostname localhost \
+            -e GRPC_PORT=2137 -e MON_PORT=8766 \
+            -p 127.0.0.1:2137:2137 \
+            ydbplatform/local-ydb@sha256:9e46fd45875551a75bcf34d0bb9ca0baa1d8763a4ccf2070af45f4467c4b7402
+          trap 'docker stop id-deletion-browser-ydb' EXIT
+          YDB_CONTAINER_NAME=id-deletion-browser-ydb \
+            YDB_LOCAL_ENDPOINT=grpc://localhost:2137 \
+            ../../scripts/ci/wait-for-ydb-local.sh
+          target/debug/idctl legacy-schema --apply
+          target/debug/idctl cache-schema
+          cargo test --locked -p id-runtime --test legacy_cutover_reset_ydb -- --ignored
+          target/debug/idctl data-export-schema
+          target/debug/idctl data-export-escrow-schema
+          target/debug/idctl data-export-mail-schema
+          bash scripts/smoke-web-deletion-live.sh
+
       - name: Verify public export link fragment, download and expiry in Chromium
         run: node scripts/check-web-export-redeem-browser.cjs
 
       - name: Verify inline passkey management in Chromium
         run: node scripts/check-web-passkey-management-browser.cjs
+
+      - name: Verify gated account deletion review in Chromium
+        run: bash scripts/smoke-web-deletion.sh
 
       - name: Verify operator suspension and OIDC client lookup in Chromium
         run: node scripts/check-web-admin-suspend-browser.cjs

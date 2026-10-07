@@ -22,6 +22,7 @@ env:
   RUST_WEB_CONTAINER_ID: bbai4bjc8f21qg5fvjht
   RUST_JOBS_CONTAINER_ID: bba9v82d1op2qbh2kqtt
   ID_GATEWAY_ID: d5d6almt4c5i2ao9e4ha
+  ID_LOG_GROUP_ID: e23tdfhcg6rl8dg7jpaj
 
 jobs:
   verify-revision:
@@ -169,17 +170,20 @@ jobs:
           for id in "$RUST_API_CONTAINER_ID" "$RUST_SESSIONS_CONTAINER_ID" "$RUST_MUTATIONS_CONTAINER_ID" "$RUST_WEB_CONTAINER_ID" "$RUST_JOBS_CONTAINER_ID"; do
             yc serverless container get --id "$id" --format json >/dev/null || fail "Cannot read Rust container $id with the deploy identity"
           done
+          yc logging group get --id "$ID_LOG_GROUP_ID" --format json >/dev/null || fail "Cannot read the dedicated Rust ID log group with the deploy identity"
       - name: Preflight all five Rust revisions
         run: node scripts/ci/check-yc-rust-rollout.mjs
       - name: Verify runner can reach the existing Gateway revision
         run: |
           node scripts/ci/smoke-yc-rust-http.mjs api
           node scripts/ci/smoke-yc-rust-http.mjs oidc
+          node scripts/ci/smoke-yc-rust-http.mjs magic-link
       - name: Reject a partially enabled delayed export before deployment
         run: |
           set -euo pipefail
           active_build=$(yc serverless container revision list --container-id "$RUST_MUTATIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")][0].image.environment.BUILD_ID // ""')
           EXPECTED_BUILD_ID="$active_build" node scripts/ci/check-yc-delayed-export.mjs --if-enabled
+          EXPECTED_BUILD_ID="$active_build" node scripts/ci/check-yc-account-deletion.mjs --if-enabled
       - name: Verify operator-applied Rust YDB schemas
         run: |
           set -euo pipefail
@@ -194,41 +198,47 @@ jobs:
         run: |
           set -euo pipefail
           revision=$(yc serverless container revision list --container-id "$RUST_API_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
-          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_API_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
+          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_API_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --log-group-id "$ID_LOG_GROUP_ID" --apply
           node scripts/ci/smoke-yc-rust-http.mjs api
           node scripts/ci/smoke-yc-rust-http.mjs oidc
       - name: Deploy Rust sessions API
         run: |
           set -euo pipefail
           revision=$(yc serverless container revision list --container-id "$RUST_SESSIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
-          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_SESSIONS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
+          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_SESSIONS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --log-group-id "$ID_LOG_GROUP_ID" --apply
           node scripts/ci/smoke-yc-rust-http.mjs sessions
       - name: Deploy Rust mutations API
         run: |
           set -euo pipefail
           revision=$(yc serverless container revision list --container-id "$RUST_MUTATIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
-          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_MUTATIONS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
+          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_MUTATIONS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-api@$API_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --log-group-id "$ID_LOG_GROUP_ID" --apply
           node scripts/ci/smoke-yc-rust-http.mjs mutations
       - name: Deploy Topcoat UI
         run: |
           set -euo pipefail
           revision=$(yc serverless container revision list --container-id "$RUST_WEB_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
-          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_WEB_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-web@$WEB_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
+          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_WEB_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-web@$WEB_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --log-group-id "$ID_LOG_GROUP_ID" --apply
           node scripts/ci/smoke-yc-rust-http.mjs web
       - name: Deploy Rust jobs
         run: |
           set -euo pipefail
           revision=$(yc serverless container revision list --container-id "$RUST_JOBS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")] | sort_by(.created_at) | last.id')
-          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_JOBS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-jobs@$JOBS_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --apply
+          node scripts/ci/deploy-yc-rust-revision.mjs "$RUST_JOBS_CONTAINER_ID" "$revision" "cr.yandex/$REGISTRY_ID/updatingspace-id-jobs@$JOBS_DIGEST" --set-env "BUILD_ID=$DEPLOY_SHA" --log-group-id "$ID_LOG_GROUP_ID" --apply
           yc serverless container revision list --container-id "$RUST_JOBS_CONTAINER_ID" --format json | jq -e 'any(.[]; .status == "ACTIVE")'
       - name: Confirm all serving Rust images and tested SHA
         run: node scripts/ci/check-yc-rust-rollout.mjs --deployed
+      - name: Verify Portal magic-link routes remain on Rust
+        run: node scripts/ci/smoke-yc-rust-http.mjs magic-link
       - name: Verify delayed export bundle when enabled
         run: |
           set -euo pipefail
           delayed=$(EXPECTED_BUILD_ID="$DEPLOY_SHA" node scripts/ci/check-yc-delayed-export.mjs --if-enabled)
           if [[ "$delayed" == "enabled" ]]; then
             node scripts/ci/smoke-yc-rust-http.mjs delayed-export
+          fi
+          deletion=$(EXPECTED_BUILD_ID="$DEPLOY_SHA" node scripts/ci/check-yc-account-deletion.mjs --if-enabled)
+          if [[ "$deletion" == "enabled" ]]; then
+            node scripts/ci/smoke-yc-rust-http.mjs deletion
           fi
       - name: Restore previous Rust revisions after failed deployment
         if: failure() && steps.capture.outcome == 'success'

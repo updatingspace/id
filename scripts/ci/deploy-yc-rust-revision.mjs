@@ -14,7 +14,7 @@ const [containerId, sourceId, image, ...options] = process.argv.slice(2);
 if (!/^bba[a-z0-9]{17}$/.test(containerId ?? '') ||
     !/^bba[a-z0-9]{17}$/.test(sourceId ?? '') ||
     !/^cr\.yandex\/[a-z0-9]+\/[a-z0-9-]+@sha256:[0-9a-f]{64}$/.test(image ?? '')) {
-  die('usage: deploy-yc-rust-revision.mjs CONTAINER_ID SOURCE_REVISION IMAGE@sha256:DIGEST [--expect-active-revision REVISION_ID] [--set-env NAME=VALUE]... [--add-secret ID:VERSION:KEY:ENV] [--replace-secret-version ID:OLD_VERSION:NEW_VERSION] [--apply]');
+  die('usage: deploy-yc-rust-revision.mjs CONTAINER_ID SOURCE_REVISION IMAGE@sha256:DIGEST [--expect-active-revision REVISION_ID] [--set-env NAME=VALUE]... [--add-secret ID:VERSION:KEY:ENV] [--replace-secret-version ID:OLD_VERSION:NEW_VERSION] [--log-group-id ID] [--apply]');
 }
 
 let apply = false;
@@ -23,6 +23,7 @@ let restoring = false;
 const overrides = new Map();
 const addedSecrets = [];
 const replacedSecretVersions = new Map();
+let logGroupId;
 for (let i = 0; i < options.length; i++) {
   const option = options[i];
   if (option === '--apply') {
@@ -61,12 +62,16 @@ for (let i = 0; i < options.length; i++) {
       die('invalid or duplicate --replace-secret-version entry');
     }
     replacedSecretVersions.set(id, { oldVersionId, newVersionId });
+  } else if (option === '--log-group-id') {
+    const id = options[++i];
+    if (logGroupId || !/^e23[a-z0-9]{17}$/.test(id ?? '')) die('invalid or duplicate --log-group-id');
+    logGroupId = id;
   } else {
     die(`unknown option: ${option}`);
   }
 }
-if (restoring && (overrides.size || addedSecrets.length || replacedSecretVersions.size)) {
-  die('restoring a captured revision cannot override environment or secret bindings');
+if (restoring && (overrides.size || addedSecrets.length || replacedSecretVersions.size || logGroupId)) {
+  die('restoring a captured revision cannot override environment, secret bindings or logging');
 }
 
 function yc(args) {
@@ -135,7 +140,8 @@ if (source.metadata_options?.gce_http_endpoint) {
 if (source.metadata_options?.aws_v1_http_endpoint) {
   args.push('--metadata-options', `aws-v1-http-endpoint=${source.metadata_options.aws_v1_http_endpoint.toLowerCase()}`);
 }
-if (source.log_options?.folder_id) args.push('--log-folder-id', source.log_options.folder_id);
+if (logGroupId) args.push('--log-group-id', logGroupId);
+else if (source.log_options?.folder_id) args.push('--log-folder-id', source.log_options.folder_id);
 else if (source.log_options?.log_group_id) args.push('--log-group-id', source.log_options.log_group_id);
 else if (source.log_options?.disabled) args.push('--no-logging');
 
@@ -146,6 +152,7 @@ console.log(JSON.stringify({
   target_image: image,
   environment_keys: Object.keys(environment).sort(),
   secret_environment_keys: names.sort(),
+  log_group_id: logGroupId ?? source.log_options?.log_group_id ?? null,
   apply,
 }));
 if (!apply) process.exit(0);

@@ -135,7 +135,7 @@ async function main() {
     if (await page.locator('#passkey-register').count() === 0) {
       throw new Error(`Registration form missing at ${page.url()}: ${(await page.locator('body').innerText()).slice(0, 600)}; web: ${webLog.slice(-600)}`);
     }
-    assert.equal(await page.locator('text=Ключей доступа нет.').count(), 1);
+    assert.equal(await page.getByText('Ключей доступа пока нет.', { exact: true }).count(), 1);
     await page.locator('#passkey-name').fill('My passkey');
     await page.locator('#passkey-register').click();
     await page.locator('#passkey-recovery').waitFor({ state: 'visible' });
@@ -146,6 +146,12 @@ async function main() {
     const rejectedPage = await context.newPage();
     await rejectedPage.setViewportSize({ width: 390, height: 844 });
     await rejectedPage.goto(`${origin}/account?section=security`);
+    assert.equal(await rejectedPage.locator('main > section').count(), 3);
+    const createButton = await rejectedPage.locator('#passkey-register').boundingBox();
+    const createInput = await rejectedPage.locator('#passkey-name').boundingBox();
+    assert.ok(createButton && createInput);
+    assert.ok(createButton.height >= 44 && createButton.y >= createInput.y + createInput.height,
+      'mobile passkey action must be a full-height row below the name');
     await rejectedPage.locator('#passkey-name').fill('Rejected passkey');
     await rejectedPage.locator('#passkey-register').click();
     await rejectedPage.locator('#passkey-review:not([hidden])').waitFor();
@@ -155,7 +161,7 @@ async function main() {
     assert.equal(await rejectedPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.equal(completed, 2);
     await rejectedPage.locator('#passkey-review').click();
-    await rejectedPage.getByText('Ключей доступа нет.', { exact: true }).waitFor();
+    await rejectedPage.getByText('Ключей доступа пока нет.', { exact: true }).waitFor();
     assert.equal(completed, 2, 'rejected credential caused an automatic retry');
     const uncertainPage = await context.newPage();
     await uncertainPage.setViewportSize({ width: 390, height: 844 });

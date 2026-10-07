@@ -1,5 +1,12 @@
 # Production state before enabling delayed Rust export
 
+This records the 2026-10-07 pre-rollout state. Later the same day the serving
+mutations API and jobs revisions were bound to the managed escrow key, the
+delayed export flags and Gateway routes were enabled, and the live readiness
+gate plus unauthenticated public smoke passed. The full production owner,
+email and post-deletion journey remains unverified. Reinspect live YC before
+using any historical revision ID or state detail below.
+
 ## State cleanup completed on 2026-10-07
 
 Both retired Python container IDs below were rechecked as `NotFound` in YC.
@@ -15,7 +22,7 @@ An isolated OpenTofu plan on a temporary copy then changed exactly
 Applying that plan advanced state serial to 106 and created Lockbox version
 `e6q9lm8k2k3bo0efe5b1`. Its 32-byte escrow key is new; all ten prior
 Lockbox values were compared with the preceding version and preserved
-unchanged. The current API and jobs revisions do not yet bind the new key.
+unchanged. At that point the API and jobs revisions did not yet bind the new key.
 The targeted replacement scheduled the preceding version
 `e6q2gi6p6j9hjbbmkhi2` for destruction while production revisions still
 referenced it. At 14:52 UTC, ID returned HTTP 502 through both Cloudflare and

@@ -35,6 +35,7 @@ struct AccountOverview<'a> {
     has_avatar: bool,
 }
 
+#[derive(Clone, Copy)]
 struct OverviewFeatures {
     logout_enabled: bool,
     profile_enabled: bool,
@@ -42,6 +43,7 @@ struct OverviewFeatures {
     sessions_enabled: bool,
     preferences_enabled: bool,
     exports_enabled: bool,
+    deletion_enabled: bool,
     apps_enabled: bool,
     security_enabled: bool,
     history_enabled: bool,
@@ -56,6 +58,7 @@ impl From<&AccountApi> for OverviewFeatures {
             sessions_enabled: api.sessions_enabled,
             preferences_enabled: api.preferences_enabled,
             exports_enabled: api.exports_enabled,
+            deletion_enabled: api.deletion_enabled,
             apps_enabled: api.apps_enabled,
             security_enabled: api.security_enabled,
             history_enabled: api.history_enabled,
@@ -128,6 +131,15 @@ struct PrivacyPage<'a> {
     consents: &'a [ConsentView<'a>],
 }
 
+#[derive(Template)]
+#[template(path = "account-delete.html")]
+struct DeletePage<'a> {
+    email: &'a str,
+    has_mfa: bool,
+    exports_enabled: bool,
+    logout_enabled: bool,
+}
+
 struct TimezoneView<'a> {
     name: &'a str,
     display_name: &'a str,
@@ -198,6 +210,27 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         }
         Profile::User(user, cookies) => (user, cookies),
     };
+    let delete_section = request::uri(cx).query().is_some_and(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .any(|(key, value)| key == "section" && value == "delete")
+    });
+    if delete_section {
+        if !api.deletion_enabled {
+            return Ok(Response::builder()
+                .status(404)
+                .header("Cache-Control", "no-store")
+                .body(Body::empty())?);
+        }
+        let html = DeletePage {
+            email: &user.email,
+            has_mfa: user.has_2fa,
+            exports_enabled: api.exports_enabled,
+            logout_enabled: api.logout_enabled,
+        }
+        .render()
+        .map_err(|error| topcoat::Error::msg(error.to_string()))?;
+        return page_response(html, cookies, true);
+    }
     let session_section = api.sessions_enabled
         && request::uri(cx).query().is_some_and(|query| {
             url::form_urlencoded::parse(query.as_bytes())
@@ -646,6 +679,15 @@ pub(crate) async fn account_script() -> topcoat::Result<Response> {
         .body(Body::from(include_str!("../static/account.js")))?)
 }
 
+#[route(GET "/_id/account-delete.js")]
+pub(crate) async fn deletion_script() -> topcoat::Result<Response> {
+    Ok(Response::builder()
+        .header("Content-Type", "text/javascript; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(include_str!("../static/account-delete.js")))?)
+}
+
 #[route(GET "/_id/profile.js")]
 pub(crate) async fn profile_script() -> topcoat::Result<Response> {
     Ok(Response::builder()
@@ -798,7 +840,7 @@ mod tests {
         .render()?;
         assert!(html.contains("id=\"totp-confirm-form\""));
         assert!(html.contains("id=\"totp-recovery-codes\""));
-        assert!(html.contains("Ключей доступа нет"));
+        assert!(html.contains("Ключей доступа пока нет"));
         assert!(!html.contains("id=\"totp-disable\""));
         assert!(!html.contains("id=\"password-change-form\""));
         Ok(())
@@ -957,6 +999,7 @@ mod tests {
                 sessions_enabled: true,
                 preferences_enabled: true,
                 exports_enabled: true,
+                deletion_enabled: false,
                 apps_enabled: true,
                 security_enabled: true,
                 history_enabled: true,
@@ -1008,6 +1051,7 @@ mod tests {
                 sessions_enabled: true,
                 preferences_enabled: true,
                 exports_enabled: true,
+                deletion_enabled: false,
                 apps_enabled: true,
                 security_enabled: true,
                 history_enabled: true,
@@ -1032,7 +1076,70 @@ mod tests {
         assert!(html.contains("Кто имеет доступ"));
         assert!(html.contains("Защита входа"));
         assert!(html.contains("Ваши данные"));
+        assert!(html.find("id=\"profile-title\"") < html.find("class=\"account-nav\""));
         assert!(!html.contains("/_id/profile.js"));
+        Ok(())
+    }
+
+    #[test]
+    fn deletion_is_explicit_and_hidden_from_the_overview_until_enabled() -> Result<(), askama::Error>
+    {
+        let user = api::User {
+            username: "owner".into(),
+            email: "owner@example.invalid".into(),
+            first_name: None,
+            last_name: None,
+            phone_number: None,
+            birth_date: None,
+            email_verified: true,
+            has_2fa: true,
+            avatar_url: None,
+        };
+        let mut features = OverviewFeatures {
+            logout_enabled: false,
+            profile_enabled: false,
+            email_management_enabled: false,
+            sessions_enabled: false,
+            preferences_enabled: false,
+            exports_enabled: true,
+            deletion_enabled: false,
+            apps_enabled: false,
+            security_enabled: false,
+            history_enabled: false,
+        };
+        let overview = |features| AccountOverview {
+            edit_mode: false,
+            features,
+            user: &user,
+            display_name: "owner",
+            email_label: "Подтверждена",
+            mfa_status: "Включена",
+            email_management: None,
+            first_name: "",
+            last_name: "",
+            phone_number: "",
+            birth_date: "",
+            avatar_url: "",
+            has_avatar: false,
+        };
+        assert!(!overview(features).render()?.contains("section=delete"));
+        features = OverviewFeatures {
+            deletion_enabled: true,
+            ..features
+        };
+        assert!(overview(features).render()?.contains("section=delete"));
+
+        let html = DeletePage {
+            email: "<script>bad()</script>@example.invalid",
+            has_mfa: true,
+            exports_enabled: true,
+            logout_enabled: false,
+        }
+        .render()?;
+        assert!(!html.contains("<script>bad()</script>"));
+        assert!(html.contains("id=\"delete-mfa\""));
+        assert!(html.contains("копию данных"));
+        assert!(html.contains("id=\"delete-understood\""));
         Ok(())
     }
 

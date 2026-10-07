@@ -71,6 +71,7 @@ locals {
     ID_WEB_PASSWORD_CHANGE_PILOT_ENABLED  = var.gateway_rust_password_change ? "true" : "false"
     ID_WEB_EMAIL_MANAGEMENT_ENABLED       = var.gateway_rust_email_status && var.gateway_rust_email_cancel && var.gateway_rust_email_verify_api ? "true" : "false"
     ID_WEB_EXPORTS_ENABLED                = var.enable_rust_export_api ? "true" : "false"
+    ID_WEB_DELETION_ENABLED               = var.enable_rust_account_deletion_ui ? "true" : "false"
     ID_WEB_EXPORT_REDEEM_ENABLED          = var.enable_rust_export_delayed ? "true" : "false"
     ID_WEB_API_ORIGIN                     = local.public_base_url
   }

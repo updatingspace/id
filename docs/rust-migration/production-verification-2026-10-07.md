@@ -3,6 +3,105 @@
 This document retains the earlier point-in-time observations below. They are
 not a release sign-off and no longer describe the active revisions.
 
+## Account-deletion activation audit later on 2026-10-07
+
+The production deletion gate returned `disabled`. A full readiness check found
+five missing pieces: the API and jobs rollout flags, an API binding for a
+versioned operation key, the public POST route, and the private recovery timer.
+The production YDB already contains the request and three progress tables.
+An aggregate status query returned two `succeeded`, three historical
+`executed`, and one `running` request. The running request has all three
+progress markers set (`avatar_done`, `profile_done`, `uuid_done`). Its read-only
+operator audit found one inactive account, one suspended master identity, one
+identity binding and 14 session-metadata rows; there were no matching
+audit/outbox/application rows. Finalization removes session metadata, but
+currently stops because the legacy cutover seal is absent. No account IDs,
+addresses or request IDs were exported by this inspection.
+
+An isolated, deletion-protected Lockbox key was created for a future rollout.
+It is not bound to any container and its temporary API payload-viewer grant
+was removed. A jobs revision with only the deletion flag enabled was briefly
+deployed without a public route. The proposed permanent five-minute timer was
+rejected by automatic approval review because it could irreversibly process
+future account deletions beyond the previously authorized two requests. The
+jobs container was restored to the prior image, secret bindings and disabled
+deletion flag; the gate again returned `disabled`. No new deletion request was
+accepted or processed through this attempt. The running request requires an
+operator review before any permanent automatic recovery is enabled.
+
+The old seal predicate required all four session tables to be empty. They
+currently contain 69, 160, 213 and 240 records respectively, while the three
+unscoped legacy tables are empty. Clearing those sessions would disrupt active
+Rust users. A local change now checks only unscoped records before sealing;
+its disposable-YDB regression passed with live-style session rows left intact,
+and a read-only production dry-run reported `ready_to_seal: true`. Automatic
+approval review rejected writing the production seal because it would remove
+a global barrier to future account finalization. No production seal was written.
+
+## Verified active deployment later on 2026-10-07
+
+The public GitHub Actions pages show `ID CI/CD` run
+[`37667811002`](https://github.com/updatingspace/id/actions/runs/37667811002)
+and the downstream `Deploy Yandex Cloud Rust ID` run
+[`37670065835`](https://github.com/updatingspace/id/actions/runs/37670065835)
+completed successfully for `ddf002374952223ec0b258ca1ab7260d2be73dfc`.
+The deploy run reports successful revision verification, image build/push and
+deployment jobs. Its private step logs were not available in the signed-out
+browser view. Earlier CI/deploy failures recorded below are historical and do
+not describe the latest published revision.
+
+A fresh YC container inventory found the five ID containers (main API,
+sessions, mutations, Topcoat web and jobs) and no retired Django ID or Python
+Gravatar container. The active revision of each ID container uses an
+`updatingspace-id-api`, `updatingspace-id-web` or `updatingspace-id-jobs` image
+and reports that same `BUILD_ID`. The API digest is
+`sha256:9e725a4ba0bbe1e52c31c9425cebf24cbe865f101a56949534689f2ac3470856`,
+the web digest is
+`sha256:2bfa80d43fb32bf2c992be50051258e2c7d92e7cbe269fc5e7637c5b17696d64`,
+and the jobs digest is
+`sha256:8a678ed608a474bd845103a9ccbe278d5b68625c4683e7027103a75aa6925ed5`.
+This confirms the serving images and tested SHA, not full feature or UX
+acceptance. Additional local branch commits have not run in remote CI or
+reached these containers.
+
+## Latest read-only audit on 2026-10-07
+
+All five active ID containers (main API, sessions, mutations, Topcoat web and
+jobs) reported the same source build `ddf0023`. The live Gateway spec
+references the four serving Rust containers and has no React Object Storage
+fallback or Django target. The ID timers found in the folder all invoke Rust
+jobs; no ID-named Cloud Function was present. The delayed-export readiness
+gate passed for the active revisions, versioned escrow key, private bucket,
+timer and Gateway routes. This establishes configuration alignment, not a
+completed 24-hour owner, email and post-deletion acceptance journey.
+
+The separate account-deletion readiness gate reported `disabled`: its public
+API route and private recovery timer are not active. The retired React bucket
+still exists with 110 objects, while no Gateway route uses it. Its removal is
+prepared in source, but the remote Terraform plan and state change are not
+verified. Production admin remains disabled; local UI changes after `ddf0023`
+are not part of the active build. No functional parity or final migration sign-off is
+claimed by this audit.
+
+## Portal magic-link route update on 2026-10-07
+
+The active Rust API already had magic-link request and consume enabled, and
+Rust jobs had the mail worker, SMTP configuration, token-key binding and
+private recovery timer. The checked production YDB schema receipt includes
+`magic-link-schema`; the API redirect allowlist contains only the Portal
+HTTPS origin. The Gateway was updated with exactly three operations:
+`POST /api/v1/auth/magic-link/request`, `GET` and `POST`
+`/api/v1/auth/magic-link/consume`. A byte-for-byte comparison showed that the
+rest of its specification was unchanged.
+
+Through the public domain, a request without tenant context returned Rust
+`400 MISSING_TENANT`; GET consume without a query returned `400 INVALID_QUERY`,
+and POST consume without tenant context returned `400 MISSING_TENANT`.
+Responses were JSON with `Cache-Control: no-store`. Health, login, `/me` and
+OIDC discovery still returned 200. These are side-effect-free routing checks:
+no mail was requested. A real email, one-time consumption, Portal callback and
+session exchange in production remain unverified.
+
 ## Current production state on 2026-10-07
 
 The five active Rust containers serve the CI-tested `22fccafb72459352235eb8ad841b372ef48d2c20`

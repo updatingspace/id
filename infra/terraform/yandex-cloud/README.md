@@ -22,15 +22,14 @@ an older still-active image fails the workflow and triggers rollback.
 
 The checked-in [`production.performance.tfvars`](production.performance.tfvars)
 records the intended Rust routing and scale-to-zero configuration. It is not a
-snapshot of the current cloud environment. In particular,
-`enable_rust_export_delayed` is not enabled there: the production export path
-still delivers an archive without the requested 24-hour wait. The delayed
-export and deletion flow has local YDB/Object Storage/SMTP coverage, but still
-needs production rehearsal and explicit activation.
-The next API/web revision stops accepting new immediate exports while keeping
-status and downloads for existing requests. The UI shows that new requests are
-temporarily unavailable until the delayed flow is activated across API, web
-and jobs. This source change alone does not alter the live production revision.
+snapshot of the current cloud environment. On 2026-10-07 the delayed export
+routes and flags were enabled on the existing production Gateway, mutations
+API, Topcoat web and jobs revisions. The live readiness gate passed and the
+public pages, scripts and unauthenticated API denial passed smoke checks.
+The 24-hour notification, delivery, cancellation and post-deletion journey
+still needs an end-to-end production rehearsal with a disposable account;
+these smoke checks do not establish user acceptance. The deletion API and
+its recovery timer remain a separately gated rollout.
 
 ## Validation and production changes
 
@@ -78,11 +77,16 @@ types; account, authentication and OAuth responses must not enter shared
 caches. `min_ready_instances` defaults to zero, so cold-start latency remains
 a measured part of the user experience.
 The catch-all GET route now reaches Topcoat. Unknown paths return its 404
-instead of a React `index.html` from Object Storage. The former frontend
-bucket is temporarily retained as a Terraform-managed resource, but Gateway
-has no route for it; this Terraform revision removes the old Gateway viewer
-permission when applied. Remove the bucket in a separate
-reviewed state change after the last old assets are no longer needed.
+instead of a React `index.html` from Object Storage. The former React bucket
+has no Gateway route and is no longer declared as a managed resource. A plan
+against the current remote state should show its deletion; treat that as a
+separate, explicit cleanup, not an incidental side effect of an unrelated
+apply. As of 2026-10-07 the live bucket still held 110 old objects. Confirm
+no old assets are needed, empty only this bucket, then review a plan that
+deletes only the retired frontend bucket while preserving media and export
+storage. The deprecated `frontend_bucket_name` input remains temporarily
+accepted so private tfvars do not break during the transition; it no longer
+creates a bucket.
 The hourly Gravatar timer requires `gravatar_rust_jobs_container_id` and calls
 the Rust jobs container. Terraform no longer contains the retired Django
 Gravatar container or blue backend resources. The historical green resource
@@ -109,6 +113,26 @@ deletion and redemption rehearsal.
 Do not set the delayed flag until the corresponding jobs, SMTP, Object Storage,
 key retention, cancellation and delete-after-export scenarios have passed on
 the target environment. A live session cannot bypass the cooldown.
+
+The account-deletion API and private recovery timer are a separate rollout.
+Before enabling either flag or adding the Gateway route, run
+`scripts/ci/check-yc-account-deletion.mjs` with the live mutation API, jobs and
+Gateway IDs plus the tested `EXPECTED_BUILD_ID`. It requires a distinct
+versioned deletion-operation key binding, both rollout flags, delayed export
+escrow jobs, a private timer pointed at Rust jobs, and the exact public API
+route. CI rejects a partially enabled bundle; the deploy workflow repeats the
+check before and after every image update. On 2026-10-07 the live check
+reported `disabled`: the key binding, rollout flags and timer were absent.
+Do not expose a deletion control until the production export-after-deletion
+journey and full cleanup have been rehearsed on a disposable account.
+
+The live Gateway also routes Portal magic-link request and both consume
+methods to the existing Rust API. The production tfvars pins the Portal HTTPS
+redirect origin and `gateway_rust_magic_link=true`, matching the already
+enabled API and jobs revisions. The deploy workflow checks safe malformed
+requests before and after image replacement. Those checks prove routing and
+fail-closed responses; production mail delivery and the Portal callback still
+need an end-to-end test with a disposable account.
 
 `enable_rust_mail_queue` provisions standard Yandex Message Queue and IAM
 for mail. `enable_rust_mail_job` adds the private jobs container and triggers.

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Аккаунт — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-3" />
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261008-1" />
   {% if features.logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
   {% if edit_mode && features.profile_enabled %}<script src="/_id/profile.js" defer></script><script src="/_id/avatar.js" defer></script>{% endif %}
   {% if edit_mode && features.email_management_enabled %}<script src="/_id/email.js" defer></script>{% endif %}
@@ -18,6 +18,16 @@
     {% else %}<h1>Ваш аккаунт UpdSpace</h1>
     <p class="page-intro">Здесь вы управляете входом в сервисы UpdSpace, доступом приложений и своими данными.</p>{% endif %}
     {% if features.logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+    <section aria-labelledby="profile-title">
+      <h2 id="profile-title">{% if edit_mode %}Текущие сведения{% else %}Ваши сведения{% endif %}</h2>
+      <p>Аккаунт: <strong>{{ display_name }}</strong></p>
+      <dl>
+        <dt>Адрес почты</dt><dd>{{ user.email }}</dd>
+        <dt>Подтверждение почты</dt><dd>{{ email_label }}</dd>
+        <dt>Дополнительная защита входа</dt><dd>{{ mfa_status }}</dd>
+      </dl>
+      {% if !edit_mode && (features.profile_enabled || features.email_management_enabled) %}<p><a href="/account?section=profile">Изменить личные сведения</a></p>{% endif %}
+    </section>
     {% if !edit_mode %}
     <nav class="account-nav" aria-label="Управление аккаунтом">
       {% if features.sessions_enabled || features.apps_enabled || features.history_enabled %}
@@ -38,28 +48,19 @@
         <ul><li><a href="/account?section=security"><strong>Пароль и способы подтверждения</strong><span>Ключи доступа, приложение с кодами и резервные коды.</span></a></li></ul>
       </div>
       {% endif %}
-      {% if features.preferences_enabled || features.exports_enabled %}
+      {% if features.preferences_enabled || features.exports_enabled || features.deletion_enabled %}
       <div class="account-nav-group">
         <h2>Ваши данные</h2>
         <p>Проверьте настройки и решите, что сохранить для себя.</p>
         <ul>
           {% if features.preferences_enabled %}<li><a href="/account?section=privacy"><strong>Приватность</strong><span>Ваши настройки и согласия.</span></a></li>{% endif %}
           {% if features.exports_enabled %}<li><a href="/account?section=data"><strong>Копия данных</strong><span>Посмотреть порядок получения и запросить архив.</span></a></li>{% endif %}
+          {% if features.deletion_enabled %}<li><a href="/account?section=delete"><strong>Удаление аккаунта</strong><span>Узнать, что произойдёт, и подтвердить запрос.</span></a></li>{% endif %}
         </ul>
       </div>
       {% endif %}
     </nav>
     {% endif %}
-    <section aria-labelledby="profile-title">
-      <h2 id="profile-title">{% if edit_mode %}Текущие сведения{% else %}Ваши сведения{% endif %}</h2>
-      <p>Аккаунт: <strong>{{ display_name }}</strong></p>
-      <dl>
-        <dt>Адрес почты</dt><dd>{{ user.email }}</dd>
-        <dt>Подтверждение почты</dt><dd>{{ email_label }}</dd>
-        <dt>Дополнительная защита входа</dt><dd>{{ mfa_status }}</dd>
-      </dl>
-      {% if !edit_mode && (features.profile_enabled || features.email_management_enabled) %}<p><a href="/account?section=profile">Изменить личные сведения</a></p>{% endif %}
-    </section>
     {% if edit_mode %}
     {% if let Some(email) = email_management %}
     <section aria-labelledby="email-title">

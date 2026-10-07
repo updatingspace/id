@@ -13,6 +13,7 @@ const oldDigest = `sha256:${'a'.repeat(64)}`;
 const newDigest = `sha256:${'b'.repeat(64)}`;
 const oldBuild = '1'.repeat(40);
 const newBuild = '2'.repeat(40);
+const logGroupId = 'e23tdfhcg6rl8dg7jpaj';
 const names = ['api', 'sessions', 'mutations', 'web', 'jobs'];
 const ids = names.map((_, index) => `bba${String.fromCharCode(97 + index).repeat(17)}`);
 const revisions = ids.map((id, index) => ({
@@ -30,6 +31,7 @@ const revisions = ids.map((id, index) => ({
   secrets: [{ id: 'e6' + 'a'.repeat(18), version_id: 'e6' + 'b'.repeat(18),
     key: 'ID_EXPORT_OPERATION_KEY', environment_variable: 'ID_EXPORT_OPERATION_KEY' }],
 }));
+revisions[0].log_options = { folder_id: 'b1gidr45ifb2c25bco2d' };
 const writeState = (value) => writeFileSync(statePath, JSON.stringify(value));
 const readState = () => JSON.parse(readFileSync(statePath, 'utf8'));
 writeState({ revisions, next: 1 });
@@ -73,7 +75,8 @@ if (command === 'list') {
     execution_timeout: value('--execution-timeout'), concurrency: value('--concurrency'),
     service_account_id: value('--service-account-id'),
     connectivity: { network_id: value('--network-id') },
-    log_options: { log_group_id: value('--log-group-id') },
+    log_options: args.includes('--log-group-id') ? { log_group_id: value('--log-group-id') }
+      : { folder_id: value('--log-folder-id') },
   };
   state.revisions.push(row);
   fs.writeFileSync(statePath, JSON.stringify(state));
@@ -84,6 +87,7 @@ chmodSync(join(scratch, 'yc'), 0o700);
 
 const env = { ...process.env, PATH: `${scratch}:${process.env.PATH}`, ID_FAKE_YC_STATE: statePath,
   DEPLOY_SHA: newBuild, REGISTRY_ID: 'registry',
+  ID_LOG_GROUP_ID: logGroupId,
   API_DIGEST: newDigest, WEB_DIGEST: newDigest, JOBS_DIGEST: newDigest,
   RUST_API_CONTAINER_ID: ids[0], RUST_SESSIONS_CONTAINER_ID: ids[1],
   RUST_MUTATIONS_CONTAINER_ID: ids[2], RUST_WEB_CONTAINER_ID: ids[3], RUST_JOBS_CONTAINER_ID: ids[4] };
@@ -114,7 +118,8 @@ try {
     const imageName = index === 3 ? 'web' : index === 4 ? 'jobs' : 'api';
     const args = ['scripts/ci/deploy-yc-rust-revision.mjs', id, revisions[index].id,
       `cr.yandex/registry/updatingspace-id-${imageName}@${newDigest}`,
-      '--set-env', `BUILD_ID=${newBuild}`, '--set-env', 'ID_EXPORT_DELAYED_ROLLOUT_ENABLED=true'];
+      '--set-env', `BUILD_ID=${newBuild}`, '--set-env', 'ID_EXPORT_DELAYED_ROLLOUT_ENABLED=true',
+      '--log-group-id', logGroupId];
     if ([0, 2, 4].includes(index)) args.push('--add-secret',
       `${'e6' + 'c'.repeat(18)}:${'e6' + 'd'.repeat(18)}:ID_EXPORT_ESCROW_KEY:ID_EXPORT_ESCROW_KEY`);
     run([...args, '--apply']);
@@ -125,6 +130,7 @@ try {
     const active = deployed.revisions.findLast(row => row.container_id === id && row.status === 'ACTIVE');
     assert.equal(active.image.environment.ID_EXPORT_DELAYED_ROLLOUT_ENABLED, 'true');
     assert.equal(active.image.environment.BUILD_ID, newBuild);
+    assert.deepEqual(active.log_options, { log_group_id: logGroupId });
     assert.equal(active.secrets.some(secret => secret.environment_variable === 'ID_EXPORT_ESCROW_KEY'),
       [0, 2, 4].includes(index));
   }
@@ -132,6 +138,12 @@ try {
   wrongImage.revisions.findLast(row => row.container_id === ids[3] && row.status === 'ACTIVE')
     .image.image_url = `cr.yandex/registry/updatingspace-id-api@${newDigest}`;
   writeState(wrongImage);
+  run(['scripts/ci/check-yc-rust-rollout.mjs', '--deployed'], false);
+  writeState(deployed);
+  const wrongLogging = readState();
+  wrongLogging.revisions.findLast(row => row.container_id === ids[0] && row.status === 'ACTIVE')
+    .log_options = { folder_id: 'b1gidr45ifb2c25bco2d' };
+  writeState(wrongLogging);
   run(['scripts/ci/check-yc-rust-rollout.mjs', '--deployed'], false);
   writeState(deployed);
   run(['scripts/ci/rollback-yc-rust-revisions.mjs', 'rollback', manifestPath]);
@@ -152,7 +164,7 @@ try {
   writeState(outsider);
   run(['scripts/ci/rollback-yc-rust-revisions.mjs', 'rollback', manifestPath], false);
   assert.deepEqual(readState(), outsider, 'preflight must not partially restore other containers');
-  console.log('PASS: rollback restores prior image, flags and secret bindings; unrelated revisions are refused');
+  console.log('PASS: deploy selects ID logs; rollback restores prior image, flags, logging and secret bindings');
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

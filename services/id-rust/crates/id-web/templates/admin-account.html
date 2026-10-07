@@ -5,13 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Проверка аккаунта — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/admin.css?v=20261007-11">
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-12">
 </head>
 <body>
   <a class="skip-link" href="#main">К содержанию</a>
   <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторский доступ</span></header>
   <main id="main">
     <nav aria-label="Навигация"><a href="/account">Мой аккаунт</a><span aria-hidden="true">/</span><a href="/admin/">Операторский раздел</a><span aria-hidden="true">/</span><span>Проверка аккаунта</span></nav>
+    <nav class="operator-tabs" aria-label="Операторские задачи">
+      <a href="/admin/">Удаление</a>
+      <a href="/admin/exports/">Копии данных</a>
+      <a href="/admin/accounts/" aria-current="page">Аккаунты</a>
+      <a href="/admin/clients/">Подключения</a>
+    </nav>
     <div class="page-heading">
       <p class="eyebrow">Аккаунты · только просмотр</p>
       <h1>Проверка аккаунта</h1>
@@ -59,8 +65,9 @@
       </div>
     </div>
     <aside class="scope-panel" aria-labelledby="scope-title">
-      <h2 id="scope-title">Другие операторские задачи</h2>
-      <p><a href="/admin/">Проверить заявку на удаление</a> · <a href="/admin/exports/">Проверить копию данных</a> · <a href="/admin/clients/">Проверить OIDC-клиента</a>. Изменение клиентов пока недоступно.</p>
+      <h2 id="scope-title">Что показывает проверка</h2>
+      <p>Статус доступа и связь с identity показаны на момент запроса. Вход в дочерние сервисы проверяется отдельно.</p>
+      <p>Изменение данных пользователя здесь недоступно. Действие блокировки входа открывается только для подходящего аккаунта и требует отдельного подтверждения.</p>
     </aside>
   </main>
 </body>

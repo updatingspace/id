@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Безопасность — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-3" />
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261008-1" />
   {% if show_totp_setup %}<script src="/_id/totp.js" defer></script>{% endif %}
   {% if show_totp_disable %}<script src="/_id/totp-disable.js" defer></script>{% endif %}
   {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js" defer></script>{% endif %}
@@ -16,65 +16,20 @@
   <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
   <main>
     <h1>Безопасность</h1>
+    <p class="page-intro">Выберите удобный способ входа и проверьте, как восстановить доступ, если устройство окажется недоступно.</p>
     {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
     <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
-    <section aria-labelledby="mfa-title">
-      <h2 id="mfa-title">Способы защиты</h2>
-      <dl>
-        <dt>Приложение с одноразовыми кодами</dt><dd>{{ totp_status }}</dd>
-        <dt>Ключи доступа</dt><dd>{{ passkeys_status }}</dd>
-        <dt>Резервные коды</dt><dd>{{ recovery_status }}</dd>
-        <dt>Осталось резервных кодов</dt><dd>{{ recovery_left }}</dd>
-      </dl>
-      {% if show_totp_setup %}
-      <div id="totp-setup">
-        <button id="totp-begin" type="button">Настроить приложение с кодами</button>
-        <div id="totp-pending" hidden>
-          <p>Отсканируйте QR-код приложением-аутентификатором или введите секрет вручную. Секрет больше не будет показан после подтверждения.</p>
-          <img id="totp-qr" alt="QR-код для приложения-аутентификатора" />
-          <p>Секрет: <code id="totp-secret"></code></p>
-          <form id="totp-confirm-form">
-            <label for="totp-code">Шестизначный код из приложения</label>
-            <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required />
-            <button type="submit">Подтвердить и включить</button>
-          </form>
-        </div>
-        <div id="totp-recovery" hidden>
-          <h3>Резервные коды</h3>
-          <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
-          <ul id="totp-recovery-codes"></ul>
-        </div>
-        <p id="totp-message" role="status" aria-live="polite" hidden></p>
-        <p id="totp-error" role="alert" hidden></p>
-      </div>
-      {% endif %}
-      {% if show_totp_disable %}
-      <div id="totp-disable-panel">
-        <p>При отключении приложения с кодами его секрет перестанет действовать. Если других способов MFA нет, резервные коды также будут удалены.</p>
-        <button id="totp-disable" type="button">Отключить приложение с кодами</button>
-        <p id="totp-disable-error" role="alert" hidden></p>
-      </div>
-      {% endif %}
-      {% if show_recovery_rotation %}
-      <div id="recovery-rotation">
-        <h3>Резервные коды</h3>
-        <p>При обновлении все прежние резервные коды перестанут работать. Новый набор будет показан только здесь.</p>
-        <button id="recovery-rotate" type="button">Обновить резервные коды</button>
-        <div id="recovery-rotation-result" hidden>
-          <p>Сохраните новые коды отдельно от устройства для входа. Каждый код используется один раз.</p>
-          <ul id="recovery-rotation-codes"></ul>
-        </div>
-        <p id="recovery-rotation-error" role="alert" hidden></p>
-      </div>
-      {% endif %}
-    </section>
     <section aria-labelledby="passkeys-title">
       <h2 id="passkeys-title">Ключи доступа</h2>
+      <p>Ключ позволяет подтверждать вход с помощью защиты телефона или компьютера. Состояние: <strong>{{ passkeys_status }}</strong>.</p>
       {% if passkey_registration_enabled %}
       <div id="passkey-registration">
-        <label for="passkey-name">Название нового ключа</label>
-        <input id="passkey-name" name="passkey_name" maxlength="80" value="Мой ключ доступа" />
-        <button id="passkey-register" type="button">Добавить ключ доступа</button>
+        <p>Назовите ключ так, чтобы позднее узнать своё устройство. После нажатия браузер попросит подтвердить добавление.</p>
+        <div class="passkey-create">
+          <label for="passkey-name">Название нового ключа</label>
+          <input id="passkey-name" name="passkey_name" maxlength="80" value="Мой ключ доступа" autocomplete="off" />
+          <button id="passkey-register" type="button">Добавить ключ доступа</button>
+        </div>
         <button id="passkey-review" type="button" hidden>Обновить список ключей</button>
         <p id="passkey-register-message" role="status" aria-live="polite" hidden></p>
         <div id="passkey-recovery" hidden>
@@ -84,7 +39,7 @@
         </div>
       </div>
       {% endif %}
-      {% if passkeys.is_empty() %}<p id="passkeys-empty">Ключей доступа нет.</p>{% endif %}
+      {% if passkeys.is_empty() %}<p id="passkeys-empty">Ключей доступа пока нет.</p>{% endif %}
       <ul class="session-list">
         {% for key in passkeys %}
         <li class="session-row passkey-row"><div>
@@ -114,6 +69,54 @@
         {% endfor %}
       </ul>
       {% if show_passkey_script %}<p id="passkey-error" role="alert" hidden></p>{% endif %}
+    </section>
+    <section aria-labelledby="totp-title">
+      <h2 id="totp-title">Приложение с кодами</h2>
+      <p>Подтверждайте вход одноразовым кодом из приложения. Состояние: <strong>{{ totp_status }}</strong>.</p>
+      {% if show_totp_setup %}
+      <div id="totp-setup">
+        <button id="totp-begin" type="button">Настроить приложение с кодами</button>
+        <div id="totp-pending" hidden>
+          <p>Отсканируйте QR-код приложением-аутентификатором или введите секрет вручную. Секрет больше не будет показан после подтверждения.</p>
+          <img id="totp-qr" alt="QR-код для приложения-аутентификатора" />
+          <p>Секрет: <code id="totp-secret"></code></p>
+          <form id="totp-confirm-form">
+            <label for="totp-code">Шестизначный код из приложения</label>
+            <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required />
+            <button type="submit">Подтвердить и включить</button>
+          </form>
+        </div>
+        <div id="totp-recovery" hidden>
+          <h3>Резервные коды</h3>
+          <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
+          <ul id="totp-recovery-codes"></ul>
+        </div>
+        <p id="totp-message" role="status" aria-live="polite" hidden></p>
+        <p id="totp-error" role="alert" hidden></p>
+      </div>
+      {% endif %}
+      {% if show_totp_disable %}
+      <div id="totp-disable-panel">
+        <p>При отключении приложения с кодами его секрет перестанет действовать. Если других способов MFA нет, резервные коды также будут удалены.</p>
+        <button id="totp-disable" type="button">Отключить приложение с кодами</button>
+        <p id="totp-disable-error" role="alert" hidden></p>
+      </div>
+      {% endif %}
+    </section>
+    <section aria-labelledby="recovery-title">
+      <h2 id="recovery-title">Резервные коды</h2>
+      <p>Используйте их, если основной способ подтверждения недоступен. Состояние: <strong>{{ recovery_status }}</strong>; осталось: <strong>{{ recovery_left }}</strong>.</p>
+      {% if show_recovery_rotation %}
+      <div id="recovery-rotation">
+        <p>При обновлении все прежние резервные коды перестанут работать. Новый набор будет показан только здесь.</p>
+        <button id="recovery-rotate" type="button">Обновить резервные коды</button>
+        <div id="recovery-rotation-result" hidden>
+          <p>Сохраните новые коды отдельно от устройства для входа. Каждый код используется один раз.</p>
+          <ul id="recovery-rotation-codes"></ul>
+        </div>
+        <p id="recovery-rotation-error" role="alert" hidden></p>
+      </div>
+      {% endif %}
     </section>
     {% if password_change_enabled %}
     <section aria-labelledby="password-title">

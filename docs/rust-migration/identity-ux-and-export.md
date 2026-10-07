@@ -73,9 +73,10 @@ non-operator, missing request, pending, running, failed and completed states.
 
 ## Export and deletion contract to implement
 
-**Production behavior does not meet this contract.** The deployed export still
-uses the immediate, owner-session path. The delayed path below is a local pilot
-until the remaining failure and production checks pass.
+**Production acceptance is incomplete.** The delayed export path was enabled
+on the tested Rust revisions on 2026-10-07. Its live configuration and public
+unauthenticated smoke checks passed, but notice, 24-hour delivery, cancellation
+and post-deletion redemption have not been rehearsed end to end in production.
 The Rust deletion API and its dedicated private recovery route are now staged
 behind separate rollout flags. The API refuses a production deletion rollout
 without delayed export escrow; the jobs process refuses deletion recovery
@@ -85,31 +86,36 @@ production API/jobs containers are pinned outside the managed Rust stack, so
 their actual secret bindings and flags must be verified on the active revisions
 before enabling Gateway routing. A valid Terraform template alone does not
 prove that the live containers can serve these routes.
-Read-only YC inspection on 2026-10-07 confirmed that Gateway sends
+Initial read-only YC inspection on 2026-10-07 confirmed that Gateway sent
 `/api/v1/auth/data/exports` to Rust container
-`bbamj363kmhlj2nof0mo`; its active revision has
+`bbamj363kmhlj2nof0mo`; its active revision had
 `ID_EXPORT_API_ROLLOUT_ENABLED=true` and no delayed-export flag. The active
-Topcoat revision has `ID_WEB_EXPORTS_ENABLED=true` but no redeem flag, and the
-active jobs revision has neither escrow snapshot nor escrow mail rollout flag.
+Topcoat revision had `ID_WEB_EXPORTS_ENABLED=true` but no redeem flag, and the
+active jobs revision had neither escrow snapshot nor escrow mail rollout flag.
 Changing only one container would create a misleading or broken user journey.
-The read-only `scripts/ci/check-yc-delayed-export.mjs` gate also found that
-neither active API nor jobs revision binds `ID_EXPORT_ESCROW_KEY`, and jobs has
-no public export origin. The private recovery timer is active and targets
+At that point the read-only `scripts/ci/check-yc-delayed-export.mjs` gate also found that
+neither active API nor jobs revision bound `ID_EXPORT_ESCROW_KEY`, and jobs had
+no public export origin. The private recovery timer was active and targeted
 Rust jobs, but a timer alone cannot make the workflow available. This gate
 prints missing configuration names rather than secret values; it must pass
 on the exact tested revisions before an end-to-end production rehearsal.
 Later on 2026-10-07, OpenTofu created the managed escrow key and a new runtime
 Lockbox version while preserving all ten existing secret values. The serving
-API and jobs revisions still do not bind that version, so the gate remains
-NOT READY and the delayed flow remains disabled.
+API and jobs revisions were subsequently bound to that same version. The old
+runtime version remains active for other serving revisions and must not be
+destroyed while they still reference it.
 The deploy workflow checks the whole bundle both before and after image rollout
 whenever any delayed-export flag is enabled on the active API, web or jobs
 revision. A partial activation fails instead of being silently skipped; CI
 tests disabled, partial and aligned revisions with synthetic YC responses.
-The 2026-10-07 Gateway check also found no delayed-export cancellation,
-capability redemption or public delivery-page route. The gate now checks those
-method/path/container bindings as well as revision flags; it reports NOT READY
-until the tested API, web, jobs and Gateway are aligned.
+The initial Gateway check also found no delayed-export cancellation,
+capability redemption or public delivery-page route. Those routes were added
+without changing the previous integrations. The gate now checks their
+method/path/container bindings and revision flags; it passed after all four
+components were aligned. The public smoke then observed 200 HTML for both
+delivery pages, 200 JavaScript for both scripts and 404 for invalid bearer
+redemption/cancellation requests. This does not prove email delivery or a
+complete owner journey.
 
 The Rust workspace now contains additive `id_data_export_escrow` schema,
 operation-bound address encryption and deterministic download capability
@@ -182,8 +188,8 @@ objects over three passes; production ListBucket permission and the timer's
 expiry path still need rehearsal. The branch's CI workflow includes the escrow
 YDB suite, covering
 owner/operator cancellation, cooldown, failure notice and the bounded orphan
-cleanup. Delayed
-export is not enabled in production.
+cleanup. The delayed path is now enabled in production, but its complete
+production owner journey remains unverified.
 
 The isolated cutover/finalization regression now confirms that newly written
 audit and outbox events for other identities survive deletion finalization and

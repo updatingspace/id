@@ -5,7 +5,7 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 header a { color: #2445b8; font-weight: 700; text-decoration: none; }
 main { max-width: 54rem; margin: 3rem auto; padding: 0 1rem; }
 h1 { font-size: 2rem; }
-.page-intro { max-width: 62ch; color: #526078; line-height: 1.6; }
+.page-intro { max-width: 62ch; color: var(--muted); line-height: 1.6; }
 section { padding: 1.5rem; margin-bottom: 1rem; border: 1px solid #dce2ed; border-radius: .9rem; background: #fff; }
 dl { display: grid; grid-template-columns: minmax(12rem, 1fr) 2fr; gap: .9rem 1rem; }
 dt { color: #526078; }
@@ -64,6 +64,7 @@ button:disabled { opacity: .5; cursor: wait; }
 :root { --surface: #fff; --canvas: #f5f7fb; --ink: #17233b; --muted: #526078; --line: #dce2ed; --action: #2445b8; --focus: #496be0; }
 html { scroll-behavior: smooth; }
 body { min-width: 280px; background: var(--canvas); color: var(--ink); line-height: 1.55; }
+a { color: var(--action); text-underline-offset: .18em; }
 header { min-height: 4.5rem; gap: 1rem; }
 header a { color: var(--ink); font-size: 1.05rem; letter-spacing: -.02em; }
 header button { flex: none; }
@@ -76,6 +77,8 @@ p { max-width: 70ch; }
 section { padding: clamp(1.25rem, 3vw, 2rem); margin-bottom: 1.25rem; border-color: var(--line); box-shadow: 0 1px 2px rgb(22 37 64 / 4%); }
 section > :first-child { margin-top: 0; }
 section > :last-child { margin-bottom: 0; }
+section[aria-labelledby="profile-title"] { border-color: var(--line); background: var(--surface); }
+section[aria-labelledby="profile-title"] > p:first-of-type { margin-bottom: 1.3rem; font-size: 1.05rem; }
 nav[aria-label="Разделы аккаунта"] { display: flex; flex-wrap: wrap; gap: .5rem; padding: .5rem 0 1rem; border-bottom: 1px solid var(--line); }
 nav[aria-label="Разделы аккаунта"] a { display: inline-flex; align-items: center; min-height: 2.75rem; padding: .45rem .75rem; border-radius: .5rem; color: var(--action); font-weight: 600; text-decoration: none; }
 nav[aria-label="Разделы аккаунта"] a:hover { background: #e8eefb; }
@@ -103,6 +106,12 @@ button:disabled { cursor: not-allowed; }
 [role="status"]:not([hidden]) { padding: .75rem 1rem; border-radius: .5rem; background: #eef3fc; }
 .session-row { min-height: 4.5rem; }
 .session-row button { flex: none; }
+.passkey-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem .75rem; align-items: end; max-width: 42rem; margin: 1.25rem 0; }
+.passkey-create label { grid-column: 1 / -1; margin: 0; }
+.passkey-create input { width: 100%; min-height: 2.75rem; }
+.passkey-create button { align-self: stretch; }
+#passkey-registration > p:first-child { color: var(--muted); }
+#passkeys-empty { margin-top: 1.5rem; color: var(--muted); }
 .passkey-row { flex-wrap: wrap; }
 .session-row .passkey-editor { display: block; flex-basis: 100%; width: 100%; padding: 1rem; border: 1px solid var(--line); border-radius: .6rem; background: var(--canvas); }
 .passkey-editor label { margin-top: 0; }
@@ -118,6 +127,15 @@ button:disabled { cursor: not-allowed; }
 .export-steps li::before { content: counter(export-step, decimal-leading-zero); display: block; margin-bottom: .7rem; color: var(--action); font-size: .82rem; font-weight: 800; }
 .export-steps strong, .export-steps span { display: block; }
 .export-steps span { margin-top: .35rem; color: var(--muted); font-size: .9rem; }
+.delete-steps { display: grid; gap: 1rem; padding-left: 1.4rem; }
+.delete-steps li { padding-left: .3rem; }
+.delete-confirmation { display: flex; align-items: flex-start; gap: .7rem; max-width: 44rem; margin: 1.5rem 0; font-weight: 500; }
+.delete-confirmation input { flex: none; width: 1.25rem; height: 1.25rem; margin: .1rem 0 0; }
+.review-actions { align-items: center; }
+.review-actions a { padding: .7rem; color: var(--action); font-weight: 600; }
+.delete-button { border-color: #a22838; background: #a22838; color: #fff; }
+.delete-button:not(:disabled):hover { background: #821d2b; color: #fff; }
+#delete-result { max-width: 68ch; }
 [hidden] { display: none !important; }
 @media (max-width: 40rem) {
   header { padding: .85rem 1rem; }
@@ -128,6 +146,8 @@ button:disabled { cursor: not-allowed; }
   nav[aria-label="Разделы аккаунта"] a, .account-nav a { width: 100%; }
   .session-row { align-items: stretch; flex-direction: column; }
   .session-row button { align-self: flex-start; }
+  .passkey-create { grid-template-columns: 1fr; }
+  .passkey-create button { width: 100%; }
   .export-steps { grid-template-columns: 1fr; }
 }
 @media (prefers-color-scheme: dark) {
@@ -137,4 +157,6 @@ button:disabled { cursor: not-allowed; }
   [role="alert"]:not([hidden]) { background: #3b2028; border-color: #8e4958; color: #ffe1e5; }
   [role="status"]:not([hidden]) { background: #263b59; }
   .passkey-editor [data-passkey-delete-confirm] { border-color: #e27380; background: #a22838; color: #fff; }
+  .delete-button { border-color: #e27380; background: #a22838; color: #fff; }
+  .delete-button:not(:disabled):hover { background: #821d2b; }
 }

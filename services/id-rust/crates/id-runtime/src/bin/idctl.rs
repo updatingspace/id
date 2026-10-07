@@ -503,11 +503,8 @@ async fn main() -> Result<()> {
                 let created = id_runtime::legacy_cutover_reset::seal(&client).await?;
                 println!("{}", json!({"sealed":true,"created":created}));
             } else {
-                let report = id_runtime::legacy_cutover_reset::reset(&client, 1, false).await?;
-                println!(
-                    "{}",
-                    json!({"dry_run":true,"ready_to_seal":report.complete})
-                );
+                let ready = id_runtime::legacy_cutover_reset::seal_readiness(&client).await?;
+                println!("{}", json!({"dry_run":true,"ready_to_seal":ready}));
             }
         }
         Command::DeletionStatus { id } => {

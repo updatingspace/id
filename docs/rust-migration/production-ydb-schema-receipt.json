@@ -1,7 +1,7 @@
 {
   "database_id": "etnq1cp5vubgd8ono4t4",
-  "source_digest": "sha256:919fc6b6c28ea3c147db5e93ac161ad5129b34e63a2c7f366fdff8c45af5a9f3",
-  "verified_at": "2026-10-07T15:59:17Z",
+  "source_digest": "sha256:58942acb735ebc75955dacb9068bb8a1cd383fa54d57e1f70f0be99eb0115a1f",
+  "verified_at": "2026-10-07T21:03:54Z",
   "commands": [
     "cache-schema",
     "password-mail-schema",
