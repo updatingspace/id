@@ -62,7 +62,14 @@ async function main() {
     assert.equal(await page.locator('#passkey-recovery-codes li').count(), 10);
     assert.deepEqual(extensionResults, {}, 'test must send a credential without credProps');
     assert.deepEqual(ceremony.map(step => step.status), [200, 200]);
-    console.log('PASS: native Chromium WebAuthn registration through Topcoat, Rust API and YDB');
+    await page.locator('#passkey-recovery-saved').click();
+    await page.getByText('Browser passkey', { exact: true }).waitFor();
+    assert.equal(await page.locator('#passkey-recovery').isHidden(), true,
+      'saved recovery codes must not be shown again after the page refresh');
+    assert.equal(await page.locator('#passkey-recovery-codes li').count(), 0);
+    assert.equal(await page.locator('#passkeys-empty').count(), 0);
+    assert.equal(await page.locator('.passkey-row').count(), 1);
+    console.log('PASS: native Chromium WebAuthn registration, saved recovery codes and refreshed key through Topcoat, Rust API and YDB');
   } finally {
     await browser.close();
   }

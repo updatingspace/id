@@ -144,9 +144,14 @@
           }
           recovery.hidden = false;
           codesVisible = true;
-          document.getElementById("passkeys-status").textContent = "Есть";
-          document.getElementById("recovery-status").textContent = "Есть";
-          document.getElementById("recovery-left").textContent = String(result.recovery_codes.length);
+          const passkeysStatus = document.getElementById("passkeys-status");
+          const recoveryStatus = document.getElementById("recovery-status");
+          const recoveryLeft = document.getElementById("recovery-left");
+          if (passkeysStatus) passkeysStatus.textContent = "Есть";
+          if (recoveryStatus) recoveryStatus.textContent = "Есть";
+          if (recoveryLeft) recoveryLeft.textContent = String(result.recovery_codes.length);
+          const saved = document.getElementById("passkey-recovery-saved");
+          if (saved) saved.hidden = false;
           const empty = document.getElementById("passkeys-empty");
           if (empty) empty.hidden = true;
           message.textContent = "Ключ добавлен. Сохраните резервные коды перед уходом со страницы.";

@@ -92,6 +92,8 @@ async function main() {
     await page.goto(`${origin}/account?section=security`);
     const initialReads = securityReads;
     assert.equal(await totpStatus.innerText(), 'Не включена');
+    assert.equal(await page.locator('#totp-recovery-saved').evaluate(button => button.hidden), true,
+      'an older script must not expose an unhandled completion button');
     await page.locator('#totp-begin').click();
     await page.locator('#totp-pending').waitFor({ state: 'visible' });
     await page.locator('#totp-code').fill('000000');
@@ -121,6 +123,7 @@ async function main() {
     recoveryLeft = 3;
     await page.reload();
     assert.equal(await page.locator('#recovery-left').innerText(), '3');
+    assert.equal(await page.locator('#recovery-rotation-saved').evaluate(button => button.hidden), true);
     allowRotation = true;
     await page.locator('#recovery-rotate').click();
     await page.locator('#recovery-rotation-result').waitFor({ state: 'visible' });
@@ -130,8 +133,43 @@ async function main() {
     await page.locator('#recovery-rotation-saved').click();
     await page.locator('#recovery-rotate').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#recovery-rotation-result').isHidden(), true);
+
+    // During rollout an old document can load the new script from the same
+    // asset path. Optional status labels must not hide newly issued codes.
+    hasTotp = false;
+    recoveryLeft = 0;
+    const legacyPage = await browser.newPage();
+    legacyPage.on('pageerror', error => errors.push(error.message));
+    await legacyPage.goto(`${origin}/account?section=security`);
+    await legacyPage.evaluate(() => {
+      for (const id of ['totp-status', 'recovery-status', 'recovery-left']) {
+        document.getElementById(id).removeAttribute('id');
+      }
+      document.getElementById('totp-recovery-saved').remove();
+    });
+    await legacyPage.locator('#totp-begin').click();
+    await legacyPage.locator('#totp-pending').waitFor({ state: 'visible' });
+    await legacyPage.locator('#totp-code').fill('123456');
+    await legacyPage.locator('#totp-confirm-form button').click();
+    await legacyPage.locator('#totp-message').waitFor({ state: 'visible' });
+    assert.equal(await legacyPage.locator('#totp-error').isHidden(), true);
+    assert.deepEqual(await legacyPage.locator('#totp-recovery-codes li').allTextContents(), codes);
+
+    const legacyRotation = await browser.newPage();
+    legacyRotation.on('pageerror', error => errors.push(error.message));
+    legacyRotation.on('dialog', dialog => dialog.accept());
+    await legacyRotation.goto(`${origin}/account?section=security`);
+    await legacyRotation.evaluate(() => {
+      document.getElementById('recovery-status').removeAttribute('id');
+      document.getElementById('recovery-left').removeAttribute('id');
+      document.getElementById('recovery-rotation-saved').remove();
+    });
+    await legacyRotation.locator('#recovery-rotate').click();
+    await legacyRotation.locator('#recovery-rotation-result').waitFor({ state: 'visible' });
+    assert.equal(await legacyRotation.locator('#recovery-rotation-error').isHidden(), true);
+    assert.deepEqual(await legacyRotation.locator('#recovery-rotation-codes li').allTextContents(), codes);
     assert.deepEqual(errors, []);
-    console.log('PASS: failed/successful TOTP setup, consistent security state, preserved codes and explicit completion');
+    console.log('PASS: TOTP setup, recovery rotation, explicit completion and code retention with old HTML');
   } finally {
     if (browser) await browser.close();
     if (web.exitCode === null) { web.kill('SIGTERM'); await new Promise(resolve => web.once('exit', resolve)); }

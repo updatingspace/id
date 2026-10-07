@@ -36,7 +36,7 @@
           <h3>Резервные коды</h3>
           <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
           <ul id="passkey-recovery-codes"></ul>
-          <button id="passkey-recovery-saved" type="button">Я сохранил коды — продолжить</button>
+          <button id="passkey-recovery-saved" type="button" hidden>Я сохранил коды — продолжить</button>
         </div>
       </div>
       {% endif %}
@@ -91,7 +91,7 @@
           <h3>Резервные коды</h3>
           <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
           <ul id="totp-recovery-codes"></ul>
-          <button id="totp-recovery-saved" type="button">Я сохранил коды — продолжить</button>
+          <button id="totp-recovery-saved" type="button" hidden>Я сохранил коды — продолжить</button>
         </div>
         <p id="totp-message" role="status" aria-live="polite" hidden></p>
         <p id="totp-error" role="alert" hidden></p>
@@ -115,7 +115,7 @@
         <div id="recovery-rotation-result" hidden>
           <p>Сохраните новые коды отдельно от устройства для входа. Каждый код используется один раз.</p>
           <ul id="recovery-rotation-codes"></ul>
-          <button id="recovery-rotation-saved" type="button">Я сохранил коды — продолжить</button>
+          <button id="recovery-rotation-saved" type="button" hidden>Я сохранил коды — продолжить</button>
         </div>
         <p id="recovery-rotation-error" role="alert" hidden></p>
       </div>

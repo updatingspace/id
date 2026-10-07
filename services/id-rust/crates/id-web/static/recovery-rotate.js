@@ -50,8 +50,12 @@
       result.hidden = false;
       button.hidden = true;
       codesVisible = true;
-      document.getElementById("recovery-status").textContent = "Есть";
-      document.getElementById("recovery-left").textContent = String(body.recovery_codes.length);
+      const recoveryStatus = document.getElementById("recovery-status");
+      const recoveryLeft = document.getElementById("recovery-left");
+      if (recoveryStatus) recoveryStatus.textContent = "Есть";
+      if (recoveryLeft) recoveryLeft.textContent = String(body.recovery_codes.length);
+      const saved = document.getElementById("recovery-rotation-saved");
+      if (saved) saved.hidden = false;
       rotationKey = null;
     } catch (failure) {
       error.textContent = failure instanceof Error && failure.name !== "AbortError"

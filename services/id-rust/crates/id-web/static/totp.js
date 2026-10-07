@@ -81,7 +81,8 @@
     try {
       const code = form.querySelector("input").value.trim();
       const data = await post("/api/v1/auth/mfa/totp/confirm", { code });
-      document.getElementById("totp-status").textContent = "Включена";
+      const totpStatus = document.getElementById("totp-status");
+      if (totpStatus) totpStatus.textContent = "Включена";
       pending.hidden = true;
       begin.hidden = true;
       document.getElementById("totp-secret").textContent = "";
@@ -96,8 +97,12 @@
         }
         recovery.hidden = false;
         recoveryVisible = true;
-        document.getElementById("recovery-status").textContent = "Есть";
-        document.getElementById("recovery-left").textContent = String(data.recovery_codes.length);
+        const recoveryStatus = document.getElementById("recovery-status");
+        const recoveryLeft = document.getElementById("recovery-left");
+        if (recoveryStatus) recoveryStatus.textContent = "Есть";
+        if (recoveryLeft) recoveryLeft.textContent = String(data.recovery_codes.length);
+        const saved = document.getElementById("totp-recovery-saved");
+        if (saved) saved.hidden = false;
       }
       message.textContent = "Приложение с одноразовыми кодами включено.";
       message.hidden = false;

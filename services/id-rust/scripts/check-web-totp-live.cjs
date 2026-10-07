@@ -54,7 +54,11 @@ async function main() {
       name: 'sessionid', value: fixture.session_token, url: origin, httpOnly: true,
     }]);
     const page = await context.newPage();
-    page.on('dialog', dialog => dialog.accept());
+    const unexpectedDialogs = [];
+    page.on('dialog', async dialog => {
+      if (dialog.type() !== 'confirm') unexpectedDialogs.push(dialog.type());
+      await dialog.accept();
+    });
     await page.goto(origin + '/account?section=security');
     assert.equal(await page.locator('h1').textContent(), 'Безопасность');
     assert.equal(await page.locator('#totp-begin').isVisible(), true);
@@ -93,10 +97,14 @@ async function main() {
     const originalCodes = await page.locator('#totp-recovery-codes li').allTextContents();
     assert.equal(await page.locator('#totp-secret').textContent(), '');
     assert.equal(await page.locator('#totp-qr').getAttribute('src'), null);
+    assert.equal(await page.locator('#totp-status').textContent(), 'Включена');
+    assert.equal(await page.locator('#recovery-status').textContent(), 'Есть');
+    assert.equal(await page.locator('#recovery-left').textContent(), '10');
 
-    await page.reload();
+    await page.locator('#totp-recovery-saved').click();
+    await page.locator('#totp-disable').waitFor();
     assert.equal(await page.locator('h1').textContent(), 'Безопасность');
-    assert.equal(await page.locator('dl dd').first().textContent(), 'Включена');
+    assert.equal(await page.locator('#totp-status').textContent(), 'Включена');
     assert.equal(await page.locator('#totp-begin').count(), 0);
     assert.equal(await page.locator('#totp-recovery-codes').count(), 0);
     assert.equal(await page.locator('#recovery-rotate').isVisible(), true);
@@ -105,13 +113,16 @@ async function main() {
     const rotatedCodes = await page.locator('#recovery-rotation-codes li').allTextContents();
     assert.equal(rotatedCodes.length, 10);
     assert.notDeepEqual(rotatedCodes, originalCodes);
-    await page.reload();
+    await page.locator('#recovery-rotation-saved').click();
+    await page.locator('#recovery-rotate').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#recovery-rotation-codes li').count(), 0);
     assert.equal(await page.locator('#totp-disable').isVisible(), true);
     await page.locator('#totp-disable').click();
     await page.locator('#totp-begin').waitFor({ state: 'visible' });
-    assert.equal(await page.locator('dl dd').first().textContent(), 'Не включена');
-    assert.equal(await page.locator('dl dd').nth(2).textContent(), 'Нет');
+    assert.equal(await page.locator('#totp-status').textContent(), 'Не включена');
+    assert.equal(await page.locator('#recovery-status').textContent(), 'Нет');
+    assert.equal(await page.locator('#recovery-left').textContent(), '0');
+    assert.deepEqual(unexpectedDialogs, [], 'saved-codes actions must release the beforeunload warning');
     console.log('PASS: Chromium TOTP setup, recovery-code rotation, CSRF and invalid-code denial, persistence and disable');
   } finally {
     await browser.close();

@@ -140,6 +140,8 @@ async function main() {
       throw new Error(`Registration form missing at ${page.url()}: ${(await page.locator('body').innerText()).slice(0, 600)}; web: ${webLog.slice(-600)}`);
     }
     assert.equal(await page.getByText('Ключей доступа пока нет.', { exact: true }).count(), 1);
+    assert.equal(await page.locator('#passkey-recovery-saved').evaluate(button => button.hidden), true,
+      'an older script must not expose an unhandled completion button');
     await page.locator('#passkey-name').fill('My passkey');
     await page.locator('#passkey-register').click();
     await page.locator('#passkey-recovery').waitFor({ state: 'visible' });
@@ -196,7 +198,30 @@ async function main() {
     await uncertainPage.locator('#passkey-review').click();
     await uncertainPage.getByText('Uncertain passkey', { exact: true }).waitFor();
     assert.equal(completed, 3, 'unknown result caused an automatic retry');
-    console.log('PASS: Topcoat passkey registration, recovery codes and rejected/unknown-result review');
+
+    // Old HTML can fetch this script while revisions switch. New status IDs
+    // and completion actions must remain optional for showing recovery codes.
+    uncertainRegistered = false;
+    successfulRegistration = false;
+    const legacyPage = await context.newPage();
+    const errors = [];
+    legacyPage.on('pageerror', error => errors.push(error.message));
+    await legacyPage.goto(`${origin}/account?section=security`);
+    await legacyPage.evaluate(() => {
+      for (const id of ['passkeys-status', 'recovery-status', 'recovery-left']) {
+        document.getElementById(id).removeAttribute('id');
+      }
+      document.getElementById('passkey-recovery-saved').remove();
+    });
+    await legacyPage.locator('#passkey-name').fill('My passkey');
+    await legacyPage.locator('#passkey-register').click();
+    await legacyPage.locator('#passkey-register-message').waitFor({ state: 'visible' });
+    assert.equal(await legacyPage.locator('#passkey-error').isHidden(), true);
+    assert.equal(await legacyPage.locator('#passkey-register').isHidden(), true);
+    assert.deepEqual(await legacyPage.locator('#passkey-recovery-codes li').allTextContents(), ['12345678', '87654321']);
+    assert.equal(completed, 4);
+    assert.deepEqual(errors, []);
+    console.log('PASS: passkey registration, old HTML code retention and rejected/unknown-result review');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => proxy.close(resolve));
