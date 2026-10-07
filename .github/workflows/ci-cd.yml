@@ -16,6 +16,28 @@ env:
   NODE_VERSION: "22.12.0"
 
 jobs:
+  rust-dependency-audit:
+    name: Rust dependency audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Restore pinned audit tool
+        id: audit-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/id-audit-tools
+          key: cargo-audit-0.22.2-${{ runner.os }}-${{ runner.arch }}-rust-1.98.1
+      - name: Install pinned cargo-audit
+        if: steps.audit-cache.outputs.cache-hit != 'true'
+        run: cargo +1.98.1 install cargo-audit --locked --version 0.22.2 --root "$RUNNER_TEMP/id-audit-tools"
+      - name: Check locked dependencies against current RustSec advisories
+        working-directory: services/id-rust
+        run: '"$RUNNER_TEMP/id-audit-tools/bin/cargo-audit" audit'
+
   rust-stack:
     name: Rust API and Topcoat
     runs-on: ubuntu-latest

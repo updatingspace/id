@@ -715,6 +715,10 @@ Topcoat, Axum и YDB для взрослых и несовершеннолетн
 [Отчёт](../../docs/rust-migration/verification-2026-10-05-signup.md).
 
 Rust 1.98.1 закреплён в `rust-toolchain.toml`, зависимости — в `Cargo.lock`.
+Обязательный CI job `Rust dependency audit` проверяет lockfile через
+`cargo-audit 0.22.2` по актуальной базе RustSec; неуспешный аудит блокирует
+production deploy. Временный dependency-only patch YDB SDK описан вместе
+с происхождением и лицензией в [vendor/README.md](vendor/README.md).
 Из этой директории:
 
 ```sh
