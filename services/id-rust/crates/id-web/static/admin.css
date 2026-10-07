@@ -65,6 +65,9 @@ dd { margin: 0; overflow-wrap: anywhere; }
   dl { grid-template-columns: 1fr; gap: .2rem; }
   dd { margin-bottom: .8rem; }
 }
+@media (max-width: 22rem) {
+  header span { flex-basis: 100%; }
+}
 @media (prefers-color-scheme: dark) {
   :root { color-scheme: dark; color: #f5f7fb; background: #111827; }
   header, .lookup-panel, .result-panel { background: #1c2637; border-color: #39455a; }

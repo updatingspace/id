@@ -228,7 +228,10 @@ features. Chromium renders the home, deletion lookup and export pages without
 horizontal overflow at 320, 390 and 1280 px. On 2026-10-07 the separate
 account lookup was also checked in local Chromium at those widths using a
 synthetic long email and subject: both wrap inside the result card, and the
-document has no horizontal overflow. This does not prove production routing,
+document has no horizontal overflow. The later two-form version was checked
+again at 320, 390 and 1280 px: the compact header wraps onto two lines,
+and a synthetic POST email search shows the result without putting the
+address in the browser URL. This does not prove production routing,
 keyboard use or screen-reader behavior. The Rust login page renders
 entry into another service in the initial HTML, without waiting for browser
 JavaScript, and says that confirming the account is not yet consent to share
