@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-1" />
   <title>Настройки — UpdSpace ID</title>
   <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
-  <script src="/_id/preferences.js?v=ui-20261008-1" defer></script>
+  <script src="/_id/preferences.js?v=ui-20261008-2" defer></script>
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
   <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
@@ -17,7 +17,7 @@
     <p class="page-intro">{% if settings_mode %}Предпочтения вашего аккаунта. Полная локализация интерфейса пока недоступна.{% else %}Решайте, какие сведения передавать приложениям, и управляйте согласиями.{% endif %}</p>
     <section aria-labelledby="preferences-title">
       <h2 id="preferences-title">{% if settings_mode %}Предпочтения{% else %}Доступ приложений к данным{% endif %}</h2>
-      <form id="preferences-form">
+      <form id="preferences-form" data-preference-section="{% if settings_mode %}settings{% else %}privacy{% endif %}">
         <div {% if !settings_mode %}hidden{% endif %}>
         <label for="preferences-language">Язык</label>
         <select id="preferences-language" name="language">

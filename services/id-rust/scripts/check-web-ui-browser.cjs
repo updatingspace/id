@@ -20,6 +20,7 @@ async function main() {
   let empty = false;
   let profileFailure = false;
   let unavailable = false;
+  const preferenceWrites = [];
   const preferences = { language: 'ru', timezone: 'Europe/Moscow', marketing_opt_in: false, privacy_scope_defaults: {} };
   const reply = (res, status, data) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'set-cookie': 'csrftoken=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; Path=/; SameSite=Lax' }); res.end(JSON.stringify(data)); };
   const proxy = http.createServer(async (req, res) => {
@@ -43,7 +44,7 @@ async function main() {
     if (api === 'security' && unavailable) return reply(res, 503, {});
     if (api === 'security') return reply(res, 200, { mfa: { has_totp: false, has_webauthn: false, has_recovery_codes: false, recovery_codes_left: 0 }, authenticators: [] });
     if (api === 'preferences') {
-      if (req.method === 'PATCH') { let raw = ''; for await (const chunk of req) raw += chunk; Object.assign(preferences, JSON.parse(raw)); return reply(res, 200, preferences); }
+      if (req.method === 'PATCH') { let raw = ''; for await (const chunk of req) raw += chunk; const patch = JSON.parse(raw); preferenceWrites.push(patch); Object.assign(preferences, patch); return reply(res, 200, preferences); }
       return reply(res, 200, preferences);
     }
     if (api === 'timezones') return reply(res, 200, { timezones: [{ name: 'Europe/Moscow', display_name: 'Москва (UTC+3)' }, { name: 'UTC', display_name: 'UTC' }] });
@@ -64,7 +65,8 @@ async function main() {
     for (let i = 0; i < 40; i++) { try { if ((await fetch(`${origin}/`)).ok) break; } catch {} if (i === 39 || web.exitCode !== null) throw new Error('Topcoat startup failed'); await new Promise(resolve => setTimeout(resolve, 100)); }
     if (preview) { console.log(`Synthetic UI preview: ${origin}`); await new Promise(resolve => { process.once('SIGTERM', resolve); process.once('SIGINT', resolve); }); return; }
     browser = await chromium.launch({ headless: true, ...(process.env.ID_CHROMIUM_PATH ? { executablePath: process.env.ID_CHROMIUM_PATH } : {}) });
-    const page = await browser.newPage();
+    const context = await browser.newContext();
+    const page = await context.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     const nav = ['Обзор', 'Профиль', 'Вход и защита', 'Устройства', 'Приложения', 'Приватность и данные'];
@@ -119,13 +121,34 @@ async function main() {
     assert.equal(await page.getByText('Firefox · Windows', { exact: true }).isVisible(), false, 'revoked session in active group');
     assert.ok((await page.locator('time').first().textContent()).includes('2026'));
     assert.notEqual(await page.locator('time').first().textContent(), await page.locator('time').first().getAttribute('datetime'));
+    // Keep both pages open: each contains an older snapshot of the other section.
     await page.goto(origin + '/account?section=settings');
+    const privacyTab = await page.context().newPage();
+    await privacyTab.goto(origin + '/account?section=privacy');
+    await privacyTab.locator('#preferences-marketing').check();
+    await privacyTab.locator('#scope-email').selectOption('deny');
+    await privacyTab.locator('#preferences-form button[type=submit]').click();
+    await privacyTab.locator('#preferences-message:visible').waitFor();
+    assert.deepEqual(Object.keys(preferenceWrites.at(-1)).sort(), ['marketing_opt_in', 'privacy_scope_defaults']);
     assert.equal(await page.locator('#preferences-marketing').isVisible(), false);
     await page.locator('#preferences-language').selectOption('en');
+    await page.locator('#preferences-timezone').selectOption('UTC');
     await page.locator('#preferences-form button[type=submit]').click();
     await page.locator('#preferences-message:visible').waitFor();
+    assert.deepEqual(Object.keys(preferenceWrites.at(-1)).sort(), ['language', 'timezone']);
+    assert.equal(preferences.marketing_opt_in, true, 'stale settings must preserve newer consent');
+    assert.equal(preferences.privacy_scope_defaults.email, 'deny');
+    await privacyTab.locator('#preferences-marketing').uncheck();
+    await privacyTab.locator('#preferences-form button[type=submit]').click();
+    await privacyTab.locator('#preferences-message:visible').waitFor();
+    assert.equal(preferences.language, 'en', 'stale privacy must preserve newer language');
+    assert.equal(preferences.timezone, 'UTC');
     assert.equal(preferences.marketing_opt_in, false);
-    assert.equal(preferences.language, 'en');
+    await privacyTab.close();
+    await page.route('**/api/v1/auth/preferences', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }));
+    await page.locator('#preferences-form button[type=submit]').click();
+    await page.waitForURL(origin + '/login?next=%2Faccount%3Fsection%3Dsettings');
+    await page.unroute('**/api/v1/auth/preferences');
     await page.goto(origin + '/oauth/consent?client_id=synthetic');
     assert.equal(await page.locator('input[name=scope]:checked').count(), 0);
     assert.equal(await page.locator('#remember').isChecked(), false);

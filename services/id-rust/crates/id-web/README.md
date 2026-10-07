@@ -122,7 +122,8 @@ before paint. `templates/account-shell.html` owns the six-section navigation,
 desktop sidebar and native mobile disclosure. Profile editors use native
 `details[name=profile-editor]` so only one opens, without discarding form inputs.
 Language/timezone use `section=settings` within Profile; existing query links
-remain valid. Both preference views preserve the full existing API payload.
+remain valid. Each preference view uses the existing partial PATCH contract and sends only its
+own fields, so a stale tab cannot overwrite changes made in the other section.
 
 `scripts/check-web-ui-browser.cjs` starts real Topcoat with a synthetic API and
 checks 17 pages at 320/390/1280 px in both themes, 200% text (also expanded
