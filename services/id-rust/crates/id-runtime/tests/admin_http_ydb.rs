@@ -64,6 +64,42 @@ async fn search_email(
     Ok((status, body))
 }
 
+async fn suspend(
+    app: &Router,
+    target_id: i32,
+    cookie: &str,
+    csrf: Option<&str>,
+    subject: &str,
+    password: &str,
+) -> Result<(StatusCode, Value)> {
+    let mut request = Request::builder()
+        .uri(format!("/api/v1/auth/admin/accounts/{target_id}/suspend"))
+        .method("POST")
+        .header(header::COOKIE, cookie)
+        .header(header::ORIGIN, "http://id.localhost")
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(csrf) = csrf {
+        request = request.header("x-csrftoken", csrf);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            request.body(Body::from(
+                json!({
+                    "expected_subject": subject,
+                    "current_password": password,
+                    "reason": "security_incident",
+                })
+                .to_string(),
+            ))?,
+        )
+        .await?;
+    ensure!(response.headers()[header::CACHE_CONTROL] == "no-store");
+    let status = response.status();
+    let body = serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await?)?;
+    Ok((status, body))
+}
+
 #[tokio::test]
 #[ignore = "requires disposable local YDB on port 2137"]
 async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
@@ -73,7 +109,8 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             "grpc://localhost:2137" | "grpc://127.0.0.1:2137"
         ) && std::env::var("YDB_DATABASE")? == "/local"
             && std::env::var("ID_DISPOSABLE_YDB")? == "true"
-            && std::env::var("ID_AUTH_ADMIN_READ_ENABLED")? == "true",
+            && std::env::var("ID_AUTH_ADMIN_READ_ENABLED")? == "true"
+            && std::env::var("ID_AUTH_ADMIN_SUSPEND_ENABLED")? == "true",
         "operator HTTP test requires disposable YDB and explicit opt-in"
     );
     let client = Arc::new(id_runtime::connect_ydb().await?);
@@ -81,8 +118,8 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         .context("operator route not enabled")?;
     let app = id_runtime::admin_http::router(config);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
-    let account_id = -i32::try_from(stamp % 1_000_000_000 + 1)?;
-    let target_id = 1_500_000_000 + i32::try_from(stamp % 500_000_000)?;
+    let account_id = 1_000_000_000 + i32::try_from(stamp % 400_000_000)?;
+    let target_id = 1_500_000_000 + i32::try_from(stamp % 400_000_000)?;
     let target_email = format!("target-test-{stamp}@example.invalid");
     let email_id = target_id - 1_000_000_000;
     let deletion_id = i64::try_from(stamp % 1_000_000_000_000 + 1)?;
@@ -91,12 +128,14 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
     let token = format!("admin-test-{stamp}");
     let secret = std::env::var("DJANGO_SECRET_KEY")?;
     let codec = SessionCodec::new(secret.as_bytes(), &[])?;
-    let password = "pbkdf2_sha256$1000000$synthetic$synthetic";
+    let password =
+        tokio::task::spawn_blocking(|| id_compat::password::hash_new("admin-test-password"))
+            .await??;
     let now = SystemTime::now();
     let payload = json!({
         "_auth_user_id": account_id.to_string(),
         "_auth_user_backend": BACKEND,
-        "_auth_user_hash": codec.auth_hash(password)?,
+        "_auth_user_hash": codec.auth_hash(&password)?,
         "id_mfa_verified_user_id": account_id.to_string(),
     });
     let encoded = codec.encode(
@@ -107,7 +146,7 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         true,
     )?;
     client.query_client().exec("INSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, $password, true, $name, '', '', $email, false, false, CurrentUtcDatetime())")
-        .param("$id", account_id).param("$password", password)
+        .param("$id", account_id).param("$password", password.clone())
         .param("$name", format!("admin-test-{stamp}"))
         .param("$email", format!("admin-test-{stamp}@example.invalid")).await?;
     let result: Result<()> = async {
@@ -118,7 +157,7 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             .param("$user", account_id).param("$identity", identity_id)
             .param("$subject", format!("admin-test-subject-{stamp}")).await?;
         client.query_client().exec("INSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, $password, false, $name, '', '', $email, false, false, CurrentUtcDatetime())")
-            .param("$id", target_id).param("$password", password)
+            .param("$id", target_id).param("$password", password.clone())
             .param("$name", format!("target-test-{stamp}"))
             .param("$email", target_email.clone()).await?;
         client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($user, $identity, $subject, CurrentUtcDatetime())")
@@ -154,6 +193,12 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             .param("$id", account_id).await?;
         let (status, _) = get(&app, &path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::FORBIDDEN, "operator was accepted without MFA");
+        let csrf = "abcdefghijklmnopqrstuvwxyzABCDEF";
+        let csrf_cookie = format!("{cookie}; csrftoken={csrf}");
+        let (status, body) = suspend(&app, target_id, &csrf_cookie, Some(csrf),
+            &format!("target-subject-{stamp}"), "admin-test-password").await?;
+        ensure!(status == StatusCode::FORBIDDEN && body["code"] == "OPERATOR_ACCESS_REQUIRED",
+            "operator suspension accepted without bound MFA: {body}");
         client.query_client().exec("INSERT INTO mfa_authenticator (id, user_id, type, data, created_at) VALUES ($id, $user, 'totp', Unwrap(CAST('{}' AS Json)), CurrentUtcDatetime())")
             .param("$id", i64::from(account_id)).param("$user", account_id).await?;
         let (status, body) = get(&app, "/api/v1/auth/admin/me", Some(&cookie), None).await?;
@@ -169,7 +214,7 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             && body["account"]["identity_id"] == target_identity_id.to_string()
             && body["account"]["public_subject"] == format!("target-subject-{stamp}")
             && body["account"]["has_mfa"] == false, "operator account lookup: {body}");
-        ensure!(!body.to_string().contains(password), "password hash exposed to operator UI");
+        ensure!(!body.to_string().contains(password.as_str()), "password hash exposed to operator UI");
         client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
             .param("$id", deletion_id).await?;
         let (_, body) = get(&app, &account_path, Some(&cookie), None).await?;
@@ -228,6 +273,66 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         ensure!(status == StatusCode::BAD_REQUEST);
         let (status, _) = get(&app, "/api/v1/auth/admin/deletions/999999999999999999", Some(&cookie), None).await?;
         ensure!(status == StatusCode::NOT_FOUND);
+        client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
+            .param("$id", deletion_id).await?;
+        client.query_client().exec("UPDATE usid_user SET status = 'active' WHERE user_id = $id")
+            .param("$id", target_identity_id).await?;
+        let target_token = format!("target-session-{stamp}");
+        let target_payload = json!({
+            "_auth_user_id": target_id.to_string(),
+            "_auth_user_backend": BACKEND,
+            "_auth_user_hash": codec.auth_hash(&password)?,
+        });
+        let target_encoded = codec.encode(target_payload.as_object().context("target session payload")?,
+            i64::try_from(now.duration_since(UNIX_EPOCH)?.as_secs())?, true)?;
+        client.query_client().exec("INSERT INTO django_session (session_key, session_data, expire_date) VALUES ($key, $data, CAST($expires AS Datetime))")
+            .param("$key", target_token.clone()).param("$data", target_encoded)
+            .param("$expires", now + Duration::from_secs(3600)).await?;
+        let target_meta_id = i64::from(target_id) + 1_000_000_000;
+        client.query_client().exec("INSERT INTO core_usersessionmeta (id, user_id, session_key, user_agent, first_seen, revoked_reason) VALUES ($id, $user, $key, '', CAST($now AS Datetime), '')")
+            .param("$id", target_meta_id).param("$user", target_id)
+            .param("$key", target_token.clone()).param("$now", now).await?;
+        let subject = format!("target-subject-{stamp}");
+        let (status, body) = suspend(&app, target_id, &csrf_cookie, None, &subject, "admin-test-password").await?;
+        ensure!(status == StatusCode::FORBIDDEN && body["code"] == "CSRF_FAILED");
+        let (status, body) = suspend(&app, target_id, &csrf_cookie, Some(csrf), &subject, "wrong-password").await?;
+        ensure!(status == StatusCode::BAD_REQUEST && body["code"] == "INVALID_PASSWORD");
+        let (status, body) = suspend(&app, account_id, &csrf_cookie, Some(csrf), &subject, "admin-test-password").await?;
+        ensure!(status == StatusCode::FORBIDDEN && body["code"] == "SELF_SUSPENSION_FORBIDDEN");
+        client.query_client().exec("UPDATE auth_user SET is_staff = true WHERE id = $id")
+            .param("$id", target_id).await?;
+        let (status, body) = suspend(&app, target_id, &csrf_cookie, Some(csrf), &subject, "admin-test-password").await?;
+        ensure!(status == StatusCode::FORBIDDEN && body["code"] == "PROTECTED_ACCOUNT");
+        client.query_client().exec("UPDATE auth_user SET is_staff = false WHERE id = $id")
+            .param("$id", target_id).await?;
+        client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($user, $identity, $subject, CurrentUtcDatetime())")
+            .param("$user", target_id + 1).param("$identity", target_identity_id)
+            .param("$subject", format!("other-subject-{stamp}")).await?;
+        let (status, body) = suspend(&app, target_id, &csrf_cookie, Some(csrf), &subject, "admin-test-password").await?;
+        ensure!(status == StatusCode::CONFLICT && body["code"] == "REVIEW_STALE", "ambiguous identity suspended: {body}");
+        client.query_client().exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
+            .param("$id", target_id + 1).await?;
+        let (status, body) = suspend(&app, target_id, &csrf_cookie, Some(csrf), "wrong-subject", "admin-test-password").await?;
+        ensure!(status == StatusCode::CONFLICT && body["code"] == "REVIEW_STALE");
+        let (status, body) = suspend(&app, target_id, &csrf_cookie, Some(csrf), &subject, "admin-test-password").await?;
+        ensure!(status == StatusCode::OK && body["status"] == "suspended", "suspension failed: {body}");
+        let (_, body) = get(&app, &account_path, Some(&cookie), None).await?;
+        ensure!(body["account"]["access_state"] == "account_disabled", "suspended account looked active: {body}");
+        let target_session = client.query_client().query_row("SELECT session_key FROM django_session WHERE session_key = $key")
+            .param("$key", target_token).optional().await?;
+        ensure!(target_session.is_none(), "target session survived suspension");
+        let mut meta = client.query_client().query_row("SELECT revoked_at, revoked_reason FROM core_usersessionmeta WHERE id = $id")
+            .param("$id", target_meta_id).await?;
+        let revoked_at: Option<SystemTime> = meta.remove_field_by_name("revoked_at")?.try_into()?;
+        let reason: String = meta.remove_field_by_name("revoked_reason")?.try_into()?;
+        ensure!(revoked_at.is_some() && reason == "operator_suspended");
+        let mut audit = client.query_client().query_row("SELECT action, CAST(meta_json AS Utf8) AS meta_json FROM usid_audit_log WHERE target_id = $id LIMIT 1")
+            .param("$id", target_identity_id.to_string()).await?;
+        let action: String = audit.remove_field_by_name("action")?.try_into()?;
+        let meta_json: String = audit.remove_field_by_name("meta_json")?.try_into()?;
+        ensure!(action == "account.suspended" && serde_json::from_str::<Value>(&meta_json)?["reason"] == "security_incident");
+        client.query_client().exec("DELETE FROM core_usersessionmeta WHERE id = $id")
+            .param("$id", target_meta_id).await?;
         client.query_client().exec("UPDATE auth_user SET is_active = false WHERE id = $id")
             .param("$id", account_id).await?;
         let (status, _) = get(&app, &path, Some(&cookie), None).await?;
@@ -258,6 +363,11 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         .query_client()
         .exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
         .param("$id", target_id)
+        .await?;
+    client
+        .query_client()
+        .exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
+        .param("$id", target_id + 1)
         .await?;
     client
         .query_client()

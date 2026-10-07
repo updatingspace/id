@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Проверка блокировки входа — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-8">
+  <script src="/_id/admin-suspend.js?v=20261007-1" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержанию</a>
+  <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторский доступ</span></header>
+  <main id="main">
+    <nav aria-label="Навигация"><a href="/admin/accounts/">Аккаунты</a><span aria-hidden="true">/</span><span>Блокировка входа</span></nav>
+    <div class="page-heading">
+      <p class="eyebrow">Аккаунты · изменение доступа</p>
+      <h1>Проверьте блокировку входа</h1>
+      <p class="intro">После подтверждения вход в этот аккаунт будет закрыт, а его сессии и токены отозваны. Данные аккаунта не удаляются. Уже выданные токены, которые другие сервисы проверяют самостоятельно, могут действовать до окончания срока.</p>
+    </div>
+    <div class="workspace">
+      <section class="result-panel" aria-labelledby="target-title">
+        <h2 id="target-title">Аккаунт № {{ account.id }}</h2>
+        <dl>
+          <dt>Электронная почта</dt><dd>{{ account.email }}</dd>
+          <dt>Публичный идентификатор</dt><dd>{% if let Some(subject) = account.public_subject %}{{ subject }}{% endif %}</dd>
+          <dt>Текущий доступ</dt><dd>{{ account.access_state.label() }}</dd>
+        </dl>
+        <div class="next-step"><h3>Перед подтверждением</h3><p>Сверьте аккаунт и причину обращения. Если данные не совпадают или состояние изменилось, отмените действие и выполните поиск заново.</p></div>
+        <form id="suspend-form" data-account-id="{{ account.id }}" data-subject="{% if let Some(subject) = account.public_subject %}{{ subject }}{% endif %}">
+          <label for="suspend-reason">Причина</label>
+          <select id="suspend-reason" name="reason" required>
+            <option value="" selected>Выберите причину</option>
+            <option value="security_incident">Инцидент безопасности</option>
+            <option value="owner_request">Запрос владельца</option>
+            <option value="policy_review">Проверка правил сервиса</option>
+          </select>
+          <p class="field-help">В журнал сохраняется категория причины без произвольного текста и персональных сведений.</p>
+          <label for="operator-password">Ваш текущий пароль</label>
+          <input id="operator-password" name="current_password" type="password" autocomplete="current-password" maxlength="4096" required>
+          <p class="field-help">Это повторная проверка оператора; пароль не сохраняется в журнале.</p>
+          <div class="review-actions">
+            <button type="submit">Заблокировать вход для аккаунта № {{ account.id }}</button>
+            <a href="/admin/accounts/?id={{ account.id }}">Отменить блокировку и вернуться</a>
+          </div>
+        </form>
+        <div id="suspend-result" class="result-message" role="status" aria-live="polite" tabindex="-1" hidden></div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

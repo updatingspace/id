@@ -808,6 +808,35 @@ paths:
         service_account_id: ${gateway_service_account_id}
 %{ endif ~}
 
+%{ if gateway_rust_admin_suspend ~}
+  /api/v1/auth/admin/accounts/{id}/suspend:
+    post:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /admin/accounts/suspend:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+
+  /_id/admin-suspend.js:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+%{ endif ~}
+
 %{ if gateway_rust_recovery_pages && !gateway_use_rust ~}
   /forgot-password:
     get:

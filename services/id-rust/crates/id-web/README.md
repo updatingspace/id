@@ -48,7 +48,12 @@ change access.
 Email lookup submits a read-only POST from the SSR form to `id-web`, then to
 `id-api`; the address is not placed in a page or API URL. Both responses use
 `Cache-Control: no-store`.
-Other operator tasks are not yet available in this UI.
+The separately gated suspension review checks the exact account, shows the
+effect on access, and requires a fixed reason plus the operator's current
+password. Browser JavaScript sends the confirmation to `id-api` with CSRF and
+re-reads the account before claiming success. Unknown outcomes are shown as
+uncertain. The production operator area and this action remain disabled until
+an operator rehearsal. Other operator tasks are not yet available in this UI.
 
 Run from `services/id-rust`:
 

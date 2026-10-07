@@ -30,12 +30,18 @@ superuser session with bound MFA proof. `gateway_rust_admin` is off by default.
 The account lookup added alongside it accepts an exact numeric ID or a verified
 primary email. Email search uses a bounded POST body at both Topcoat and API;
 the address is not put into Gateway URLs. Ambiguous ownership fails closed.
-The opt-in Gateway template now includes its page and API routes; production
-admin remains disabled until an operator browser rehearsal passes.
-This is **not** parity with the old admin: user, client, consent, export, audit,
-retry and bootstrap tasks still need dedicated screens or documented `idctl`
-procedures. A fresh-authentication requirement for privileged mutations must
-be designed before any write action is added to the browser UI.
+The opt-in Gateway template includes the read-only page and API routes. A
+separate `gateway_rust_admin_suspend` gate stages one write action: a review
+screen shows the exact target and consequences; the operator chooses a fixed
+reason and confirms with their current password. The API requires an active
+staff and superuser session with bound MFA proof, limits password attempts,
+rechecks permissions and the reviewed subject in the committing transaction,
+blocks self/other-operator suspension, revokes credentials and writes an audit
+record. Ambiguous identity ownership or an unknown commit result fails closed.
+Production admin and suspension remain disabled until a complete operator
+rehearsal passes. This is **not** parity with the old admin: client, consent,
+export, audit, retry and bootstrap tasks still need dedicated screens or
+documented `idctl` procedures.
 
 UI acceptance for each flow is a browser test at 320, 390 and desktop widths,
 without horizontal overflow, with keyboard-only operation and visible focus;
@@ -311,9 +317,9 @@ plain list of internals or a link to `/legacy/account` is not a replacement.
 
 ## Operator surface: screen contract
 
-The current Rust web service has two read-only operator tasks; it does not yet
-replace the operator console. The public account pages must not be labelled
-an admin UI.
+The current Rust web service has two read-only operator tasks and a separately
+gated account-suspension review; it does not yet replace the operator console.
+The public account pages must not be labelled an admin UI.
 The replacement belongs in a separate `/admin` area with its own navigation,
 authorization and audit trail. The backend supplies typed task endpoints; web
 templates decide layout and wording without direct YDB access.

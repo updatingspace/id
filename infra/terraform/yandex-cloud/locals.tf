@@ -151,6 +151,7 @@ locals {
     gateway_rust_login          = var.gateway_rust_login
     gateway_rust_account        = var.gateway_rust_account
     gateway_rust_admin          = var.gateway_rust_admin
+    gateway_rust_admin_suspend  = var.gateway_rust_admin_suspend
     gateway_rust_recovery_pages = var.gateway_rust_recovery_pages
     enable_rust_password_reset  = var.enable_rust_password_reset
     enable_rust_email_verify    = var.enable_rust_email_verify

@@ -34,7 +34,12 @@ http.createServer(async (request, response) => {
     response.writeHead(200, {'content-type':'application/json'});
     response.end(JSON.stringify({account:{id:42,email:'<script>bad()</script>@example.invalid',
       is_active:false,is_staff:false,is_superuser:false,has_mfa:true,
-      identity_id:null,public_subject:'subject-42'}}));
+      identity_id:null,public_subject:'subject-42',access_state:'account_disabled'}}));
+  } else if (url.pathname === '/api/v1/auth/admin/accounts/43') {
+    response.writeHead(200, {'content-type':'application/json'});
+    response.end(JSON.stringify({account:{id:43,email:'active@example.invalid',
+      is_active:true,is_staff:false,is_superuser:false,has_mfa:false,
+      identity_id:'00000000-0000-0000-0000-000000000043',public_subject:'subject-43',access_state:'active'}}));
   } else if (url.pathname === '/api/v1/auth/admin/accounts/search'
     && request.method === 'POST' && !url.search) {
     let raw = '';
@@ -44,7 +49,7 @@ http.createServer(async (request, response) => {
     response.writeHead(200, {'content-type':'application/json'});
     response.end(JSON.stringify({account:{id:42,email:'pilot@example.invalid',
       is_active:false,is_staff:false,is_superuser:false,has_mfa:true,
-      identity_id:null,public_subject:'subject-42'}}));
+      identity_id:null,public_subject:'subject-42',access_state:'account_disabled'}}));
     } else if (email === 'ambiguous@example.invalid') {
       response.writeHead(409, {'content-type':'application/json'});
       response.end('{"code":"ACCOUNT_EMAIL_AMBIGUOUS"}');
@@ -61,7 +66,7 @@ EOF
 
 ID_PILOT_MOCK_API_PORT="${api_port}" node "${scratch_dir}/mock-api.cjs" >"${scratch_dir}/api.log" 2>&1 &
 api_pid=$!
-ID_WEB_ADMIN_ENABLED=true ID_WEB_API_ORIGIN="http://127.0.0.1:${api_port}" \
+ID_WEB_ADMIN_ENABLED=true ID_WEB_ADMIN_SUSPEND_ENABLED=true ID_WEB_API_ORIGIN="http://127.0.0.1:${api_port}" \
   HOST=127.0.0.1 PORT="${web_port}" "${bin_dir}/id-web" >"${scratch_dir}/web.log" 2>&1 &
 web_pid=$!
 
@@ -82,10 +87,20 @@ done
 
 html="$(<"${scratch_dir}/account.html")"
 [[ "${html}" == *'Аккаунт № 42'* ]]
-[[ "${html}" == *'Заблокирован'* ]]
+[[ "${html}" == *'Закрыт: аккаунт отключён'* ]]
 [[ "${html}" == *'Связь не найдена'* ]]
 [[ "${html}" != *'<script>bad()'* ]]
 [[ "${html}" == *'&#60;script&#62;bad()&#60;/script&#62;'* ]]
+active_html="$(curl --silent --show-error --fail --max-time 5 -H 'Cookie: sessionid=valid' \
+  "http://127.0.0.1:${web_port}/admin/accounts/?id=43")"
+[[ "${active_html}" == *'/admin/accounts/suspend?id=43'* ]]
+review_html="$(curl --silent --show-error --fail --max-time 5 -H 'Cookie: sessionid=valid' \
+  "http://127.0.0.1:${web_port}/admin/accounts/suspend?id=43")"
+[[ "${review_html}" == *'Заблокировать вход для аккаунта № 43'* ]]
+[[ "${review_html}" == *'data-subject="subject-43"'* ]]
+review_guest="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
+  "http://127.0.0.1:${web_port}/admin/accounts/suspend?id=43")"
+[[ "${review_guest}" == 303 ]]
 
 headers="$(curl --silent --show-error --fail --max-time 5 -D - -o /dev/null \
   -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?id=42")"
@@ -111,7 +126,7 @@ guest_headers="$(curl --silent --show-error --max-time 5 -D - -o /dev/null \
 forbidden="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
   -H 'Cookie: sessionid=notstaff' "http://127.0.0.1:${web_port}/admin/accounts/")"
 missing="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
-  -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?id=43")"
+  -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?id=44")"
 invalid="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
   -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?id=0")"
 [[ "${guest}" == 303 && "${forbidden}" == 403 && "${missing}" == 200 && "${invalid}" == 400 ]]

@@ -73,7 +73,14 @@ async fn main() -> anyhow::Result<()> {
             .route(export_redeem::cancel_page)
             .route(export_redeem::cancel_script);
     }
-    if std::env::var("ID_WEB_ADMIN_ENABLED").as_deref() == Ok("true") {
+    let admin_enabled = std::env::var("ID_WEB_ADMIN_ENABLED").as_deref() == Ok("true");
+    let admin_suspend_enabled =
+        std::env::var("ID_WEB_ADMIN_SUSPEND_ENABLED").as_deref() == Ok("true");
+    anyhow::ensure!(
+        !admin_suspend_enabled || admin_enabled,
+        "operator suspension review requires operator pages"
+    );
+    if admin_enabled {
         router = router
             .app_context(admin::AdminApi::from_env()?)
             .route(admin::page)
@@ -82,6 +89,11 @@ async fn main() -> anyhow::Result<()> {
             .route(admin::account_page_slash)
             .route(admin::account_search_page)
             .route(admin::style);
+        if admin_suspend_enabled {
+            router = router
+                .route(admin::suspend_review)
+                .route(admin::suspend_script);
+        }
     }
     if std::env::var("ID_WEB_CONSENT_PILOT_ENABLED").as_deref() == Ok("true") {
         router = router

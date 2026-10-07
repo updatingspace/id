@@ -107,7 +107,10 @@ The provider source is pinned to `registry.terraform.io/yandex-cloud/yandex`
 for OpenTofu compatibility.
 
 The current Rust UI has only a read-only deletion-request lookup, and its
-`/admin/` route is disabled in production. It must not be counted as full
-Rust administration. The remaining
+`/admin/` route is disabled in production. The additional
+`gateway_rust_admin_suspend` gate exposes the password-confirmed account
+suspension review and API route only when the operator area is enabled. Neither
+gate is active in production, and this must not be counted as full Rust
+administration. The remaining
 functional and interface gaps are tracked in
 [`docs/rust-migration/identity-ux-and-export.md`](../../../docs/rust-migration/identity-ux-and-export.md).

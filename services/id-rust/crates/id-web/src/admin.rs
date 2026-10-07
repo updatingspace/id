@@ -75,6 +75,16 @@ struct OperatorAccount {
     access_state: AccessState,
 }
 
+impl OperatorAccount {
+    fn can_suspend(&self) -> bool {
+        self.id > 0
+            && !self.is_staff
+            && !self.is_superuser
+            && self.public_subject.is_some()
+            && matches!(self.access_state, AccessState::Active)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum AccessState {
@@ -149,6 +159,13 @@ struct AccountPage<'a> {
     account: Option<&'a OperatorAccount>,
     not_found: bool,
     ambiguous: bool,
+    suspend_enabled: bool,
+}
+
+#[derive(Template)]
+#[template(path = "admin-suspend.html")]
+struct SuspendPage<'a> {
+    account: &'a OperatorAccount,
 }
 
 #[derive(Template)]
@@ -185,6 +202,105 @@ pub(crate) async fn account_search_page(
     RawForm(body): RawForm,
 ) -> topcoat::Result<Response> {
     render_account_page(cx, Some(&body)).await
+}
+
+#[route(GET "/admin/accounts/suspend")]
+pub(crate) async fn suspend_review(cx: &Cx) -> topcoat::Result<Response> {
+    let query = request::uri(cx).query().unwrap_or("");
+    if query.len() > 20 {
+        return problem(400, "Укажите корректный ID аккаунта.");
+    }
+    let fields = url::form_urlencoded::parse(query.as_bytes()).collect::<Vec<_>>();
+    let Some((key, value)) = fields.as_slice().first() else {
+        return problem(400, "Укажите ID аккаунта.");
+    };
+    if fields.len() != 1
+        || key != "id"
+        || value.is_empty()
+        || value.len() > 10
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return problem(400, "Укажите корректный ID аккаунта.");
+    }
+    let Ok(id) = value.parse::<i32>() else {
+        return problem(400, "Укажите корректный ID аккаунта.");
+    };
+    if id <= 0 {
+        return problem(400, "Укажите корректный ID аккаунта.");
+    }
+    let api = app_context::<AdminApi>(cx);
+    let cookie = request::headers(cx)
+        .get("cookie")
+        .and_then(|value| value.to_str().ok());
+    let operator = api
+        .client
+        .get(api.operator_url.clone())
+        .header(reqwest::header::ACCEPT, "application/json");
+    let operator = if let Some(cookie) = cookie {
+        operator.header(reqwest::header::COOKIE, cookie)
+    } else {
+        operator
+    };
+    let operator = match operator.send().await {
+        Ok(value) => value,
+        Err(_) => return problem(503, "Не удалось проверить права. Попробуйте позже."),
+    };
+    match operator.status().as_u16() {
+        200 => {}
+        401 => return redirect_to_login("/login?next=%2Fadmin%2Faccounts%2F"),
+        403 => return problem(403, "У вас нет доступа к операторскому разделу."),
+        _ => return problem(503, "Не удалось проверить права. Попробуйте позже."),
+    }
+    let mut url = api.account_url.clone();
+    url.set_path(&format!("/api/v1/auth/admin/accounts/{id}"));
+    let lookup = api
+        .client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/json");
+    let lookup = if let Some(cookie) = cookie {
+        lookup.header(reqwest::header::COOKIE, cookie)
+    } else {
+        lookup
+    };
+    let response = match lookup.send().await {
+        Ok(value) => value,
+        Err(_) => return problem(503, "Не удалось проверить состояние аккаунта."),
+    };
+    match response.status().as_u16() {
+        200 => {}
+        401 => return redirect_to_login("/login?next=%2Fadmin%2Faccounts%2F"),
+        403 => return problem(403, "У вас нет доступа к операторскому разделу."),
+        404 => return problem(404, "Аккаунт не найден."),
+        _ => return problem(503, "Не удалось проверить состояние аккаунта."),
+    }
+    let body = match response.bytes().await {
+        Ok(value) if value.len() <= 16 * 1024 => value,
+        _ => return problem(503, "Некорректный ответ сервиса аккаунтов."),
+    };
+    let account: AccountResponse = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(_) => return problem(503, "Некорректный ответ сервиса аккаунтов."),
+    };
+    if account.account.id != id || !account.account.can_suspend() {
+        return problem(
+            409,
+            "Состояние аккаунта изменилось. Вернитесь к проверке аккаунта.",
+        );
+    }
+    render_suspend(&account.account)
+}
+
+fn render_suspend(account: &OperatorAccount) -> topcoat::Result<Response> {
+    let html = SuspendPage { account }
+        .render()
+        .map_err(|error| topcoat::Error::msg(error.to_string()))?;
+    Ok(Response::builder()
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Referrer-Policy", "no-referrer")
+        .header("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        .body(Body::from(html))?)
 }
 
 async fn render_account_page(cx: &Cx, form: Option<&[u8]>) -> topcoat::Result<Response> {
@@ -325,6 +441,7 @@ fn render_account(
         account,
         not_found,
         ambiguous,
+        suspend_enabled: env::var("ID_WEB_ADMIN_SUSPEND_ENABLED").as_deref() == Ok("true"),
     }
     .render()
     .map_err(|error| topcoat::Error::msg(error.to_string()))?;
@@ -494,6 +611,15 @@ pub(crate) async fn style() -> topcoat::Result<Response> {
         .body(Body::from(include_str!("../static/admin.css")))?)
 }
 
+#[route(GET "/_id/admin-suspend.js")]
+pub(crate) async fn suspend_script() -> topcoat::Result<Response> {
+    Ok(Response::builder()
+        .header("Content-Type", "application/javascript; charset=utf-8")
+        .header("Cache-Control", "public, max-age=3600")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(include_str!("../static/admin-suspend.js")))?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +642,7 @@ mod tests {
             account: Some(&account),
             not_found: false,
             ambiguous: false,
+            suspend_enabled: false,
         }
         .render()?;
         assert!(!html.contains("<script>"));
@@ -533,6 +660,7 @@ mod tests {
             account: None,
             not_found: false,
             ambiguous: true,
+            suspend_enabled: false,
         }
         .render()?;
         assert!(!html.contains("<script>"));

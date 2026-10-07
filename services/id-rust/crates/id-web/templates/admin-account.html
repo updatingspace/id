@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Проверка аккаунта — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/admin.css?v=20261007-5">
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-8">
 </head>
 <body>
   <a class="skip-link" href="#main">К содержанию</a>
@@ -53,6 +53,7 @@
             <dt>Публичный идентификатор</dt><dd>{% if let Some(subject) = item.public_subject %}{{ subject }}{% else %}Не найден — нужна проверка{% endif %}</dd>
           </dl>
           <div class="next-step"><h3>Как трактовать результат</h3><p>Состояние показано на момент запроса. Для расследования проверьте историю изменений и операционный журнал; эта страница не подтверждает доступность всех внешних сервисов.</p></div>
+          {% if suspend_enabled && item.can_suspend() %}<p class="operator-action"><a href="/admin/accounts/suspend?id={{ item.id }}">Перейти к проверке блокировки входа</a></p>{% endif %}
         </section>
         {% endif %}
       </div>

@@ -581,6 +581,17 @@ variable "gateway_rust_admin" {
   }
 }
 
+variable "gateway_rust_admin_suspend" {
+  description = "Enable the password-confirmed Rust operator account suspension review and API route."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.gateway_rust_admin_suspend || var.gateway_rust_admin
+    error_message = "Operator suspension requires the Rust operator area."
+  }
+}
+
 variable "gateway_rust_recovery_pages" {
   description = "Route the Topcoat password recovery and email verification pages through the existing Gateway."
   type        = bool

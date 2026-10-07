@@ -6,18 +6,29 @@ endpoint="${YDB_LOCAL_ENDPOINT:-grpc://localhost:2136}"
 database="${YDB_LOCAL_DATABASE:-/local}"
 timeout_seconds="${YDB_WAIT_TIMEOUT_SECONDS:-90}"
 start_ts="$(date +%s)"
+probe_table="id_ready_$$_${start_ts}"
 
 while true; do
-  if docker exec "${container_name}" sh -lc "
-    if command -v ydb >/dev/null 2>&1; then
-      ydb -e '${endpoint}' -d '${database}' scheme ls >/dev/null 2>&1
-    elif [ -x /ydb ]; then
-      /ydb -e '${endpoint}' -d '${database}' scheme ls >/dev/null 2>&1
-    else
-      exit 1
-    fi
-  "; then
-    echo "YDB local is ready at ${endpoint} (${database})"
+  if docker exec \
+    -e YDB_READY_ENDPOINT="${endpoint}" \
+    -e YDB_READY_DATABASE="${database}" \
+    -e YDB_READY_PROBE="${probe_table}" \
+    "${container_name}" sh -lc '
+      set -e
+      if command -v ydb >/dev/null 2>&1; then
+        cli=ydb
+      elif [ -x /ydb ]; then
+        cli=/ydb
+      else
+        exit 1
+      fi
+      "$cli" -e "$YDB_READY_ENDPOINT" -d "$YDB_READY_DATABASE" scheme ls >/dev/null 2>&1
+      "$cli" -e "$YDB_READY_ENDPOINT" -d "$YDB_READY_DATABASE" table query execute --type scheme \
+        -q "CREATE TABLE IF NOT EXISTS $YDB_READY_PROBE (id Uint64 NOT NULL, PRIMARY KEY (id));" >/dev/null 2>&1
+      "$cli" -e "$YDB_READY_ENDPOINT" -d "$YDB_READY_DATABASE" table query execute --type scheme \
+        -q "DROP TABLE $YDB_READY_PROBE;" >/dev/null 2>&1
+    '; then
+    echo "YDB local schema storage is ready at ${endpoint} (${database})"
     exit 0
   fi
 

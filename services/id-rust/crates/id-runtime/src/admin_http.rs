@@ -1,9 +1,12 @@
-//! Read-only operator lookup. The web UI does not query YDB or decide roles.
+//! Operator lookup, with an independently gated suspension action. The web UI
+//! does not query YDB or decide roles.
 
 use crate::{
     account_deletion,
+    admin_suspend::{self, Preflight, SuspendInput, SuspendResult, SuspensionReason},
+    cache_store::CacheStore,
     ids::PublicSubject,
-    logout_http::cookie_value,
+    logout_http::{cookie_value, csrf_allowed},
     me_http::env_flag,
     me_store::restore_django_profile,
     session_store::{LEGACY_BACKENDS, session_codec_from_env},
@@ -25,6 +28,8 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use tokio::sync::Semaphore;
+use url::Url;
 use ydb::{Client, Transaction, TxMode, closure};
 
 enum EmailLookupOutcome {
@@ -43,6 +48,19 @@ pub struct AdminReadConfig {
     client: Arc<Client>,
     codec: Arc<SessionCodec>,
     session_cookie_name: String,
+    csrf_cookie_name: String,
+    trusted_origins: Vec<String>,
+    suspend_enabled: bool,
+    suspension_budget: CacheStore,
+    hashing_slots: Arc<Semaphore>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SuspendRequest {
+    expected_subject: String,
+    current_password: String,
+    reason: SuspensionReason,
 }
 
 #[derive(Serialize)]
@@ -70,9 +88,47 @@ enum AccessState {
 
 impl AdminReadConfig {
     pub fn from_env(client: Arc<Client>) -> Result<Option<Arc<Self>>> {
-        if !env_flag("ID_AUTH_ADMIN_READ_ENABLED", false)? {
+        let read_enabled = env_flag("ID_AUTH_ADMIN_READ_ENABLED", false)?;
+        let suspend_enabled = env_flag("ID_AUTH_ADMIN_SUSPEND_ENABLED", false)?;
+        ensure!(
+            read_enabled || !suspend_enabled,
+            "operator suspension requires operator lookup"
+        );
+        if !read_enabled {
             return Ok(None);
         }
+        let trusted_origins = env::var("CSRF_TRUSTED_ORIGINS")
+            .unwrap_or_else(|_| "http://id.localhost,http://localhost:5175".into())
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                let url = Url::parse(value)?;
+                ensure!(
+                    matches!(url.scheme(), "http" | "https")
+                        && url.path() == "/"
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+                        && url.username().is_empty()
+                        && url.password().is_none(),
+                    "invalid operator CSRF origin"
+                );
+                Ok(url.origin().ascii_serialization())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        ensure!(
+            !suspend_enabled || !trusted_origins.is_empty(),
+            "operator suspension requires a trusted origin"
+        );
+        if suspend_enabled && !env_flag("DJANGO_DEBUG", false)? {
+            ensure!(
+                trusted_origins
+                    .iter()
+                    .all(|origin| origin.starts_with("https://")),
+                "production operator suspension requires HTTPS origins"
+            );
+        }
+        let cache_table = env::var("YDB_CACHE_TABLE").unwrap_or_else(|_| "id_shared_cache".into());
         let name = env::var("SESSION_COOKIE_NAME").unwrap_or_else(|_| "sessionid".into());
         ensure!(
             !name.is_empty()
@@ -82,20 +138,159 @@ impl AdminReadConfig {
             "invalid admin session cookie name"
         );
         Ok(Some(Arc::new(Self {
+            suspension_budget: CacheStore::new(client.clone(), &cache_table, "", 1)?,
             client,
             codec: session_codec_from_env()?,
             session_cookie_name: name,
+            csrf_cookie_name: env::var("CSRF_COOKIE_NAME").unwrap_or_else(|_| "csrftoken".into()),
+            trusted_origins,
+            suspend_enabled,
+            hashing_slots: Arc::new(Semaphore::new(2)),
         })))
     }
 }
 
 pub fn router(config: Arc<AdminReadConfig>) -> Router {
-    Router::new()
+    let mut app = Router::new()
         .route("/api/v1/auth/admin/me", get(operator_session))
         .route("/api/v1/auth/admin/accounts/search", post(account_by_email))
         .route("/api/v1/auth/admin/accounts/{id}", get(account_status))
-        .route("/api/v1/auth/admin/deletions/{id}", get(deletion_status))
-        .with_state(config)
+        .route("/api/v1/auth/admin/deletions/{id}", get(deletion_status));
+    if config.suspend_enabled {
+        app = app.route(
+            "/api/v1/auth/admin/accounts/{id}/suspend",
+            post(suspend_account),
+        );
+    }
+    app.with_state(config)
+}
+
+async fn suspend_account(
+    State(config): State<Arc<AdminReadConfig>>,
+    Path(id): Path<String>,
+    request: Request,
+) -> Response {
+    let headers = request.headers();
+    if let Err(response) = authorize(&config, headers).await {
+        return *response;
+    }
+    let Ok(target_id) = id.parse::<i32>() else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_ACCOUNT_ID");
+    };
+    if target_id <= 0 {
+        return error(StatusCode::BAD_REQUEST, "INVALID_ACCOUNT_ID");
+    }
+    let explicit = match session_token(headers) {
+        Ok(value) => value,
+        Err(_) => return error(StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN"),
+    };
+    if explicit.is_none()
+        && !csrf_allowed(headers, &config.csrf_cookie_name, &config.trusted_origins)
+    {
+        return error(StatusCode::FORBIDDEN, "CSRF_FAILED");
+    }
+    let cookie = cookie_value(headers, &config.session_cookie_name);
+    let Some(token) = explicit.or(cookie.as_deref()) else {
+        return error(StatusCode::UNAUTHORIZED, "UNAUTHORIZED");
+    };
+    let token = token.to_owned();
+    if !headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/json"))
+    {
+        return error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "INVALID_CONTENT_TYPE");
+    }
+    let Ok(body) = to_bytes(request.into_body(), 5 * 1024).await else {
+        return error(StatusCode::PAYLOAD_TOO_LARGE, "INVALID_REQUEST");
+    };
+    let Ok(input) = serde_json::from_slice::<SuspendRequest>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+    };
+    if input.expected_subject.is_empty()
+        || input.expected_subject.len() > 128
+        || input.current_password.is_empty()
+        || input.current_password.len() > 4096
+    {
+        return error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+    }
+    let now = SystemTime::now();
+    let preflight =
+        match admin_suspend::preflight(&config.client, config.codec.clone(), &token, now).await {
+            Ok(value) => value,
+            Err(failure) => {
+                tracing::error!(error = %failure, "operator suspension preflight failed");
+                return error(StatusCode::SERVICE_UNAVAILABLE, "ADMIN_UNAVAILABLE");
+            }
+        };
+    let (actor_id, password_hash) = match preflight {
+        Preflight::Ready {
+            actor_id,
+            password_hash,
+        } => (actor_id, password_hash),
+        Preflight::Unauthorized => {
+            return error(StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN");
+        }
+        Preflight::Forbidden => return error(StatusCode::FORBIDDEN, "OPERATOR_ACCESS_REQUIRED"),
+    };
+    let budget = config
+        .suspension_budget
+        .advance_window(&format!("rl:admin_suspend:operator:{actor_id}"), 300, now)
+        .await;
+    match budget {
+        Ok(value) if value.count <= 6 => {}
+        Ok(_) => return error(StatusCode::TOO_MANY_REQUESTS, "RATE_LIMIT_EXCEEDED"),
+        Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, "ADMIN_UNAVAILABLE"),
+    }
+    let Ok(permit) = config.hashing_slots.clone().try_acquire_owned() else {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "ADMIN_UNAVAILABLE");
+    };
+    let password = input.current_password;
+    let hash_for_check = password_hash.clone();
+    let verified = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        id_compat::password::verify(&password, &hash_for_check)
+    })
+    .await;
+    match verified {
+        Ok(Ok(true)) => {}
+        Ok(Ok(false)) => return error(StatusCode::BAD_REQUEST, "INVALID_PASSWORD"),
+        _ => return error(StatusCode::SERVICE_UNAVAILABLE, "ADMIN_UNAVAILABLE"),
+    }
+    let result = admin_suspend::suspend(
+        &config.client,
+        config.codec.clone(),
+        SuspendInput {
+            token: &token,
+            actor_id,
+            password_hash: &password_hash,
+            target_id,
+            expected_subject: &input.expected_subject,
+            reason: input.reason,
+            now,
+        },
+    )
+    .await;
+    match result {
+        Ok(SuspendResult::Suspended) => {
+            json_response(StatusCode::OK, json!({"status":"suspended"}))
+        }
+        Ok(SuspendResult::Unauthorized) => {
+            error(StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN")
+        }
+        Ok(SuspendResult::Forbidden) => error(StatusCode::FORBIDDEN, "OPERATOR_ACCESS_REQUIRED"),
+        Ok(SuspendResult::WrongPassword) => error(StatusCode::CONFLICT, "PASSWORD_CHANGED"),
+        Ok(SuspendResult::TargetMissing) => error(StatusCode::NOT_FOUND, "ACCOUNT_NOT_FOUND"),
+        Ok(SuspendResult::SelfTarget) => error(StatusCode::FORBIDDEN, "SELF_SUSPENSION_FORBIDDEN"),
+        Ok(SuspendResult::ProtectedTarget) => error(StatusCode::FORBIDDEN, "PROTECTED_ACCOUNT"),
+        Ok(SuspendResult::StaleReview) => error(StatusCode::CONFLICT, "REVIEW_STALE"),
+        Ok(SuspendResult::AlreadyClosed) => error(StatusCode::CONFLICT, "ACCOUNT_ALREADY_CLOSED"),
+        Err(failure) => {
+            tracing::error!(error = %failure, "operator suspension commit result unknown");
+            error(StatusCode::SERVICE_UNAVAILABLE, "STATE_UNCERTAIN")
+        }
+    }
 }
 
 async fn operator_session(

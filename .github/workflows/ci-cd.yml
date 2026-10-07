@@ -238,12 +238,13 @@ jobs:
             YDB_LOCAL_ENDPOINT=grpc://localhost:2137 \
             ../../scripts/ci/wait-for-ydb-local.sh
           cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
+          cargo run --locked -p id-runtime --bin idctl -- cache-schema
           cargo test --locked -p id-runtime --test legacy_cutover_reset_ydb -- --ignored
           cargo run --locked -p id-runtime --bin idctl -- data-export-schema
           cargo run --locked -p id-runtime --bin idctl -- data-export-escrow-schema
           cargo run --locked -p id-runtime --bin idctl -- data-export-mail-schema
           cargo test --locked -p id-runtime --test data_export_delete_flow_ydb -- --ignored
-          ID_AUTH_ADMIN_READ_ENABLED=true cargo test --locked -p id-runtime --test admin_http_ydb -- --ignored
+          ID_AUTH_ADMIN_READ_ENABLED=true ID_AUTH_ADMIN_SUSPEND_ENABLED=true cargo test --locked -p id-runtime --test admin_http_ydb -- --ignored
 
       - uses: actions/setup-node@v6
         with:
@@ -267,6 +268,9 @@ jobs:
 
       - name: Verify public export link fragment, download and expiry in Chromium
         run: node scripts/check-web-export-redeem-browser.cjs
+
+      - name: Verify operator suspension review in Chromium
+        run: node scripts/check-web-admin-suspend-browser.cjs
 
       - name: Verify Chromium to Topcoat to Rust signup on local YDB
         env:

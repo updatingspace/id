@@ -48,7 +48,8 @@ p { margin: .4rem 0 1rem; }
 form { margin-top: 1.5rem; }
 label { display: block; margin-bottom: .5rem; font-weight: 700; }
 .search-row { display: flex; gap: .75rem; }
-input { min-width: 0; flex: 1; padding: .7rem .8rem; border: 1px solid #8796ad; border-radius: .5rem; font: inherit; }
+input, select { min-width: 0; flex: 1; padding: .7rem .8rem; border: 1px solid #8796ad; border-radius: .5rem; font: inherit; }
+.result-panel form > input, .result-panel form > select { display: block; width: min(100%, 28rem); }
 button { min-height: 2.75rem; padding: .7rem 1.1rem; border: 0; border-radius: .5rem; background: #3154bc; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
 button:hover { background: #244497; }
 .field-help { margin-top: .6rem; font-size: .85rem; }
@@ -58,6 +59,15 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .status { font-weight: 750; }
 .next-step { padding: 1rem 1.2rem; border-left: 4px solid #3154bc; background: #f3f6ff; }
 .next-step p { margin-bottom: 0; }
+.operator-action { margin-top: 1.5rem; }
+.review-actions { display: grid; gap: .75rem; margin-top: 1.5rem; }
+.review-actions button { width: 100%; background: #9b2f3c; }
+.review-actions button:hover { background: #7e2430; }
+.review-actions button:disabled { opacity: .65; cursor: wait; }
+.review-actions a { display: flex; align-items: center; justify-content: center; min-height: 2.75rem; padding: .7rem 1rem; border: 1px solid currentColor; border-radius: .5rem; font-weight: 700; text-align: center; text-decoration: none; }
+.review-actions a:hover { background: #e6edff; }
+.result-message { margin-top: 1.5rem; padding: 1rem; border-radius: .5rem; background: #e6edff; }
+.result-message[role="alert"] { background: #fff0ee; color: #8b2525; }
 @media (max-width: 36rem) {
   header { flex-wrap: wrap; }
   main { margin-top: 1.25rem; }
@@ -72,9 +82,14 @@ dd { margin: 0; overflow-wrap: anywhere; }
   :root { color-scheme: dark; color: #f5f7fb; background: #111827; }
   header, .lookup-panel, .result-panel { background: #1c2637; border-color: #39455a; }
   header span, .intro, .lookup-panel > p, .scope-panel p, .field-help, dt { color: #b5c1d4; }
+  nav { color: #b5c1d4; }
+  .eyebrow { color: #a8beff; }
   .scope-panel { background: #253351; border-color: #39455a; }
   a { color: #a8beff; }
   header strong { color: #a8beff; }
-  input { background: #111827; color: #fff; border-color: #586780; }
+  input, select { background: #111827; color: #fff; border-color: #586780; }
   .next-step { background: #253351; border-color: #a8beff; }
+  .result-message { background: #253351; }
+  .result-message[role="alert"] { background: #4c252b; color: #ffe1e1; }
+  .review-actions a:hover { background: #253351; }
 }
