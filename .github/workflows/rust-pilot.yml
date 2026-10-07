@@ -199,6 +199,8 @@ jobs:
         run: node scripts/check-web-passkey-registration-browser.cjs
       - name: Browser → Topcoat → Rust passkey login on local YDB
         run: bash services/id-rust/scripts/smoke-web-passkey-live.sh
+      - name: Native browser WebAuthn → Topcoat → Rust passkey registration on local YDB
+        run: bash services/id-rust/scripts/smoke-web-passkey-native-live.sh
       - name: Browser → Topcoat → Rust OIDC consent and code exchange on local YDB
         run: bash services/id-rust/scripts/smoke-web-consent-live.sh
       - name: Browser → Topcoat → Rust TOTP enrollment on local YDB
