@@ -650,14 +650,6 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         ensure!(client.query_client().query_row("SELECT id FROM token_blacklist_blacklistedtoken WHERE token_id = $id LIMIT 1")
             .param("$id", i64::from(account_id)).optional().await?.is_none(),
             "blacklisted token survived deletion worker");
-        for (table, column) in [
-            ("socialaccount_socialtoken", "account_id"),
-            ("account_emailconfirmation", "email_address_id"),
-        ] {
-            ensure!(client.query_client().query_row(format!("SELECT id FROM {table} WHERE {column} = $id LIMIT 1"))
-                .param("$id", account_id).optional().await?.is_none(),
-                "dependent credential survived deletion worker: {table}");
-        }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let media_port = listener.local_addr()?.port();
         let media_server = tokio::spawn(async move {
@@ -762,6 +754,16 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
                 .param("$id", account_id).optional().await?.is_none(),
                 "owner-scoped personal data survived profile stage: {table}");
         }
+        // These rows depend on the social account and email-address parents,
+        // so the profile stage removes them after the export snapshot is sealed.
+        for (table, column) in [
+            ("socialaccount_socialtoken", "account_id"),
+            ("account_emailconfirmation", "email_address_id"),
+        ] {
+            ensure!(client.query_client().query_row(format!("SELECT id FROM {table} WHERE {column} = $id LIMIT 1"))
+                .param("$id", account_id).optional().await?.is_none(),
+                "dependent credential survived profile cleanup: {table}");
+        }
         ensure!(client.query_client().query_row("SELECT user_id FROM accounts_accountidentity WHERE user_id = $id")
             .param("$id", account_id).optional().await?.is_some(),
             "profile stage removed the identity binding before final audit");
@@ -769,8 +771,8 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             .param("$key", delete_session.session.token.clone()).optional().await?.is_none(),
             "known browser session survived profile stage");
         ensure!(client.query_client().query_row("SELECT user_id FROM core_usersessionmeta VIEW core_usersessionmeta_session_key_2f41cf47 WHERE session_key = $key LIMIT 1")
-            .param("$key", delete_session.session.token.clone()).optional().await?.is_some(),
-            "profile stage removed retry ownership before final audit");
+            .param("$key", delete_session.session.token.clone()).optional().await?.is_none(),
+            "profile stage retained deleted session metadata");
         let operator_status = id_runtime::account_deletion::read_status(&client, operation_id)
             .await?.context("operator lost deletion status")?;
         ensure!(operator_status.status == "running" && !operator_status.cleanup_completed,
@@ -791,7 +793,7 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             .await?.context("final deletion audit lost operation")?;
         ensure!(audit.profile_stage_completed && audit.account_rows == 1
             && audit.identity_binding_rows == 1 && audit.identity_rows == 1
-            && audit.session_metadata_rows > 0 && audit.audit_log.matched > 0
+            && audit.session_metadata_rows == 0 && audit.audit_log.matched > 0
             && audit.outbox.matched > 0 && audit.applications.matched > 0
             && !audit.full_cleanup_proven,
             "final deletion audit misstated remaining identity data: {audit:?}");
