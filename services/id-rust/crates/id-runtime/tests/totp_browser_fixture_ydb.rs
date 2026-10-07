@@ -1,5 +1,5 @@
 #![recursion_limit = "256"]
-//! Synthetic account held in local YDB while Chromium drives Topcoat TOTP enrollment.
+//! Synthetic account held in local YDB while a browser drives MFA enrollment.
 
 use anyhow::{Context, Result, bail, ensure};
 use id_compat::session::SessionCodec;
@@ -34,6 +34,27 @@ async fn ids(client: &Client, sql: &str, account_id: i32) -> Result<Vec<i64>> {
 }
 
 async fn cleanup(client: &Client, fixture: &Fixture) -> Result<()> {
+    if env::var("ID_PASSKEY_BROWSER_MODE").as_deref() == Ok("true") {
+        let mut query = client.query_client();
+        let mut stream = query
+            .query("SELECT digest FROM id_passkey_credential WHERE account_id = $user_id")
+            .param("$user_id", fixture.account_id)
+            .await?;
+        let mut digests: Vec<String> = Vec::new();
+        while let Some(rows) = stream.next_result_set().await? {
+            for mut row in rows {
+                digests.push(row.remove_field_by_name("digest")?.try_into()?);
+            }
+        }
+        stream.close().await?;
+        for digest in digests {
+            client
+                .query_client()
+                .exec("DELETE FROM id_passkey_credential WHERE digest = $digest")
+                .param("$digest", digest)
+                .await?;
+        }
+    }
     for id in ids(client, "SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $user_id", fixture.account_id).await? {
         client.query_client().exec("DELETE FROM mfa_authenticator WHERE id = $id")
             .param("$id", id).await?;
@@ -112,6 +133,37 @@ async fn seed(client: &Client, fixture: &Fixture, codec: &SessionCodec) -> Resul
 }
 
 async fn verify(client: &Client, fixture: &Fixture, codec: &SessionCodec) -> Result<()> {
+    if env::var("ID_PASSKEY_BROWSER_MODE").as_deref() == Ok("true") {
+        let mut query = client.query_client();
+        let mut stream = query.query("SELECT type FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $user_id")
+            .param("$user_id", fixture.account_id).await?;
+        let mut kinds: Vec<String> = Vec::new();
+        while let Some(rows) = stream.next_result_set().await? {
+            for mut row in rows {
+                kinds.push(row.remove_field_by_name("type")?.try_into()?);
+            }
+        }
+        stream.close().await?;
+        kinds.sort();
+        ensure!(
+            kinds == ["recovery_codes", "webauthn"],
+            "browser registration did not persist passkey and recovery codes: {kinds:?}"
+        );
+        let mut row = client
+            .query_client()
+            .query_row("SELECT session_data FROM django_session WHERE session_key = $key")
+            .param("$key", fixture.session.clone())
+            .await?;
+        let signed: String = row.remove_field_by_name("session_data")?.try_into()?;
+        let data = codec.decode(&signed)?.data;
+        ensure!(
+            data.get("id_rust_passkey_pending").is_none()
+                && data.get("id_mfa_verified_user_id")
+                    == Some(&json!(fixture.account_id.to_string())),
+            "browser registration left challenge or no MFA proof"
+        );
+        return Ok(());
+    }
     let mut query = client.query_client();
     let mut stream = query.query("SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $user_id")
         .param("$user_id", fixture.account_id).await?;

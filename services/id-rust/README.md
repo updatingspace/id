@@ -493,6 +493,10 @@ WebAuthn и других интерактивных действий. Веб-с�
   Тест требует мигрированный локальный YDB, `DJANGO_DEBUG=true`,
   `ID_AUTH_TOTP_PILOT_ENABLED=true`, `ID_MFA_SEAL_KEY_B64` и синтетический
   `DJANGO_SECRET_KEY`; использует два экземпляра и 20 параллельных завершений.
+  `scripts/smoke-web-passkey-native-live.sh` отдельно открывает настоящий
+  Topcoat-кабинет в Chromium с временным виртуальным WebAuthn-устройством,
+  регистрирует ключ через Rust API и проверяет запись в локальной YDB. Этот
+  прогон не заменяет проверку на физическом iPhone/Safari.
   `ID_AUTH_PASSKEY_LOGIN_PILOT_ENABLED=true` вместе с локальным
   `ID_AUTH_LOGIN_PILOT_ENABLED=true` открывает `/passkeys/login/begin` и
   `/complete`. Challenge хранится пять минут в YDB и потребляется ровно один
