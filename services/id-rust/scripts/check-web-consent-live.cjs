@@ -55,6 +55,7 @@ async function main() {
     }, requestId);
     assert.equal(deniedWithoutCsrf, 403);
 
+    await page.locator('input[name="scope"][value="email"]').check();
     await page.locator('#approve').click();
     await page.waitForURL(url => url.pathname === '/callback' && url.searchParams.has('code'));
     const approved = new URL(page.url());

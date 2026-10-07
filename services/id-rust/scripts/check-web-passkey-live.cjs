@@ -68,10 +68,10 @@ async function main() {
     await page.locator('#passkey-login').click();
     try { await page.waitForURL(`${origin}/`, { timeout: 30000 }); }
     catch (error) { throw new Error(`Passkey login failed: ${await page.locator('#error').textContent()} (${error.message})`); }
-    const me = await page.evaluate(async () => {
-      const response = await fetch('/api/v1/auth/me', { credentials: 'include', cache: 'no-store' });
-      return { status: response.status, body: await response.json() };
-    });
+    // The landing page deliberately has no connect-src; use the browser
+    // context's shared cookie jar to verify the authenticated API session.
+    const response = await context.request.get(`${origin}/api/v1/auth/me`);
+    const me = { status: response.status(), body: await response.json() };
     assert.equal(me.status, 200, JSON.stringify(me.body));
     assert.equal(me.body.user.email, fixture.email);
     const cookies = await context.cookies(origin);
