@@ -43,7 +43,7 @@ uuid.workspace = true
 webauthn-rs = { workspace = true, optional = true }
 chrono-tz = "=0.10.4"
 qrcodegen = "=1.8.0"
-image = { version = "=0.25.8", default-features = false, features = ["jpeg", "png", "webp"] }
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [lints]
 workspace = true

@@ -22,7 +22,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal
       - name: Restore pinned audit tool
@@ -50,8 +50,8 @@ jobs:
       run:
         working-directory: services/id-rust
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Reject retired application runtimes
@@ -133,9 +133,10 @@ jobs:
       YDB_DATABASE: /local
       YDB_CREDENTIALS_MODE: anonymous
       CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal
@@ -295,7 +296,7 @@ jobs:
           cargo test --locked -p id-runtime --test data_export_delete_flow_ydb -- --ignored
           ID_AUTH_ADMIN_READ_ENABLED=true ID_AUTH_ADMIN_SUSPEND_ENABLED=true ID_AUTH_ADMIN_CLIENT_REDIRECTS_ENABLED=true cargo test --locked -p id-runtime --test admin_http_ydb -- --ignored
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -390,16 +391,16 @@ jobs:
       TF_VAR_cloud_id: dummy-cloud
       TF_VAR_folder_id: dummy-folder
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Verify exact Rust revision rollback
         run: node scripts/ci/test-yc-rust-rollback.mjs
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
 
       - name: Terraform fmt
         run: terraform fmt -check -recursive infra/terraform/yandex-cloud
@@ -414,9 +415,9 @@ jobs:
     name: OpenTofu validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
 
       - name: OpenTofu local check
         run: scripts/ci/check-yc-terraform-local.sh

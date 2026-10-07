@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Requires migrated local YDB, built id-api/id-web, and Chromium.
 workspace_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${workspace_dir}"
 bin_dir="${ID_RUST_BIN_DIR:-${workspace_dir}/target/debug}"
 api_port="${ID_PILOT_API_PORT:-13161}"
 web_port="${ID_PILOT_WEB_PORT:-13162}"
@@ -51,12 +52,16 @@ http.createServer((incoming, outgoing) => {
 }).listen(port, '127.0.0.1');
 EOF
 
+# Compile before the readiness deadline, using the workspace toolchain.
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+  cargo test --locked -p id-runtime --test admin_browser_fixture_ydb --no-run
+
 YDB_ENDPOINT="${YDB_ENDPOINT:-grpc://127.0.0.1:2136}" \
 YDB_DATABASE=/local YDB_CREDENTIALS_MODE=anonymous \
 DJANGO_DEBUG=true DJANGO_SECRET_KEY="${session_key}" \
 ID_ADMIN_BROWSER_FIXTURE_OUTPUT="${scratch_dir}/fixture.json" \
 ID_ADMIN_BROWSER_DONE="${scratch_dir}/done" \
-CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
   cargo test --manifest-path "${workspace_dir}/Cargo.toml" --locked -p id-runtime \
     --test admin_browser_fixture_ydb -- --ignored --nocapture >"${scratch_dir}/fixture.log" 2>&1 &
 fixture_pid=$!
