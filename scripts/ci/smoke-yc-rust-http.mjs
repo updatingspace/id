@@ -56,11 +56,15 @@ for (const [path, status, type, expectedBody] of checks) {
       }
       lastError = `${response.status} ${response.headers.get('content-type') ?? '<none>'}`;
     } catch (error) {
-      lastError = error.message;
+      lastError = [error.message, error.cause?.code].filter(Boolean).join(' ');
     }
     if (attempt < 11) await new Promise((resolve) => setTimeout(resolve, 5_000));
   }
-  if (lastError) throw new Error(`${path}: expected ${status} ${type}, got ${lastError}`);
+  if (lastError) {
+    const message = `${path}: expected ${status} ${type}, got ${lastError}`;
+    console.error(`::error title=ID production smoke::${message}`);
+    throw new Error(message);
+  }
 }
 
 if (target === 'oidc') {
