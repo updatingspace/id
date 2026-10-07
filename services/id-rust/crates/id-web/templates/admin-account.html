@@ -30,7 +30,7 @@
             </div>
             <p id="account-help" class="field-help">Только цифры; поиск не изменяет аккаунт.</p>
           </form>
-          <form action="/admin/accounts/" method="get">
+          <form action="/admin/accounts/" method="post">
             <label for="account-email">Подтверждённый основной адрес</label>
             <div class="search-row">
               <input id="account-email" name="email" type="email" autocomplete="off" maxlength="320" value="{{ lookup_email }}" aria-describedby="email-help" required>

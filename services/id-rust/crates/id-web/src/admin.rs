@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::{env, time::Duration};
 use topcoat::{
     context::{Cx, app_context},
-    router::{Body, request, response::Response, route},
+    router::{Body, content::RawForm, request, response::Response, route},
 };
 use url::Url;
 
@@ -149,15 +149,23 @@ pub(crate) async fn page_slash(cx: &Cx) -> topcoat::Result<Response> {
 
 #[route(GET "/admin/accounts")]
 pub(crate) async fn account_page(cx: &Cx) -> topcoat::Result<Response> {
-    render_account_page(cx).await
+    render_account_page(cx, None).await
 }
 
 #[route(GET "/admin/accounts/")]
 pub(crate) async fn account_page_slash(cx: &Cx) -> topcoat::Result<Response> {
-    render_account_page(cx).await
+    render_account_page(cx, None).await
 }
 
-async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
+#[route(POST "/admin/accounts/")]
+pub(crate) async fn account_search_page(
+    cx: &Cx,
+    RawForm(body): RawForm,
+) -> topcoat::Result<Response> {
+    render_account_page(cx, Some(&body)).await
+}
+
+async fn render_account_page(cx: &Cx, form: Option<&[u8]>) -> topcoat::Result<Response> {
     let api = app_context::<AdminApi>(cx);
     let cookie = request::headers(cx)
         .get("cookie")
@@ -182,14 +190,16 @@ async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
         _ => return problem(503, "Не удалось проверить права. Попробуйте позже."),
     }
     let query = request::uri(cx).query();
-    if query.is_some_and(|value| value.len() > 128) {
+    if form.is_some_and(|_| query.is_some()) {
+        return problem(400, "Не добавляйте адрес почты в URL.");
+    }
+    let input = form.unwrap_or_else(|| query.unwrap_or("").as_bytes());
+    if input.len() > if form.is_some() { 512 } else { 128 } {
         return problem(400, "Слишком длинный поисковый запрос.");
     }
-    let fields = query.map_or_else(Vec::new, |query| {
-        url::form_urlencoded::parse(query.as_bytes())
-            .into_owned()
-            .collect::<Vec<_>>()
-    });
+    let fields = url::form_urlencoded::parse(input)
+        .into_owned()
+        .collect::<Vec<_>>();
     if fields.is_empty() {
         return render_account("", "", None, false, false);
     }
@@ -197,7 +207,7 @@ async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
         return problem(400, "Укажите только один способ поиска.");
     }
     let (key, value) = &fields[0];
-    let (lookup_id, lookup_email, url, expected_id) = if key == "id" {
+    let (lookup_id, lookup_email, url, expected_id) = if key == "id" && form.is_none() {
         if value.is_empty() || value.len() > 10 || !value.bytes().all(|byte| byte.is_ascii_digit())
         {
             return problem(400, "Укажите корректный ID аккаунта.");
@@ -211,7 +221,7 @@ async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
         let mut url = api.account_url.clone();
         url.set_path(&format!("/api/v1/auth/admin/accounts/{parsed}"));
         (value.as_str(), String::new(), url, Some(parsed))
-    } else if key == "email" {
+    } else if key == "email" && form.is_some() {
         let email = value.trim().to_lowercase();
         if email.is_empty()
             || email.len() > 320
@@ -220,16 +230,19 @@ async fn render_account_page(cx: &Cx) -> topcoat::Result<Response> {
         {
             return problem(400, "Укажите корректный адрес электронной почты.");
         }
-        let mut url = api.account_search_url.clone();
-        url.query_pairs_mut().append_pair("email", &email);
-        ("", email, url, None)
+        ("", email, api.account_search_url.clone(), None)
     } else {
         return problem(400, "Укажите ID или электронную почту.");
     };
-    let lookup = api
-        .client
-        .get(url)
-        .header(reqwest::header::ACCEPT, "application/json");
+    let lookup = if lookup_email.is_empty() {
+        api.client.get(url)
+    } else {
+        api.client
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(serde_json::json!({"email":lookup_email}).to_string())
+    }
+    .header(reqwest::header::ACCEPT, "application/json");
     let lookup = if let Some(cookie) = cookie {
         lookup.header(reqwest::header::COOKIE, cookie)
     } else {

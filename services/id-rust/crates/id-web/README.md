@@ -36,6 +36,9 @@ by exact ID or verified primary email. It verifies the operator session through 
 rendering and does not query YDB. Its templates and stylesheet are
 frontend-owned; the API owns authorization and account/request state. Account
 lookup shows status and identity binding, not credentials or editing controls.
+Email lookup submits a read-only POST from the SSR form to `id-web`, then to
+`id-api`; the address is not placed in a page or API URL. Both responses use
+`Cache-Control: no-store`.
 Other operator tasks are not yet available in this UI.
 
 Run from `services/id-rust`:

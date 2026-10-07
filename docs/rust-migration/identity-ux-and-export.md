@@ -27,6 +27,11 @@ number. It shows a human-readable state and the next safe operator step; it
 does not expose account identifiers, email or a misleading "delete succeeded"
 message before cleanup is confirmed. Access requires an active staff and
 superuser session with bound MFA proof. `gateway_rust_admin` is off by default.
+The account lookup added alongside it accepts an exact numeric ID or a verified
+primary email. Email search uses a bounded POST body at both Topcoat and API;
+the address is not put into Gateway URLs. Ambiguous ownership fails closed.
+The opt-in Gateway template now includes its page and API routes; production
+admin remains disabled until an operator browser rehearsal passes.
 This is **not** parity with the old admin: user, client, consent, export, audit,
 retry and bootstrap tasks still need dedicated screens or documented `idctl`
 procedures. A fresh-authentication requirement for privileged mutations must

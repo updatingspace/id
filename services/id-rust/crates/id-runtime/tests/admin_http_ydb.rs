@@ -38,6 +38,32 @@ async fn get(
     Ok((status, body))
 }
 
+async fn search_email(
+    app: &Router,
+    cookie: Option<&str>,
+    header_token: Option<&str>,
+    email: &str,
+) -> Result<(StatusCode, Value)> {
+    let mut request = Request::builder()
+        .uri("/api/v1/auth/admin/accounts/search")
+        .method("POST")
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(cookie) = cookie {
+        request = request.header(header::COOKIE, cookie);
+    }
+    if let Some(token) = header_token {
+        request = request.header("x-session-token", token);
+    }
+    let response = app
+        .clone()
+        .oneshot(request.body(Body::from(json!({"email":email}).to_string()))?)
+        .await?;
+    ensure!(response.headers()[header::CACHE_CONTROL] == "no-store");
+    let status = response.status();
+    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await?)?;
+    Ok((status, body))
+}
+
 #[tokio::test]
 #[ignore = "requires disposable local YDB on port 2137"]
 async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
@@ -111,7 +137,6 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
 
         let path = format!("/api/v1/auth/admin/deletions/{deletion_id}");
         let account_path = format!("/api/v1/auth/admin/accounts/{target_id}");
-        let email_path = format!("/api/v1/auth/admin/accounts/search?email={target_email}");
         let cookie = format!("sessionid={token}");
         let (status, _) = get(&app, &path, None, None).await?;
         ensure!(status == StatusCode::UNAUTHORIZED);
@@ -119,7 +144,7 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         ensure!(status == StatusCode::FORBIDDEN);
         let (status, _) = get(&app, &account_path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::FORBIDDEN);
-        let (status, _) = get(&app, &email_path, Some(&cookie), None).await?;
+        let (status, _) = search_email(&app, Some(&cookie), None, &target_email).await?;
         ensure!(status == StatusCode::FORBIDDEN);
         client.query_client().exec("UPDATE auth_user SET is_staff = true WHERE id = $id")
             .param("$id", account_id).await?;
@@ -144,22 +169,29 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             && body["account"]["public_subject"] == format!("target-subject-{stamp}")
             && body["account"]["has_mfa"] == false, "operator account lookup: {body}");
         ensure!(!body.to_string().contains(password), "password hash exposed to operator UI");
-        let (status, body) = get(&app, &email_path, Some(&cookie), None).await?;
+        let (status, body) = search_email(&app, Some(&cookie), None, &target_email).await?;
         ensure!(status == StatusCode::OK && body["account"]["id"] == target_id,
             "verified email lookup: {body}");
-        let (status, _) = get(&app, &email_path, Some(&cookie), Some("invalid")).await?;
+        let (status, _) = search_email(&app, Some(&cookie), Some("invalid"), &target_email).await?;
         ensure!(status == StatusCode::UNAUTHORIZED, "invalid header fell back to cookie for email lookup");
-        let (status, _) = get(&app, "/api/v1/auth/admin/accounts/search?email=bad", Some(&cookie), None).await?;
+        let (status, _) = search_email(&app, Some(&cookie), None, "bad").await?;
         ensure!(status == StatusCode::BAD_REQUEST);
+        let url_search = Request::builder()
+            .uri("/api/v1/auth/admin/accounts/search?email=bad")
+            .method("GET")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())?;
+        let response = app.clone().oneshot(url_search).await?;
+        ensure!(response.status() == StatusCode::METHOD_NOT_ALLOWED, "email search leaked into URL");
         client.query_client().exec("UPDATE account_emailaddress SET verified = false WHERE id = $id")
             .param("$id", email_id).await?;
-        let (status, _) = get(&app, &email_path, Some(&cookie), None).await?;
+        let (status, _) = search_email(&app, Some(&cookie), None, &target_email).await?;
         ensure!(status == StatusCode::NOT_FOUND, "unverified email returned an account");
         client.query_client().exec("UPDATE account_emailaddress SET verified = true WHERE id = $id")
             .param("$id", email_id).await?;
         client.query_client().exec("INSERT INTO accounts_accountemaillookup (user_id, email_key) VALUES ($id, $email)")
             .param("$id", target_id + 1).param("$email", target_email.clone()).await?;
-        let (status, body) = get(&app, &email_path, Some(&cookie), None).await?;
+        let (status, body) = search_email(&app, Some(&cookie), None, &target_email).await?;
         ensure!(status == StatusCode::CONFLICT && body["code"] == "ACCOUNT_EMAIL_AMBIGUOUS",
             "ambiguous email selected an account: {body}");
         let (status, _) = get(&app, &account_path, Some(&cookie), Some("invalid")).await?;

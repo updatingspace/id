@@ -10,13 +10,14 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use axum::{
     Json, Router,
-    extract::{Path, RawQuery, State},
+    body::to_bytes,
+    extract::{Path, Request, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use id_compat::{headers::session_token, session::SessionCodec};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     env,
@@ -29,6 +30,12 @@ enum EmailLookupOutcome {
     Found(AccountSnapshot),
     NotFound,
     Ambiguous,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmailLookupRequest {
+    email: String,
 }
 
 pub struct AdminReadConfig {
@@ -73,7 +80,7 @@ impl AdminReadConfig {
 pub fn router(config: Arc<AdminReadConfig>) -> Router {
     Router::new()
         .route("/api/v1/auth/admin/me", get(operator_session))
-        .route("/api/v1/auth/admin/accounts/search", get(account_by_email))
+        .route("/api/v1/auth/admin/accounts/search", post(account_by_email))
         .route("/api/v1/auth/admin/accounts/{id}", get(account_status))
         .route("/api/v1/auth/admin/deletions/{id}", get(deletion_status))
         .with_state(config)
@@ -136,22 +143,27 @@ async fn account_status(
 
 async fn account_by_email(
     State(config): State<Arc<AdminReadConfig>>,
-    RawQuery(query): RawQuery,
-    headers: HeaderMap,
+    request: Request,
 ) -> Response {
-    if let Err(response) = authorize(&config, &headers).await {
+    if let Err(response) = authorize(&config, request.headers()).await {
         return *response;
     }
-    let Some(query) = query.filter(|value| value.len() <= 512) else {
-        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
-    };
-    let mut fields = url::form_urlencoded::parse(query.as_bytes());
-    let Some((key, email)) = fields.next() else {
-        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
-    };
-    if key != "email" || fields.next().is_some() {
-        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
+    if request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_none_or(|value| !value.trim().eq_ignore_ascii_case("application/json"))
+    {
+        return error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "INVALID_CONTENT_TYPE");
     }
+    let Ok(body) = to_bytes(request.into_body(), 513).await else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
+    };
+    let Ok(EmailLookupRequest { email }) = serde_json::from_slice::<EmailLookupRequest>(&body)
+    else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_EMAIL");
+    };
     let email = email.trim().to_lowercase();
     if email.len() > 320
         || email.is_empty()
