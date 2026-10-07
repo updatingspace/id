@@ -1,16 +1,19 @@
+{% import "account-shell.html" as shell %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
   <title>История входов — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-3" />
+  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
 </head>
 <body>
-  <header><a href="/">UpdSpace ID</a></header>
-  <main>
+  {% call shell::open(features, "sessions", "История входов") %}{% endcall %}
     <h1>История входов</h1>
-    <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
+    <nav class="subnav" aria-label="Устройства и активность">{% if features.sessions_enabled %}<a href="/account?section=sessions">Активные устройства</a>{% endif %}<a href="/account?section=activity" aria-current="page">История входов</a></nav>
     <section aria-label="Последние входы">
       <p>Показаны последние 100 событий входа.</p>
       {% if events.is_empty() %}<p>Событий пока нет.</p>{% endif %}
@@ -20,8 +23,7 @@
           <div>
             <strong>{{ event.status_label }}</strong>
             <time datetime="{{ event.created_at }}">{{ event.created_at }}</time>
-            <small>{{ event.user_agent }}</small>
-            <small>{{ event.ip }}</small>
+            <span>{{ event.device }}</span><details><summary>Технические сведения</summary><p>{{ event.user_agent }}</p><p>IP: {{ event.ip }}</p></details>
             {% if event.is_new_device %}<span>Новое устройство</span>{% endif %}
             {% if let Some(reason) = event.reason %}<small>{{ reason }}</small>{% endif %}
           </div>
@@ -29,6 +31,6 @@
         {% endfor %}
       </ol>
     </section>
-  </main>
+  {% call shell::close() %}{% endcall %}
 </body>
 </html>

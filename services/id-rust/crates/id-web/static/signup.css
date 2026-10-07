@@ -1,8 +1,9 @@
-.signup-card { width: min(100% - 3rem, 34rem); }
-.check { display: flex; gap: .75rem; align-items: flex-start; font-weight: 400; line-height: 1.4; }
-.check input { width: 1.2rem; min-height: 1.2rem; height: 1.2rem; flex: none; margin: .1rem 0 0; }
-.signup-card fieldset { border: 1px solid #cbd4e3; border-radius: .7rem; margin: 1rem 0; padding: 1rem; }
-.signup-card fieldset[hidden] { display: none; }
-.signup-card legend { padding: 0 .4rem; }
-@media (max-width: 440px) { .signup-card { width: min(100% - 2.25rem, 34rem); } }
-@media (prefers-color-scheme: dark) { .signup-card fieldset { border-color: #465873; } }
+.signup-card { max-width: 32rem; width: calc(100% - 2rem); }
+.signup-card .intro { margin-bottom: 1.25rem; }
+.signup-card .check { margin: 0; font-size: .94rem; }
+.signup-card details { margin: .5rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.signup-card details > div { display: grid; gap: .6rem; margin-bottom: 1rem; }
+.signup-card #guardian-fields { padding: 1rem; }
+.field-help { margin: 0; color: var(--muted); font-size: .88rem; }
+
+.signup-card > .brand { margin-bottom: 1.25rem; }

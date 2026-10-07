@@ -16,6 +16,28 @@ env:
   NODE_VERSION: "22.12.0"
 
 jobs:
+  rust-dependency-audit:
+    name: Rust dependency audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Restore pinned audit tool
+        id: audit-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/id-audit-tools
+          key: cargo-audit-0.22.2-${{ runner.os }}-${{ runner.arch }}-rust-1.98.1
+      - name: Install pinned cargo-audit
+        if: steps.audit-cache.outputs.cache-hit != 'true'
+        run: cargo +1.98.1 install cargo-audit --locked --version 0.22.2 --root "$RUNNER_TEMP/id-audit-tools"
+      - name: Check locked dependencies against current RustSec advisories
+        working-directory: services/id-rust
+        run: '"$RUNNER_TEMP/id-audit-tools/bin/cargo-audit" audit'
+
   rust-stack:
     name: Rust API and Topcoat
     runs-on: ubuntu-latest
@@ -28,8 +50,8 @@ jobs:
       run:
         working-directory: services/id-rust
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Reject retired application runtimes
@@ -49,9 +71,16 @@ jobs:
             echo 'Retired React Gateway fallback returned' >&2
             exit 1
           fi
+          if git grep -n -E 'resource "yandex_storage_bucket" "frontend"|yandex_storage_bucket\.frontend' -- infra/terraform/yandex-cloud; then
+            echo 'Retired React bucket returned to Terraform' >&2
+            exit 1
+          fi
       - name: Verify delayed-export deploy gate
         working-directory: .
         run: node scripts/ci/test-check-yc-delayed-export.mjs
+      - name: Verify account-deletion deploy gate
+        working-directory: .
+        run: node scripts/ci/test-check-yc-account-deletion.mjs
       - name: Verify production CI event gate
         working-directory: .
         run: node scripts/ci/test-verify-yc-workflow-event.mjs
@@ -104,15 +133,16 @@ jobs:
       YDB_DATABASE: /local
       YDB_CREDENTIALS_MODE: anonymous
       CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal
 
       - name: Install WebAuthn build dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config ripgrep
 
       - name: Start YDB local
         run: |
@@ -266,7 +296,7 @@ jobs:
           cargo test --locked -p id-runtime --test data_export_delete_flow_ydb -- --ignored
           ID_AUTH_ADMIN_READ_ENABLED=true ID_AUTH_ADMIN_SUSPEND_ENABLED=true ID_AUTH_ADMIN_CLIENT_REDIRECTS_ENABLED=true cargo test --locked -p id-runtime --test admin_http_ydb -- --ignored
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -286,11 +316,48 @@ jobs:
           cargo build --locked -p id-runtime --bins -p id-web
           bash scripts/smoke-web-recovery-live.sh
 
+      - name: Verify Chromium to Topcoat to Rust deletion on disposable YDB
+        env:
+          YDB_ENDPOINT: grpc://127.0.0.1:2137
+          YDB_CREDENTIALS_MODE: anonymous
+          ID_DISPOSABLE_YDB: "true"
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          docker run -d --rm --name id-deletion-browser-ydb --hostname localhost \
+            -e GRPC_PORT=2137 -e MON_PORT=8766 \
+            -p 127.0.0.1:2137:2137 \
+            ydbplatform/local-ydb@sha256:9e46fd45875551a75bcf34d0bb9ca0baa1d8763a4ccf2070af45f4467c4b7402
+          trap 'docker stop id-deletion-browser-ydb' EXIT
+          YDB_CONTAINER_NAME=id-deletion-browser-ydb \
+            YDB_LOCAL_ENDPOINT=grpc://localhost:2137 \
+            ../../scripts/ci/wait-for-ydb-local.sh
+          target/debug/idctl legacy-schema --apply
+          target/debug/idctl cache-schema
+          cargo test --locked -p id-runtime --test legacy_cutover_reset_ydb -- --ignored
+          target/debug/idctl data-export-schema
+          target/debug/idctl data-export-escrow-schema
+          target/debug/idctl data-export-mail-schema
+          bash scripts/smoke-web-deletion-live.sh
+
       - name: Verify public export link fragment, download and expiry in Chromium
         run: node scripts/check-web-export-redeem-browser.cjs
 
       - name: Verify inline passkey management in Chromium
         run: node scripts/check-web-passkey-management-browser.cjs
+
+      - name: Verify TOTP status and recovery-code completion in Chromium
+        run: node scripts/check-web-totp-state-browser.cjs
+
+      - name: Verify login MFA state and account return path in Chromium
+        run: node scripts/check-web-login-state-browser.cjs
+
+      - name: Verify responsive account UI, themes and form state in Chromium
+        run: node scripts/check-web-ui-browser.cjs
+
+      - name: Verify gated account deletion review in Chromium
+        run: bash scripts/smoke-web-deletion.sh
 
       - name: Verify operator suspension and OIDC client lookup in Chromium
         run: node scripts/check-web-admin-suspend-browser.cjs
@@ -327,16 +394,16 @@ jobs:
       TF_VAR_cloud_id: dummy-cloud
       TF_VAR_folder_id: dummy-folder
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Verify exact Rust revision rollback
         run: node scripts/ci/test-yc-rust-rollback.mjs
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
 
       - name: Terraform fmt
         run: terraform fmt -check -recursive infra/terraform/yandex-cloud
@@ -351,9 +418,9 @@ jobs:
     name: OpenTofu validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
 
       - name: OpenTofu local check
         run: scripts/ci/check-yc-terraform-local.sh

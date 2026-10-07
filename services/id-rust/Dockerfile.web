@@ -3,6 +3,7 @@ FROM rust:1.98.1-bookworm AS builder
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ crates/
+COPY vendor/ vendor/
 RUN --mount=type=cache,id=id-rust-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=id-rust-target,target=/src/target \
     cargo build --locked --release -p id-web \

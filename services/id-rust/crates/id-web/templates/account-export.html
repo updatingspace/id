@@ -1,20 +1,20 @@
+{% import "account-shell.html" as shell %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
   <title>Экспорт данных — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-3" />
-  <script src="/_id/export.js?v=cancel-20261006-1" defer></script>
-  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  <script src="/_id/export.js?v=ui-20261008-1" defer></script>
+  {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
 <body>
-  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
-  <main>
+  {% call shell::open(features, "privacy", "Копия данных") %}{% endcall %}
     <h1>Копия ваших данных</h1>
     <p class="page-intro">Получите сведения, которые хранит UpdSpace ID о вашем аккаунте. Перед запросом проверьте способ и срок доставки.</p>
-    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
-    <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
     <section aria-labelledby="export-title">
       <h2 id="export-title">Запросить копию</h2>
       {% if delayed_enabled %}
@@ -26,7 +26,7 @@
       <p>Точное время отправки появится после запроса. Если архив подготовить не удастся, мы сообщим об этом вместо неполной выгрузки.</p>
       {% if email_verified %}<p>Адрес доставки: <strong>{{ delivery_email }}</strong>. Проверьте, что вы можете получить письмо на него до отправки запроса.</p>
       {% else %}<p role="alert">Сначала подтвердите адрес <strong>{{ delivery_email }}</strong> в разделе <a href="/account?section=profile">«Личные сведения»</a>. Без подтверждения мы не можем отправить архив.</p>{% endif %}
-      <p>Если запрос сделали не вы, отзовите его в аккаунте или по отдельной ссылке отмены из первого письма. Если аккаунт будет удалён после запроса, подготовка и доставка уже запрошенной копии продолжатся: ссылка придёт на тот же адрес. Ссылка отмены из первого письма работает и после удаления аккаунта. Если письмо недоступно, обратитесь к оператору с номером запроса.</p>
+
       {% else %}
       <p role="status">Новые запросы временно недоступны: получение копии переводится на доставку после 24-часового ожидания. Уже созданную копию можно открыть по её ссылке, пока она действует.</p>
       {% endif %}
@@ -42,6 +42,7 @@
       </form>
       <noscript><p>Для отправки запроса нужен JavaScript. Статус готового экспорта отображается без него.</p></noscript>
       {% endif %}
+      {% if delayed_enabled %}<details><summary>Отмена запроса и удаление аккаунта</summary>      <p>Если запрос сделали не вы, отзовите его в аккаунте или по отдельной ссылке отмены из первого письма. Если аккаунт будет удалён после запроса, подготовка и доставка уже запрошенной копии продолжатся: ссылка придёт на тот же адрес. Ссылка отмены из первого письма работает и после удаления аккаунта. Если письмо недоступно, обратитесь к оператору с номером запроса.</p></details>{% endif %}
       <p id="export-error" role="alert" hidden></p>
     </section>
     {% if requested && operation.is_none() %}
@@ -93,6 +94,6 @@
       {% endif %}
     </section>
     {% endif %}
-  </main>
+  {% call shell::close() %}{% endcall %}
 </body>
 </html>

@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
   <title>Доступ к аккаунту — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/consent.css?v=ux-20261007-2" />
-  <script src="/_id/consent.js?v=ux-20261007-1" defer></script>
+  <link rel="stylesheet" href="/_id/consent.css?v=ui-20261008-1" />
+  <script src="/_id/consent.js?v=ui-20261008-1" defer></script>
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
 <body>
   <main class="consent-shell">
@@ -34,13 +36,14 @@
           {% endfor %}
         </fieldset>
         <label class="remember"><input id="remember" type="checkbox" />Сохранить этот выбор для следующих входов</label>
-        <p class="choice-note">Этот выбор можно изменить в разделе «Подключённые приложения». Отказ вернёт вас в приложение без нового доступа к аккаунту.</p>
+        <p class="choice-note">Этот выбор можно изменить в разделе «Приложения». Отказ вернёт вас в приложение без нового доступа к аккаунту.</p>
         <p id="consent-error" role="alert" hidden></p>
         <div class="actions">
           <button id="deny" type="button">Не предоставлять доступ</button>
           <button id="approve" type="submit">Разрешить выбранное</button>
         </div>
       </form>
+    <label class="theme-control">Оформление<select data-theme-select aria-label="Оформление"><option value="system">Как на устройстве</option><option value="light">Светлое</option><option value="dark">Тёмное</option></select></label>
     </section>
   </main>
 </body>

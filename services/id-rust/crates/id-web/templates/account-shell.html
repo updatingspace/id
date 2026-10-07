@@ -1,0 +1,23 @@
+{% macro links(features, active) %}
+<nav class="account-links" aria-label="Разделы аккаунта">
+  <a href="/account" {% if active == "overview" %}aria-current="page"{% endif %}>Обзор</a>
+  {% if features.profile_enabled || features.email_management_enabled || features.preferences_enabled %}<a href="/account?section=profile" {% if active == "profile" %}aria-current="page"{% endif %}>Профиль</a>{% endif %}
+  {% if features.security_enabled %}<a href="/account?section=security" {% if active == "security" %}aria-current="page"{% endif %}>Вход и защита</a>{% endif %}
+  {% if features.sessions_enabled %}<a href="/account?section=sessions" {% if active == "sessions" %}aria-current="page"{% endif %}>Устройства</a>{% else if features.history_enabled %}<a href="/account?section=activity" {% if active == "sessions" %}aria-current="page"{% endif %}>Устройства</a>{% endif %}
+  {% if features.apps_enabled %}<a href="/account?section=apps" {% if active == "apps" %}aria-current="page"{% endif %}>Приложения</a>{% endif %}
+  {% if features.preferences_enabled %}<a href="/account?section=privacy" {% if active == "privacy" %}aria-current="page"{% endif %}>Приватность и данные</a>{% else if features.exports_enabled %}<a href="/account?section=data" {% if active == "privacy" %}aria-current="page"{% endif %}>Приватность и данные</a>{% endif %}
+</nav>
+{% endmacro %}
+{% macro theme() %}
+<label class="theme-control">Оформление<select data-theme-select aria-label="Оформление"><option value="system">Как на устройстве</option><option value="light">Светлое</option><option value="dark">Тёмное</option></select></label>
+{% endmacro %}
+{% macro open(features, active, title) %}
+<a class="skip-link" href="#main">К содержанию</a>
+<header class="account-header"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">ID</span>UpdSpace ID</a>{% if features.logout_enabled %}<button id="logout" type="button" class="quiet">Выйти</button>{% endif %}</header>
+<div class="account-layout">
+<aside class="account-sidebar">{% call links(features, active) %}{% endcall %}{% call theme() %}{% endcall %}</aside>
+<main id="main">
+<details class="mobile-navigation"><summary>{{ title }} · Разделы</summary>{% call links(features, active) %}{% endcall %}{% call theme() %}{% endcall %}</details>
+{% if features.logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
+{% endmacro %}
+{% macro close() %}</main></div>{% endmacro %}

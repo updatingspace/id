@@ -1,0 +1,25 @@
+#![recursion_limit = "256"]
+use std::time::Duration;
+use tokio::time::timeout;
+use ydb::{ClientBuilder, MetadataUrlCredentials, YdbError, YdbResult};
+
+#[tokio::main]
+async fn main() -> YdbResult<()> {
+    let client_builder = ClientBuilder::new_from_connection_string("grpc://localhost:2136/local")?
+        .with_credentials(MetadataUrlCredentials::new());
+
+    let client = match timeout(Duration::from_secs(3), client_builder.build()).await {
+        Ok(res) => res?,
+        _ => {
+            return Err(YdbError::from("Connection timeout"));
+        }
+    };
+
+    let mut row = client
+        .query_client()
+        .query_row("SELECT 1 + 1 AS sum")
+        .await?;
+    let sum: i32 = row.remove_field_by_name("sum")?.try_into()?;
+    println!("sum: {sum}");
+    Ok(())
+}

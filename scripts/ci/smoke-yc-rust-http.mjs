@@ -36,8 +36,10 @@ const checks = {
     ['/_id/export-redeem.js', 200, 'javascript'],
     ['/_id/export-cancel.js', 200, 'javascript'],
   ],
+  deletion: [],
+  'magic-link': [],
 }[target];
-if (!checks) throw new Error('usage: smoke-yc-rust-http.mjs api|oidc|sessions|mutations|web|delayed-export');
+if (!checks) throw new Error('usage: smoke-yc-rust-http.mjs api|oidc|sessions|mutations|web|delayed-export|deletion|magic-link');
 
 for (const [path, status, type, expectedBody] of checks) {
   let lastError;
@@ -140,5 +142,54 @@ if (target === 'delayed-export') {
     }
     if (!verified) throw new Error(`${path}: invalid bearer was not rejected by the Rust API`);
     console.log(`${path}: 404 invalid bearer`);
+  }
+}
+
+if (target === 'deletion') {
+  const response = await fetch(`${baseUrl}/api/v1/auth/account/deletions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    redirect: 'manual',
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = await response.json().catch(() => null);
+  if (response.status !== 401 || !response.headers.get('content-type')?.includes('application/json') ||
+      response.headers.get('cache-control') !== 'no-store' || body?.code !== 'UNAUTHORIZED') {
+    throw new Error('deletion endpoint did not reject an unauthenticated request');
+  }
+  console.log('/api/v1/auth/account/deletions: 401 unauthenticated');
+}
+
+if (target === 'magic-link') {
+  const cases = [
+    ['POST', '/api/v1/auth/magic-link/request', 'MISSING_TENANT'],
+    ['GET', '/api/v1/auth/magic-link/consume', 'INVALID_QUERY'],
+    ['POST', '/api/v1/auth/magic-link/consume', 'MISSING_TENANT'],
+  ];
+  for (const [method, path, code] of cases) {
+    let verified = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method,
+          headers: {
+            'X-Request-Id': '00000000-0000-4000-8000-000000000001',
+            ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+          },
+          ...(method === 'POST' ? { body: '{}' } : {}),
+          redirect: 'manual',
+          signal: AbortSignal.timeout(15_000),
+        });
+        const body = await response.json().catch(() => null);
+        verified = response.status === 400 && body?.code === code &&
+          response.headers.get('content-type')?.includes('application/json') &&
+          response.headers.get('cache-control') === 'no-store';
+        if (verified) break;
+      } catch { /* a harmless denial can be retried after a cold start */ }
+      if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 2_000));
+    }
+    if (!verified) throw new Error(`${method} ${path}: expected a Rust ${code} denial`);
+    console.log(`${method} ${path}: 400 ${code}`);
   }
 }

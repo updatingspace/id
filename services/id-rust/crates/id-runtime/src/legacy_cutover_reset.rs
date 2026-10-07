@@ -33,11 +33,25 @@ pub async fn seal(client: &Client) -> Result<bool> {
     if is_sealed(client).await? {
         return Ok(false);
     }
-    let report = reset(client, 1, false).await?;
-    ensure!(report.complete, "legacy transient tables are not empty");
+    ensure!(
+        seal_readiness(client).await?,
+        "legacy unscoped tables are not empty"
+    );
     client.query_client().exec(format!(
         "INSERT INTO `{SEAL_TABLE}` (name, sealed_at) VALUES ('legacy-transient', CurrentUtcDatetime())"
     )).timeout(Duration::from_secs(15)).await?;
+    Ok(true)
+}
+
+/// Live Rust sessions use the former Django session tables. Sealing after
+/// cutover must check only records whose owner cannot be proven; the optional
+/// pre-cutover reset still drains sessions separately.
+pub async fn seal_readiness(client: &Client) -> Result<bool> {
+    for table in ["usid_application", "usid_audit_log", "usid_outbox"] {
+        if count(client, table).await? != 0 {
+            return Ok(false);
+        }
+    }
     Ok(true)
 }
 
@@ -73,6 +87,11 @@ pub async fn reset(client: &Client, batch: u64, apply: bool) -> Result<ResetRepo
         "cutover reset batch must be 1..=1000"
     );
     if apply {
+        crate::legacy_schema::require_local_ydb_for_pilot()?;
+        ensure!(
+            std::env::var("ID_DISPOSABLE_YDB").as_deref() == Ok("true"),
+            "cutover reset requires explicitly disposable local YDB"
+        );
         ensure_seal_schema(client).await?;
         if is_sealed(client).await? {
             bail!("legacy cutover is sealed; reset would erase new sessions");

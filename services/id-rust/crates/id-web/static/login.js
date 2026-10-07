@@ -11,6 +11,35 @@
   const mfaCode = document.getElementById("mfa-code");
   const passkeyButton = document.getElementById("passkey-login");
   if (!form || !submit || !error || !status || !mfaFields || !mfaMethod || !mfaCode) return;
+  const email = form.elements.email;
+  const password = form.elements.password;
+  const credentialFields = document.getElementById("credential-fields");
+  const mfaBack = document.getElementById("mfa-back");
+  let defaultAction = submit.textContent;
+  let credentialsVersion = 0;
+  let activeAttempt = null;
+
+  function credentialsChanged() {
+    credentialsVersion += 1;
+    mfaFields.hidden = true;
+    if (credentialFields) credentialFields.hidden = false;
+    submit.textContent = defaultAction;
+    mfaCode.required = false;
+    mfaCode.value = "";
+    error.hidden = true;
+    status.hidden = true;
+    // Preparing a form token has no login side effect. A submitted login may
+    // already have issued a cookie, so only its result can finish that attempt.
+    if (activeAttempt && !activeAttempt.sending) {
+      activeAttempt.controller.abort();
+      activeAttempt = null;
+      submit.disabled = false;
+      if (passkeyButton) passkeyButton.disabled = false;
+    }
+  }
+  mfaBack?.addEventListener("click", () => { if (!submit.disabled) { credentialsChanged(); password.focus(); } });
+  email.addEventListener("input", credentialsChanged);
+  password.addEventListener("input", credentialsChanged);
 
   if (passkeyButton && window.isSecureContext && window.PublicKeyCredential && navigator.credentials?.get) {
     passkeyButton.hidden = false;
@@ -35,6 +64,7 @@
     document.getElementById("login-title").textContent = "Войдите, чтобы продолжить";
     document.querySelector(".intro").textContent = "Вы открываете другой сервис через единый аккаунт UpdSpace ID.";
     submit.textContent = "Войти и продолжить";
+    defaultAction = submit.textContent;
     authContext.textContent = "Сейчас вы входите только в UpdSpace ID. Если приложению нужны новые разрешения, мы покажем его название и запрошенные сведения на следующем шаге. Здесь вы ещё не даёте приложению доступ.";
     authContext.hidden = false;
   }
@@ -203,7 +233,7 @@
         method: "POST", credentials: "include", cache: "no-store", headers, body: "{}", signal: timeout.signal,
       });
       const challenge = await jsonResponse(begun);
-      if (!begun.ok) throw new Error(challenge.message || "Не удалось начать вход с Passkey.");
+      if (!begun.ok) throw new Error(challenge.message || "Не удалось начать вход с ключом доступа.");
       const credential = await navigator.credentials.get({
         publicKey: passkeyOptions(challenge.request_options), signal: timeout.signal,
       });
@@ -214,14 +244,14 @@
         body: JSON.stringify({ credential: assertionJson(credential) }), signal: timeout.signal,
       });
       const result = await jsonResponse(completed);
-      if (!completed.ok) throw new Error(result.message || "Не удалось войти с Passkey.");
+      if (!completed.ok) throw new Error(result.message || "Не удалось войти с ключом доступа.");
       clearLegacyToken();
       window.location.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
     } catch (cause) {
       if (cause instanceof DOMException && ["NotAllowedError", "AbortError"].includes(cause.name)) {
         status.hidden = true;
       } else {
-        showError(cause instanceof Error ? cause.message : "Не удалось войти с Passkey.");
+        showError(cause instanceof Error ? cause.message : "Не удалось войти с ключом доступа.");
       }
     } finally {
       clearTimeout(timer);
@@ -239,6 +269,14 @@
     status.hidden = false;
     status.textContent = "Проверяем данные…";
     const timeout = new AbortController();
+    const attempt = {
+      controller: timeout,
+      version: credentialsVersion,
+      email: email.value,
+      password: password.value,
+      sending: false,
+    };
+    activeAttempt = attempt;
     const timer = setTimeout(() => timeout.abort(), 30000);
     try {
       const issued = await fetch("/api/v1/auth/form_token?purpose=login", {
@@ -248,18 +286,22 @@
         signal: timeout.signal,
       });
       const formToken = await jsonResponse(issued);
+      if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
       if (!issued.ok || typeof formToken.form_token !== "string") {
         throw new Error(formToken.message || "Не удалось подготовить вход. Попробуйте ещё раз.");
       }
       const payload = {
-        email: form.elements.email.value,
-        password: form.elements.password.value,
+        email: attempt.email,
+        password: attempt.password,
         form_token: formToken.form_token,
       };
       if (!mfaFields.hidden && mfaCode.value.trim()) {
         payload[mfaMethod.value === "recovery" ? "recovery_code" : "mfa_code"] = mfaCode.value.trim();
       }
       const csrf = csrfCookie();
+      attempt.sending = true;
+      email.readOnly = true;
+      password.readOnly = true;
       const result = await fetch("/api/v1/auth/login", {
         method: "POST",
         credentials: "include",
@@ -274,8 +316,11 @@
       });
       const body = await jsonResponse(result);
       if (!result.ok) {
+        if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
         if (body.code === "MFA_REQUIRED") {
           mfaFields.hidden = false;
+          if (credentialFields) credentialFields.hidden = true;
+          submit.textContent = "Подтвердить вход";
           mfaCode.required = true;
           mfaCode.focus();
           status.textContent = "Введите код подтверждения.";
@@ -288,15 +333,45 @@
       clearLegacyToken();
       window.location.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
     } catch (cause) {
+      if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
       showError(cause && cause.name === "AbortError"
         ? "Превышено время ожидания. Попробуйте ещё раз."
         : cause instanceof Error ? cause.message : "Не удалось войти. Попробуйте ещё раз.");
     } finally {
       clearTimeout(timer);
-      submit.disabled = false;
-      if (passkeyButton) passkeyButton.disabled = false;
+      if (activeAttempt === attempt) {
+        activeAttempt = null;
+        email.readOnly = false;
+        password.readOnly = false;
+        submit.disabled = false;
+        if (passkeyButton) passkeyButton.disabled = false;
+      }
     }
   });
 
   void restoreLegacySession();
+  if (!window.location.search) {
+    let touched = false;
+    form.addEventListener("input", () => { touched = true; }, { once: true });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    fetch("/api/v1/auth/me", { credentials: "include", cache: "no-store", signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(body => {
+        if (!body?.user || touched || activeAttempt || !mfaFields.hidden) return;
+        const choice = document.getElementById("session-choice");
+        if (!choice) return;
+        document.getElementById("session-name").textContent = body.user.email || body.user.username || "Ваш аккаунт";
+        choice.hidden = false;
+        form.hidden = true;
+        const passkeyVisible = passkeyButton && !passkeyButton.hidden;
+        if (passkeyButton) passkeyButton.hidden = true;
+        document.getElementById("choose-another").addEventListener("click", () => {
+          choice.hidden = true;
+          form.hidden = false;
+          if (passkeyButton) passkeyButton.hidden = !passkeyVisible;
+          email.focus();
+        });
+      }).catch(() => {}).finally(() => clearTimeout(timer));
+  }
 })();

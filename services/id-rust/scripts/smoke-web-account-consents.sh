@@ -71,7 +71,7 @@ fi
 html="$(<"${scratch_dir}/privacy.html")"
 [[ "${html}" == *'id="consents-title"'* ]]
 [[ "${html}" == *'data-kind="marketing"'* ]]
-[[ "${html}" == *'data_processing'* ]]
+[[ "${html}" == *'Обработка персональных данных'* ]]
 [[ "${html}" == *'id="consents-error"'* ]]
 curl --silent --show-error --fail --max-time 5 \
   "http://127.0.0.1:${web_port}/_id/preferences.js" >"${scratch_dir}/preferences.js"

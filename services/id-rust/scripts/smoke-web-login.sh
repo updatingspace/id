@@ -33,7 +33,7 @@ for ((attempt=0; attempt<30; attempt++)); do
 done
 [[ "${ready}" == true ]]
 html="$(<"${scratch_dir}/login.html")"
-[[ "${html}" == *'<form id="login-form" method="post" action="/login">'* ]]
+[[ "${html}" == *'<form id="login-form"'*'method="post" action="/login">'* ]]
 [[ "${html}" == *'<fieldset id="mfa-fields"'* ]]
 [[ "${html}" == *'id="passkey-login"'* ]]
 [[ "${html}" == *'src="/_id/login.js?'* ]]
@@ -45,7 +45,7 @@ headers="$(<"${scratch_dir}/headers")"
 [[ "${headers,,}" == *'cache-control: no-store'* ]]
 [[ "${headers,,}" == *"content-security-policy: default-src 'none'; script-src 'self'"* ]]
 
-for asset in login.js login.css; do
+for asset in login.js login.css ui.js ui.css; do
   curl --silent --show-error --fail --max-time 5 -D "${scratch_dir}/headers" \
     "http://127.0.0.1:${web_port}/_id/${asset}" >"${scratch_dir}/${asset}"
   headers="$(<"${scratch_dir}/headers")"

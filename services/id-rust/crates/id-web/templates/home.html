@@ -3,15 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
   <meta name="description" content="UpdSpace ID — одна точка входа в сервисы UpdSpace. Вы решаете, какие приложения получают доступ к вашему аккаунту.">
   <title>UpdSpace ID — одна точка входа</title>
-  <link rel="stylesheet" href="/_id/home.css?v=ux-20261007-2">
+  <link rel="stylesheet" href="/_id/home.css?v=ui-20261008-1">
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
-<body>
+<body data-public-home>
   <a class="skip-link" href="#main">К содержанию</a>
   <div class="site-shell">
     <header class="site-header">
-      <a class="brand" href="/" aria-label="UpdSpace ID — главная">UpdSpace <span>ID</span></a>
+      <a class="brand" href="/" aria-label="UpdSpace ID — главная"><span class="brand-mark" aria-hidden="true">ID</span>UpdSpace ID</a>
       <nav aria-label="Основная навигация">
         <a href="/login">Войти</a>
         <a class="header-account" href="/account">Мой аккаунт</a>
@@ -46,7 +48,7 @@
         <a href="/account?section=apps">Посмотреть доступ приложений <span aria-hidden="true">→</span></a>
       </section>
     </main>
-    <footer class="site-footer"><span>UpdSpace ID</span><a href="/login">Войти в аккаунт</a></footer>
+    <footer class="site-footer"><label class="theme-control">Оформление<select data-theme-select aria-label="Оформление"><option value="system">Как на устройстве</option><option value="light">Светлое</option><option value="dark">Тёмное</option></select></label><span>UpdSpace ID</span><a href="/login">Войти в аккаунт</a></footer>
   </div>
 </body>
 </html>

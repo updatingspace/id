@@ -29,21 +29,27 @@
       for (const scope of ["profile_basic", "profile_extended", "email", "phone"]) {
         policies[scope] = data.get("scope-" + scope);
       }
+      // Old documents have one combined form; new sections must never write
+      // the other section's hidden snapshot back over newer preferences.
+      const payload = {};
+      if (form.dataset.preferenceSection !== "privacy") {
+        payload.language = data.get("language");
+        payload.timezone = data.get("timezone");
+      }
+      if (form.dataset.preferenceSection !== "settings") {
+        payload.marketing_opt_in = form.elements.marketing_opt_in.checked;
+        payload.privacy_scope_defaults = policies;
+      }
       const response = await fetch("/api/v1/auth/preferences", {
         method: "PATCH",
         credentials: "include",
         cache: "no-store",
         headers: { "Content-Type": "application/json", "X-CSRFToken": csrfCookie() },
-        body: JSON.stringify({
-          language: data.get("language"),
-          timezone: data.get("timezone"),
-          marketing_opt_in: form.elements.marketing_opt_in.checked,
-          privacy_scope_defaults: policies,
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
       if (response.status === 401) {
-        window.location.replace("/login?next=%2Faccount%3Fsection%3Dprivacy");
+        window.location.replace("/login?next=" + encodeURIComponent("/account?section=" + (form.dataset.preferenceSection === "settings" ? "settings" : "privacy")));
         return;
       }
       const result = await response.json();

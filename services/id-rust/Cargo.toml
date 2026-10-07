@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/id-compat", "crates/id-runtime", "crates/id-web"]
+exclude = ["vendor/ydb"]
 resolver = "3"
 
 [workspace.package]
@@ -21,13 +22,13 @@ chrono = "0.4"
 flate2 = "1.1"
 hex = "0.4"
 hmac = "0.12"
-jsonwebtoken = "=9.3.1"
+jsonwebtoken = { version = "=10.3.0", features = ["aws_lc_rs"] }
 lettre = { version = "=0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 http = "1.3"
 pbkdf2 = "0.12"
 pem = "=3.0.6"
 rand = "=0.9.5"
-reqwest = { version = "=0.11.27", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls", "http2", "charset"] }
 quick-xml = { version = "=0.42.0", features = ["serialize"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -50,6 +51,11 @@ webauthn-rs = { version = "=0.5.5", default-features = false, features = ["dange
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+[patch.crates-io]
+# Published YDB 0.18.2 selects older HTTP/TLS and JWT dependencies; only its
+# dependency manifest is changed in this licensed copy. See vendor/README.md.
+ydb = { path = "vendor/ydb" }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

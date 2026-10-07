@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Requires a migrated disposable local YDB, prebuilt id-api/id-web, and Chromium.
 workspace_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${workspace_dir}"
 bin_dir="${ID_RUST_BIN_DIR:-${workspace_dir}/target/debug}"
 api_port="${ID_PILOT_API_PORT:-13061}"
 web_port="${ID_PILOT_WEB_PORT:-13062}"
@@ -52,6 +53,10 @@ http.createServer((incoming, outgoing) => {
   incoming.pipe(forwarded);
 }).listen(port, '127.0.0.1');
 EOF
+
+# Compile before the readiness deadline, using the workspace toolchain.
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+  cargo test --locked -p id-runtime --test totp_browser_fixture_ydb --no-run
 
 YDB_ENDPOINT="${YDB_ENDPOINT:-grpc://127.0.0.1:2136}" \
 YDB_DATABASE=/local YDB_CREDENTIALS_MODE=anonymous \

@@ -20,8 +20,8 @@ async function main() {
     const context = await browser.newContext();
     await context.addCookies([{ name: 'sessionid', value: sessionToken, url: origin, httpOnly: true }]);
     const page = await context.newPage();
-    await page.goto(origin + '/account');
-    assert.equal(await page.locator('h1').textContent(), 'Аккаунт');
+    await page.goto(origin + '/account?section=profile');
+    assert.equal(await page.locator('h1').textContent(), 'Профиль');
     assert.equal(await page.locator('#profile-form').count(), 1);
 
     const denied = await page.evaluate(async () => {
@@ -38,6 +38,7 @@ async function main() {
       (await fetch('/api/v1/auth/me', { credentials: 'include', cache: 'no-store' })).json());
     assert.notEqual(before.user.first_name, 'Denied');
 
+    await page.locator('[data-profile-editor] > summary').first().click();
     await page.locator('#first-name').fill('  Ada  ');
     await page.locator('#last-name').fill('  Lovelace  ');
     await page.locator('#phone-number').fill(' +1 555 ');

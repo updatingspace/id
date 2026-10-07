@@ -3,7 +3,6 @@ locals {
 
   public_base_url = var.public_domain != "" ? "https://${var.public_domain}" : "https://id.localhost"
 
-  frontend_bucket_name  = var.frontend_bucket_name != "" ? var.frontend_bucket_name : "${local.name_prefix}-frontend-${substr(md5("${var.folder_id}-frontend"), 0, 8)}"
   media_bucket_name     = var.media_bucket_name != "" ? var.media_bucket_name : "${local.name_prefix}-media-${substr(md5("${var.folder_id}-media"), 0, 8)}"
   export_bucket_name    = var.export_bucket_name != "" ? var.export_bucket_name : "${local.name_prefix}-exports-${substr(md5("${var.folder_id}-exports"), 0, 8)}"
   container_registry_id = var.container_registry_id != "" ? var.container_registry_id : yandex_container_registry.id[0].id

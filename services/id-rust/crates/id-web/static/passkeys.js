@@ -121,6 +121,9 @@
         return;
       }
       register.disabled = true;
+      register.setAttribute("aria-busy", "true");
+      message.textContent = "Подтвердите добавление ключа в окне браузера или устройства…";
+      message.hidden = false;
       let needsReview = false;
       error.hidden = true;
       try {
@@ -128,7 +131,7 @@
         const credential = await navigator.credentials.create({
           publicKey: creationOptions(begin.creation_options),
         });
-        if (!credential) return;
+        if (!credential) { message.hidden = true; return; }
         const result = await post("/api/v1/auth/passkeys/complete", {
           name,
           credential: serializeAttestation(credential),
@@ -144,6 +147,18 @@
           }
           recovery.hidden = false;
           codesVisible = true;
+          const guidance = document.getElementById("recovery-guidance");
+          if (guidance) guidance.hidden = true;
+          const passkeysStatus = document.getElementById("passkeys-status");
+          const recoveryStatus = document.getElementById("recovery-status");
+          const recoveryLeft = document.getElementById("recovery-left");
+          if (passkeysStatus) passkeysStatus.textContent = "Есть";
+          if (recoveryStatus) recoveryStatus.textContent = "Есть";
+          if (recoveryLeft) recoveryLeft.textContent = String(result.recovery_codes.length);
+          const saved = document.getElementById("passkey-recovery-saved");
+          if (saved) saved.hidden = false;
+          const empty = document.getElementById("passkeys-empty");
+          if (empty) empty.hidden = true;
           message.textContent = "Ключ добавлен. Сохраните резервные коды перед уходом со страницы.";
           message.hidden = false;
           register.hidden = true;
@@ -151,6 +166,7 @@
           window.location.reload();
         }
       } catch (failure) {
+        message.hidden = true;
         if (failure?.uncertainPasskey || failure?.invalidPasskey) {
           needsReview = true;
           review.hidden = false;
@@ -168,9 +184,15 @@
         error.hidden = false;
       } finally {
         register.disabled = needsReview;
+        register.removeAttribute("aria-busy");
       }
     });
   }
+
+  document.getElementById("passkey-recovery-saved")?.addEventListener("click", () => {
+    codesVisible = false;
+    window.location.reload();
+  });
 
   window.addEventListener("beforeunload", (event) => {
     if (!codesVisible) return;

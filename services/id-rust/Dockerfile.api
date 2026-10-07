@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev pkg-
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ crates/
+COPY vendor/ vendor/
 COPY schema/ schema/
 RUN --mount=type=cache,id=id-rust-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=id-rust-target,target=/src/target \
@@ -21,6 +22,7 @@ RUN update-ca-certificates
 COPY --from=builder /out/id-api /usr/local/bin/id-api
 COPY --from=builder /out/idctl /usr/local/bin/idctl
 COPY --from=builder /src/crates/id-runtime/data/DJANGO-LICENSE /usr/share/doc/id-api/DJANGO-LICENSE
+COPY --from=builder /src/vendor/ydb/LICENSE.txt /usr/share/doc/id-api/YDB-LICENSE
 USER 65532:65532
 ENV PORT=8080
 EXPOSE 8080

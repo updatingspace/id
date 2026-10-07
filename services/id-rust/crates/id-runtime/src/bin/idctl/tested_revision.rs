@@ -6,7 +6,8 @@ use serde_json::Value;
 use std::{collections::BTreeMap, env, time::Duration};
 
 const WORKFLOW: &str = ".github/workflows/ci-cd.yml";
-const REQUIRED_JOBS: [&str; 5] = [
+const REQUIRED_JOBS: [&str; 6] = [
+    "Rust dependency audit",
     "Rust API and Topcoat",
     "Rust YDB schema and auth integration",
     "Terraform validate",

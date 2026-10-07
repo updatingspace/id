@@ -134,8 +134,11 @@ async function main() {
     await page.locator('[data-passkey-delete="42"]').click();
     assert.match(await page.locator('[data-passkey-delete-review]').innerText(), /Ключ iPhone/);
     await page.locator('[data-passkey-delete-confirm="42"]').click();
-    await page.getByText('Ключей доступа нет.').waitFor();
+    await page.locator('#passkeys-empty').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('.passkey-row').count(), 0,
+      'the deleted key must be absent from the refreshed list');
     assert.deepEqual(calls[1], { pathname: '/api/v1/auth/passkeys/delete', payload: { ids: ['42'] } });
+    assert.equal(calls.length, 2, 'rename and deletion must each submit exactly once');
     assert.equal(dialogCalls, 0, 'browser prompt or confirm was opened');
     console.log('PASS: passkey rename/delete use inline review, keyboard cancel and real page reload');
   } finally {

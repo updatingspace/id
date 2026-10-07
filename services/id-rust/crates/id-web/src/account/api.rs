@@ -1,6 +1,6 @@
 //! API client for SSR account pages. Authentication and data access remain in id-api.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 use std::{env, time::Duration};
 use url::Url;
@@ -55,6 +55,7 @@ pub(super) struct LoginEventRow {
 
 #[derive(Deserialize)]
 pub(super) struct SessionRow {
+    pub(super) last_seen: Option<String>,
     pub(super) id: String,
     pub(super) user_agent: Option<String>,
     pub(super) ip: Option<String>,
@@ -190,6 +191,7 @@ pub(crate) struct AccountApi {
     pub(super) password_change_enabled: bool,
     pub(super) email_management_enabled: bool,
     pub(super) exports_enabled: bool,
+    pub(super) deletion_enabled: bool,
 }
 
 impl AccountApi {
@@ -218,6 +220,15 @@ impl AccountApi {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(10))
             .build()?;
+        let exports_enabled = env::var("ID_WEB_EXPORTS_ENABLED").as_deref() == Ok("true");
+        let deletion_enabled = env::var("ID_WEB_DELETION_ENABLED").as_deref() == Ok("true");
+        let delayed_export_enabled = env::var("ID_WEB_EXPORT_REDEEM_ENABLED").as_deref()
+            == Ok("true")
+            || env::var("ID_WEB_EXPORT_REDEEM_PILOT_ENABLED").as_deref() == Ok("true");
+        ensure!(
+            !deletion_enabled || (exports_enabled && delayed_export_enabled),
+            "account deletion UI requires the delayed export UI"
+        );
         Ok(Self {
             client,
             me_url,
@@ -253,7 +264,8 @@ impl AccountApi {
                 == Ok("true"),
             email_management_enabled: env::var("ID_WEB_EMAIL_MANAGEMENT_ENABLED").as_deref()
                 == Ok("true"),
-            exports_enabled: env::var("ID_WEB_EXPORTS_ENABLED").as_deref() == Ok("true"),
+            exports_enabled,
+            deletion_enabled,
         })
     }
 }

@@ -18,11 +18,6 @@ output "public_base_url" {
   value       = local.public_base_url
 }
 
-output "frontend_bucket_name" {
-  description = "Object Storage bucket used for the frontend bundle."
-  value       = yandex_storage_bucket.frontend.bucket
-}
-
 output "media_bucket_name" {
   description = "Object Storage bucket used for avatars/media."
   value       = yandex_storage_bucket.media.bucket

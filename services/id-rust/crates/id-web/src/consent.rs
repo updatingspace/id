@@ -208,18 +208,7 @@ fn redirect(location: &str, csrf_cookie: Option<&str>) -> topcoat::Result<Respon
 }
 
 fn problem(message: &str) -> topcoat::Result<Response> {
-    let html = format!(
-        "<!doctype html><html lang=\"ru\"><meta charset=\"utf-8\"><title>UpdSpace ID</title><main><h1>Не удалось продолжить</h1><p>{message}</p></main></html>"
-    );
-    Ok(Response::builder()
-        .status(400)
-        .header("Content-Type", "text/html; charset=utf-8")
-        .header("Cache-Control", "no-store")
-        .header(
-            "Content-Security-Policy",
-            "default-src 'none'; frame-ancestors 'none'",
-        )
-        .body(Body::from(html))?)
+    crate::ui::unavailable(message, false)
 }
 
 #[route(GET "/_id/consent.js")]

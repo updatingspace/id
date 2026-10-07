@@ -17,7 +17,7 @@ their browser behavior and styles live in `static/`. The login template's
 accept only checked-in static fragments selected by deployment feature flags.
 No request data is interpolated into these placeholders.
 
-The dynamic `consent.html` page and all seven `account-*.html` pages are Askama
+The dynamic consent and account pages are Askama
 templates with typed Rust page models.
 Askama escapes API and profile values before inserting them into HTML. Template
 authors can change structure and copy without editing the API integration.
@@ -26,8 +26,30 @@ templates: browser scripts use those hooks. Do not use `safe` or string
 replacement for API-provided values.
 
 The account SSR handler calls `id-api` with the request cookie and renders its
-response; it does not implement identity business rules. Recovery and email
-verification pages are static HTML templates with browser behavior in
+response; it does not implement identity business rules.
+
+Successful authenticator setup updates the visible status without reloading,
+so newly issued recovery codes remain available. The saved-codes action releases
+the leave-page warning and reloads the authoritative account state. This also
+applies to passkey setup and recovery-code rotation. The Chromium regression
+`scripts/check-web-totp-state-browser.cjs` covers failed confirmation, successful
+setup, code retention and explicit completion; it uses a synthetic API and does
+not replace the Rust/YDB enrollment tests.
+
+The deletion review at `/account?section=delete` is hidden unless
+`ID_WEB_DELETION_ENABLED=true` and both export UI flags are also enabled. It
+explains immediate loss of access, asynchronous cleanup and how an export
+requested first survives deletion. The browser sends the password and MFA code
+directly to `id-api`; a lost response is shown as uncertain and is not retried
+automatically. Enable this page only after the API, jobs and recovery timer
+have passed the coordinated production gate. `scripts/smoke-web-deletion.sh`
+checks the review, mobile width and submission behavior against a mock API;
+`scripts/smoke-web-deletion-live.sh` drives a real browser through Topcoat and
+the Rust API on an explicitly disposable local YDB, then checks the accepted
+request and revoked session. The later cleanup and export-after-deletion flow
+has a separate YDB integration test.
+
+Recovery and email verification pages are static HTML templates with browser behavior in
 `static/recovery.js`; their Rust handlers only select the document and set
 security headers. Frontend authors can change their layout and copy without
 editing API or router code, while keeping the form IDs used by the script.
@@ -85,3 +107,28 @@ The web image is built by `Dockerfile.web`; a frontend change produces a new
 Browser checks use the small, locked Playwright runner in
 `services/id-rust/browser-tests`. Install it with `npm ci` there; the Topcoat
 smoke scripts resolve this package without installing the old React frontend.
+`scripts/check-web-login-state-browser.cjs` exercises actual Topcoat pages with
+a synthetic API: return to the requested account section, clearing MFA after
+credential edits, cancellation during form-token preparation, and delayed login
+responses. Credential fields become read-only while a login POST is in flight
+because that request may already have issued a session cookie.
+
+
+The user UI shares `static/ui.css` colour/control tokens and `static/ui.js`
+(theme, readable dates, password visibility, error focus and explicit recovery
+code copy/download). Load both on every public/account document. The system
+colour scheme is the default; an explicit choice is stored locally and applied
+before paint. `templates/account-shell.html` owns the six-section navigation,
+desktop sidebar and native mobile disclosure. Profile editors use native
+`details[name=profile-editor]` so only one opens, without discarding form inputs.
+Language/timezone use `section=settings` within Profile; existing query links
+remain valid. Each preference view uses the existing partial PATCH contract and sends only its
+own fields, so a stale tab cannot overwrite changes made in the other section.
+
+`scripts/check-web-ui-browser.cjs` starts real Topcoat with a synthetic API and
+checks 17 pages at 320/390/1280 px in both themes, 200% text (also expanded
+forms), token contrast, navigation, draft/error retention, revoked/empty device
+lists, consent defaults, theme persistence and current-session vs reauth entry.
+Run with the same browser dependencies as the other scripts. `--preview` keeps
+the synthetic preview running for manual visual review; it is never a live
+account or proof of delivery/deletion success.

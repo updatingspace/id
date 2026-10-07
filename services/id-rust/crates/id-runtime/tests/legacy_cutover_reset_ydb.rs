@@ -46,6 +46,10 @@ async fn resets_only_selected_legacy_state() -> Result<()> {
 
     let dry_run = id_runtime::legacy_cutover_reset::reset(&client, 1, false).await?;
     ensure!(
+        !id_runtime::legacy_cutover_reset::seal_readiness(&client).await?,
+        "cutover seal ignored unscoped legacy records"
+    );
+    ensure!(
         dry_run.dry_run && !dry_run.complete && dry_run.tables.len() == 7,
         "dry-run misstated cutover state: {dry_run:?}"
     );
@@ -76,10 +80,48 @@ async fn resets_only_selected_legacy_state() -> Result<()> {
         before_seal.attempted == 0 && before_seal.deferred == 0,
         "automatic finalization ran before cutover seal: {before_seal:?}"
     );
+    // Sessions are written by Rust after cutover. Their presence must not
+    // prevent sealing the unscoped legacy tables or cause a session reset.
+    let active_key = format!("cutover-active-{}", -account_id);
+    client.query_client().exec("UPSERT INTO django_session (session_key, session_data, expire_date) VALUES ($key, 'synthetic', CurrentUtcDatetime())")
+        .param("$key", active_key.clone()).await?;
+    client.query_client().exec("UPSERT INTO usersessions_usersession (id, user_id, created_at, ip, last_seen_at, session_key, user_agent, data) VALUES ($id, $user_id, CurrentUtcDatetime(), '', CurrentUtcDatetime(), $key, '', Unwrap(CAST('{}' AS Json)))")
+        .param("$id", row_id).param("$user_id", account_id).param("$key", active_key.clone()).await?;
+    client.query_client().exec("UPSERT INTO core_usersessionmeta (id, user_id, session_key, user_agent, first_seen, revoked_reason) VALUES ($id, $user_id, $key, '', CurrentUtcDatetime(), '')")
+        .param("$id", row_id).param("$user_id", account_id).param("$key", active_key.clone()).await?;
+    client.query_client().exec("UPSERT INTO core_usersessiontoken (id, user_id, session_key, refresh_jti, created_at) VALUES ($id, $user_id, $key, 'synthetic', CurrentUtcDatetime())")
+        .param("$id", row_id).param("$user_id", account_id).param("$key", active_key.clone()).await?;
+    ensure!(
+        id_runtime::legacy_cutover_reset::seal_readiness(&client).await?,
+        "active Rust sessions blocked cutover seal"
+    );
     ensure!(
         id_runtime::legacy_cutover_reset::seal(&client).await?,
-        "completed reset did not create a cutover seal"
+        "clean unscoped tables did not create a cutover seal"
     );
+    for (table, key, value) in [
+        ("django_session", "session_key", active_key.as_str()),
+        (
+            "usersessions_usersession",
+            "session_key",
+            active_key.as_str(),
+        ),
+        ("core_usersessionmeta", "session_key", active_key.as_str()),
+        ("core_usersessiontoken", "session_key", active_key.as_str()),
+    ] {
+        ensure!(
+            client
+                .query_client()
+                .query_row(format!(
+                    "SELECT `{key}` FROM `{table}` WHERE `{key}` = $key LIMIT 1"
+                ))
+                .param("$key", value)
+                .optional()
+                .await?
+                .is_some(),
+            "cutover seal removed an active Rust session from {table}"
+        );
+    }
     ensure!(
         !id_runtime::legacy_cutover_reset::seal(&client).await?,
         "cutover seal was not idempotent"
@@ -90,6 +132,22 @@ async fn resets_only_selected_legacy_state() -> Result<()> {
             .is_err(),
         "sealed cutover allowed a later reset"
     );
+    client
+        .query_client()
+        .exec("DELETE FROM django_session WHERE session_key = $key")
+        .param("$key", active_key)
+        .await?;
+    for table in [
+        "usersessions_usersession",
+        "core_usersessionmeta",
+        "core_usersessiontoken",
+    ] {
+        client
+            .query_client()
+            .exec(format!("DELETE FROM `{table}` WHERE id = $id"))
+            .param("$id", row_id)
+            .await?;
+    }
     ensure!(
         client
             .query_client()

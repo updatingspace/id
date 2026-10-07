@@ -15,7 +15,7 @@ pub(crate) async fn page(_cx: &Cx) -> Result<Response> {
         .header("Referrer-Policy", "strict-origin-when-cross-origin")
         .header(
             "Content-Security-Policy",
-            "default-src 'none'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'",
         )
         .body(Body::from(include_str!("../templates/home.html")))?)
 }

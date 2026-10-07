@@ -52,6 +52,8 @@
     if (busy) return;
     busy = true;
     begin.disabled = true;
+    begin.setAttribute("aria-busy", "true");
+    begin.textContent = "Готовим настройку…";
     error.hidden = true;
     message.hidden = true;
     try {
@@ -68,6 +70,8 @@
     } finally {
       busy = false;
       begin.disabled = false;
+      begin.removeAttribute("aria-busy");
+      begin.textContent = "Настроить приложение с кодами";
     }
   });
 
@@ -76,17 +80,22 @@
     if (busy) return;
     busy = true;
     confirm.disabled = true;
+    form.setAttribute("aria-busy", "true");
+    confirm.textContent = "Проверяем код…";
     error.hidden = true;
     message.hidden = true;
     try {
       const code = form.querySelector("input").value.trim();
       const data = await post("/api/v1/auth/mfa/totp/confirm", { code });
+      const totpStatus = document.getElementById("totp-status");
+      if (totpStatus) totpStatus.textContent = "Включена";
       pending.hidden = true;
       begin.hidden = true;
       document.getElementById("totp-secret").textContent = "";
       document.getElementById("totp-qr").removeAttribute("src");
       if (Array.isArray(data.recovery_codes) && data.recovery_codes.length > 0) {
         const list = document.getElementById("totp-recovery-codes");
+        list.replaceChildren();
         for (const code of data.recovery_codes) {
           const item = document.createElement("li");
           item.textContent = String(code);
@@ -94,6 +103,14 @@
         }
         recovery.hidden = false;
         recoveryVisible = true;
+        const guidance = document.getElementById("recovery-guidance");
+        if (guidance) guidance.hidden = true;
+        const recoveryStatus = document.getElementById("recovery-status");
+        const recoveryLeft = document.getElementById("recovery-left");
+        if (recoveryStatus) recoveryStatus.textContent = "Есть";
+        if (recoveryLeft) recoveryLeft.textContent = String(data.recovery_codes.length);
+        const saved = document.getElementById("totp-recovery-saved");
+        if (saved) saved.hidden = false;
       }
       message.textContent = "Приложение с одноразовыми кодами включено.";
       message.hidden = false;
@@ -102,7 +119,14 @@
     } finally {
       busy = false;
       confirm.disabled = false;
+      form.removeAttribute("aria-busy");
+      confirm.textContent = "Подтвердить и включить";
     }
+  });
+
+  document.getElementById("totp-recovery-saved")?.addEventListener("click", () => {
+    recoveryVisible = false;
+    window.location.reload();
   });
 
   window.addEventListener("beforeunload", (event) => {

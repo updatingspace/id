@@ -25,7 +25,7 @@ jobs:
       DJANGO_DEBUG: "true"
       DJANGO_SECRET_KEY: "synthetic-ci-secret-not-for-deployment"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Install WebAuthn build dependencies
@@ -176,7 +176,7 @@ jobs:
       - name: Sign in with a passkey through two Rust instances on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test passkey_login_ydb -- --ignored --nocapture
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22.12.0"
       - name: Install frozen browser test dependencies
@@ -193,6 +193,16 @@ jobs:
       - name: Browser → Topcoat inline passkey management
         working-directory: services/id-rust
         run: node scripts/check-web-passkey-management-browser.cjs
+      - name: Browser → Topcoat TOTP state and saved recovery codes
+        working-directory: services/id-rust
+        run: node scripts/check-web-totp-state-browser.cjs
+      - name: Browser → Topcoat login MFA state and account return path
+        working-directory: services/id-rust
+        run: node scripts/check-web-login-state-browser.cjs
+
+      - name: Verify responsive account UI, themes and form state in Chromium
+        working-directory: services/id-rust
+        run: node scripts/check-web-ui-browser.cjs
       - name: Browser → Topcoat public export-link security and expiry
         working-directory: services/id-rust
         run: node scripts/check-web-export-redeem-browser.cjs

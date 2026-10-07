@@ -20,8 +20,8 @@ async function main() {
     const context = await browser.newContext();
     await context.addCookies([{ name: 'sessionid', value: sessionToken, url: origin, httpOnly: true }]);
     const page = await context.newPage();
-    await page.goto(origin + '/account?section=privacy');
-    assert.equal(await page.locator('h1').textContent(), 'Настройки и приватность');
+    await page.goto(origin + '/account?section=settings');
+    assert.equal(await page.locator('h1').textContent(), 'Язык и часовой пояс');
     assert.equal(await page.locator('#preferences-form').count(), 1);
     assert((await page.locator('#preferences-timezone option').count()) > 400);
 
@@ -37,16 +37,25 @@ async function main() {
     assert.equal(denied.body.code, 'CSRF_FAILED');
     assert.equal(await page.locator('#preferences-language').inputValue(), 'en');
 
+    const privacy = await context.newPage();
+    await privacy.goto(origin + '/account?section=privacy');
+    await privacy.locator('#preferences-marketing').check();
+    await privacy.locator('#scope-email').selectOption('deny');
+    const [privacyUpdate] = await Promise.all([
+      privacy.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/preferences' && response.request().method() === 'PATCH'),
+      privacy.locator('#preferences-form button[type="submit"]').click(),
+    ]);
+    assert.equal(privacyUpdate.status(), 200, await privacyUpdate.text());
+    assert.deepEqual(Object.keys(privacyUpdate.request().postDataJSON()).sort(), ['marketing_opt_in', 'privacy_scope_defaults']);
     await page.locator('#preferences-language').selectOption('ru');
     await page.locator('#preferences-timezone').selectOption('Europe/Moscow');
-    await page.locator('#preferences-marketing').check();
-    await page.locator('#scope-email').selectOption('deny');
     const [updated] = await Promise.all([
       page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/preferences'
         && response.request().method() === 'PATCH'),
       page.locator('#preferences-form button[type="submit"]').click(),
     ]);
     assert.equal(updated.status(), 200, await updated.text());
+    assert.deepEqual(Object.keys(updated.request().postDataJSON()).sort(), ['language', 'timezone']);
     await page.locator('#preferences-message:visible').waitFor();
     const prefs = await page.evaluate(async () => {
       const response = await fetch('/api/v1/auth/preferences', { credentials: 'include', cache: 'no-store' });
@@ -62,14 +71,15 @@ async function main() {
     await page.reload();
     assert.equal(await page.locator('#preferences-language').inputValue(), 'ru');
     assert.equal(await page.locator('#preferences-timezone').inputValue(), 'Europe/Moscow');
-    assert.equal(await page.locator('#preferences-marketing').isChecked(), true);
-    assert.equal(await page.locator('#scope-email').inputValue(), 'deny');
+    await privacy.reload();
+    assert.equal(await privacy.locator('#preferences-marketing').isChecked(), true);
+    assert.equal(await privacy.locator('#scope-email').inputValue(), 'deny');
 
-    await page.locator('#preferences-marketing').uncheck();
+    await privacy.locator('#preferences-marketing').uncheck();
     const [optedOut] = await Promise.all([
-      page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/preferences'
+      privacy.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/preferences'
         && response.request().method() === 'PATCH'),
-      page.locator('#preferences-form button[type="submit"]').click(),
+      privacy.locator('#preferences-form button[type="submit"]').click(),
     ]);
     assert.equal(optedOut.status(), 200, await optedOut.text());
     const after = await optedOut.json();

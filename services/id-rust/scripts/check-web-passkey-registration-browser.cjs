@@ -37,6 +37,7 @@ async function main() {
   let begun = 0;
   let completed = 0;
   let uncertainRegistered = false;
+  let successfulRegistration = false;
   const proxy = http.createServer(async (request, response) => {
     const pathname = new URL(request.url, origin).pathname;
     if (pathname === '/api/v1/auth/me') {
@@ -46,10 +47,12 @@ async function main() {
       return;
     }
     if (pathname === '/api/v1/auth/security') {
-      reply(response, 200, { mfa: { has_totp: false, has_webauthn: uncertainRegistered,
-        has_recovery_codes: uncertainRegistered, recovery_codes_left: uncertainRegistered ? 10 : 0 },
+      reply(response, 200, { mfa: { has_totp: false, has_webauthn: uncertainRegistered || successfulRegistration,
+        has_recovery_codes: uncertainRegistered || successfulRegistration, recovery_codes_left: uncertainRegistered ? 10 : successfulRegistration ? 2 : 0 },
       authenticators: uncertainRegistered ? [{ id: '72', name: 'Uncertain passkey', type: 'webauthn',
-        created_at: 1, last_used_at: null, is_passwordless: true }] : [] });
+        created_at: 1, last_used_at: null, is_passwordless: true }] : successfulRegistration ? [{
+        id: '42', name: 'My passkey', type: 'webauthn', created_at: 1, last_used_at: null, is_passwordless: true,
+      }] : [] });
       return;
     }
     if (pathname === '/api/v1/auth/passkeys/begin' || pathname === '/api/v1/auth/passkeys/complete') {
@@ -88,6 +91,7 @@ async function main() {
           setTimeout(() => response.destroy(), 10);
           return;
         }
+        successfulRegistration = true;
         reply(response, 200, { recovery_codes: ['12345678', '87654321'], authenticator: { id: '42' } });
       }
       return;
@@ -135,7 +139,10 @@ async function main() {
     if (await page.locator('#passkey-register').count() === 0) {
       throw new Error(`Registration form missing at ${page.url()}: ${(await page.locator('body').innerText()).slice(0, 600)}; web: ${webLog.slice(-600)}`);
     }
-    assert.equal(await page.locator('text=Ключей доступа нет.').count(), 1);
+    assert.equal(await page.getByText('Ключей доступа пока нет.', { exact: true }).count(), 1);
+    assert.equal(await page.locator('#passkey-recovery-saved').evaluate(button => button.hidden), true,
+      'an older script must not expose an unhandled completion button');
+    await page.locator('#passkey-create-panel > summary').click();
     await page.locator('#passkey-name').fill('My passkey');
     await page.locator('#passkey-register').click();
     await page.locator('#passkey-recovery').waitFor({ state: 'visible' });
@@ -143,9 +150,28 @@ async function main() {
     assert.equal(begun, 1);
     assert.equal(completed, 1);
     assert.equal(await page.locator('#passkey-register').isHidden(), true);
+    assert.equal(await page.locator('#passkeys-status').innerText(), 'Есть');
+    assert.equal(await page.locator('#passkeys-empty').isHidden(), true);
+    assert.equal(await page.locator('#recovery-status').innerText(), 'Есть');
+    assert.equal(await page.locator('#recovery-left').innerText(), '2');
+    let unexpectedDialog = false;
+    page.on('dialog', async dialog => { unexpectedDialog = true; await dialog.accept(); });
+    await page.locator('#passkey-recovery-saved').click();
+    await page.locator('.passkey-row strong').filter({ hasText: 'My passkey' }).waitFor();
+    assert.equal(unexpectedDialog, false, 'saved codes must release the leave-page warning');
+    assert.equal(await page.locator('#passkey-recovery').isHidden(), true);
+    assert.equal(completed, 1, 'completion must only refresh the list, not create another key');
+    successfulRegistration = false;
     const rejectedPage = await context.newPage();
     await rejectedPage.setViewportSize({ width: 390, height: 844 });
     await rejectedPage.goto(`${origin}/account?section=security`);
+    assert.equal(await rejectedPage.locator('main > section').count(), 3);
+    await rejectedPage.locator('#passkey-create-panel > summary').click();
+    const createButton = await rejectedPage.locator('#passkey-register').boundingBox();
+    const createInput = await rejectedPage.locator('#passkey-name').boundingBox();
+    assert.ok(createButton && createInput);
+    assert.ok(createButton.height >= 44 && createButton.y >= createInput.y + createInput.height,
+      'mobile passkey action must be a full-height row below the name');
     await rejectedPage.locator('#passkey-name').fill('Rejected passkey');
     await rejectedPage.locator('#passkey-register').click();
     await rejectedPage.locator('#passkey-review:not([hidden])').waitFor();
@@ -155,11 +181,12 @@ async function main() {
     assert.equal(await rejectedPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.equal(completed, 2);
     await rejectedPage.locator('#passkey-review').click();
-    await rejectedPage.getByText('Ключей доступа нет.', { exact: true }).waitFor();
+    await rejectedPage.getByText('Ключей доступа пока нет.', { exact: true }).waitFor();
     assert.equal(completed, 2, 'rejected credential caused an automatic retry');
     const uncertainPage = await context.newPage();
     await uncertainPage.setViewportSize({ width: 390, height: 844 });
     await uncertainPage.goto(`${origin}/account?section=security`);
+    await uncertainPage.locator('#passkey-create-panel > summary').click();
     await uncertainPage.locator('#passkey-name').fill('Uncertain passkey');
     await uncertainPage.locator('#passkey-register').click();
     await uncertainPage.locator('#passkey-review:not([hidden])').waitFor();
@@ -174,7 +201,31 @@ async function main() {
     await uncertainPage.locator('#passkey-review').click();
     await uncertainPage.getByText('Uncertain passkey', { exact: true }).waitFor();
     assert.equal(completed, 3, 'unknown result caused an automatic retry');
-    console.log('PASS: Topcoat passkey registration, recovery codes and rejected/unknown-result review');
+
+    // Old HTML can fetch this script while revisions switch. New status IDs
+    // and completion actions must remain optional for showing recovery codes.
+    uncertainRegistered = false;
+    successfulRegistration = false;
+    const legacyPage = await context.newPage();
+    const errors = [];
+    legacyPage.on('pageerror', error => errors.push(error.message));
+    await legacyPage.goto(`${origin}/account?section=security`);
+    await legacyPage.evaluate(() => {
+      for (const id of ['passkeys-status', 'recovery-status', 'recovery-left']) {
+        document.getElementById(id).removeAttribute('id');
+      }
+      document.getElementById('passkey-recovery-saved').remove();
+    });
+    await legacyPage.locator('#passkey-create-panel > summary').click();
+    await legacyPage.locator('#passkey-name').fill('My passkey');
+    await legacyPage.locator('#passkey-register').click();
+    await legacyPage.locator('#passkey-recovery').waitFor({ state: 'visible' });
+    assert.equal(await legacyPage.locator('#passkey-error').isHidden(), true);
+    assert.equal(await legacyPage.locator('#passkey-register').isHidden(), true);
+    assert.deepEqual(await legacyPage.locator('#passkey-recovery-codes li').allTextContents(), ['12345678', '87654321']);
+    assert.equal(completed, 4);
+    assert.deepEqual(errors, []);
+    console.log('PASS: passkey registration, old HTML code retention and rejected/unknown-result review');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => proxy.close(resolve));

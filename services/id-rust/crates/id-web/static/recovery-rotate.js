@@ -24,6 +24,8 @@
     }
     busy = true;
     button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = "Обновляем коды…";
     error.hidden = true;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30000);
@@ -50,6 +52,12 @@
       result.hidden = false;
       button.hidden = true;
       codesVisible = true;
+      const recoveryStatus = document.getElementById("recovery-status");
+      const recoveryLeft = document.getElementById("recovery-left");
+      if (recoveryStatus) recoveryStatus.textContent = "Есть";
+      if (recoveryLeft) recoveryLeft.textContent = String(body.recovery_codes.length);
+      const saved = document.getElementById("recovery-rotation-saved");
+      if (saved) saved.hidden = false;
       rotationKey = null;
     } catch (failure) {
       error.textContent = failure instanceof Error && failure.name !== "AbortError"
@@ -60,7 +68,14 @@
     } finally {
       clearTimeout(timer);
       busy = false;
+      button.removeAttribute("aria-busy");
+      button.textContent = "Обновить резервные коды";
     }
+  });
+
+  document.getElementById("recovery-rotation-saved")?.addEventListener("click", () => {
+    codesVisible = false;
+    window.location.reload();
   });
 
   window.addEventListener("beforeunload", (event) => {
