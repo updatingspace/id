@@ -13,6 +13,7 @@ pub mod account_jwt_refresh;
 pub mod account_jwt_session;
 pub mod admin_http;
 pub mod admin_oidc_client;
+pub mod admin_oidc_client_edit;
 mod admin_suspend;
 pub mod authorized_apps_http;
 pub mod authorized_apps_store;

@@ -23,12 +23,15 @@ async function main() {
   const origin = `http://127.0.0.1:${proxyPort}`;
   const binary = path.resolve(process.env.ID_RUST_BIN_DIR || path.join(root, 'target/debug'), 'id-web');
   const web = spawn(binary, [], { env: { ...process.env, HOST: '127.0.0.1', PORT: String(webPort),
-    ID_WEB_ADMIN_ENABLED: 'true', ID_WEB_ADMIN_SUSPEND_ENABLED: 'true', ID_WEB_API_ORIGIN: origin },
+    ID_WEB_ADMIN_ENABLED: 'true', ID_WEB_ADMIN_SUSPEND_ENABLED: 'true',
+    ID_WEB_ADMIN_CLIENT_REDIRECTS_ENABLED: 'true', ID_WEB_API_ORIGIN: origin },
   stdio: ['ignore', 'pipe', 'pipe'] });
   let webLog = '';
   web.stdout.on('data', chunk => { webLog += chunk.toString(); });
   web.stderr.on('data', chunk => { webLog += chunk.toString(); });
   let suspended = false;
+  let clientRedirects = ['https://client.invalid/callback?x=<script>'];
+  let clientRevision = 'a'.repeat(64);
   const attempts = [];
   const proxy = http.createServer(async (request, response) => {
     const pathname = new URL(request.url, origin).pathname;
@@ -53,9 +56,28 @@ async function main() {
         for await (const chunk of request) raw += chunk;
         assert.equal(JSON.parse(raw).client_id, 'client-42');
         response.end(JSON.stringify({client:{client_id:'client-42',name:'<script>bad()</script>',
-          description:'Pilot',redirect_uris:['https://client.invalid/callback?x=<script>'],
+          description:'Pilot',redirect_uris:clientRedirects,redirect_revision:clientRevision,
           allowed_scopes:['openid'],grant_types:['authorization_code'],response_types:['code'],
           is_public:false,is_first_party:false}}));
+        return;
+      }
+      if (pathname === '/api/v1/auth/admin/clients/redirects' && request.method === 'POST') {
+        let raw = '';
+        for await (const chunk of request) raw += chunk;
+        const body = JSON.parse(raw);
+        assert.equal(body.client_id, 'client-42');
+        assert.equal(body.expected_revision, clientRevision);
+        assert.equal(request.headers['x-csrftoken'], 'abcdefghijklmnopqrstuvwxyzABCDEF');
+        if (body.current_password === 'wrong') {
+          response.writeHead(400); response.end('{"code":"INVALID_PASSWORD"}'); return;
+        }
+        if (body.current_password === 'unknown') {
+          response.writeHead(503); response.end('{"code":"STATE_UNCERTAIN"}'); return;
+        }
+        assert.equal(body.current_password, 'correct');
+        clientRedirects = body.redirect_uris;
+        clientRevision = 'b'.repeat(64);
+        response.end(JSON.stringify({status:'updated',redirect_revision:clientRevision}));
         return;
       }
       if (pathname === '/api/v1/auth/admin/accounts/43/suspend' && request.method === 'POST') {
@@ -145,14 +167,30 @@ async function main() {
       await clientPage.getByRole('button', { name: 'Проверить' }).click();
       await clientPage.getByRole('heading', { name: '<script>bad()</script>' }).waitFor();
       assert.equal(await clientPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-      assert.equal(await clientPage.locator('script').count(), 0);
+      assert.equal(await clientPage.locator('script').count(), 1);
       assert.match(await clientPage.locator('main').innerText(), /https:\/\/client.invalid\/callback\?x=<script>/);
+      await clientPage.locator('#new-redirects').fill('https://new.client.invalid/callback');
+      await clientPage.getByRole('button', { name: 'Проверить изменения' }).click();
+      assert.equal(await clientPage.locator('#client-redirect-confirm').isVisible(), true);
+      assert.match(await clientPage.locator('#client-redirect-diff').innerText(), /Удалятся/);
+      assert.equal(await clientPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       if (width === 390) {
         await clientPage.emulateMedia({ colorScheme: 'dark' });
         assert.equal(await clientPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         if (process.env.ID_ADMIN_CLIENT_SCREENSHOT_PATH) {
           await clientPage.screenshot({ path: process.env.ID_ADMIN_CLIENT_SCREENSHOT_PATH, fullPage: true });
         }
+      }
+      await clientPage.locator('#client-redirect-password').fill(width === 320 ? 'wrong' : width === 390 ? 'unknown' : 'correct');
+      await clientPage.getByRole('button', { name: 'Сохранить адреса возврата' }).click();
+      await clientPage.locator('#client-redirect-message:not([hidden])').waitFor();
+      assert.equal(await clientPage.locator('#client-redirect-password').inputValue(), '');
+      const clientMessage = await clientPage.locator('#client-redirect-message').innerText();
+      if (width === 320) assert.match(clientMessage, /пароль оператора/);
+      else if (width === 390) assert.match(clientMessage, /Результат неизвестен/);
+      else {
+        assert.match(clientMessage, /Адреса обновлены и повторно проверены/);
+        assert.match(await clientPage.locator('#client-result .value-list').first().innerText(), /new.client.invalid/);
       }
       await clientPage.close();
     }
@@ -163,7 +201,7 @@ async function main() {
       assert.equal(attempt.body.expected_subject, 'subject-43');
       assert.equal(attempt.body.reason, 'security_incident');
     }
-    console.log('Topcoat operator browser: suspension and client lookup at 320/390/1280 passed');
+    console.log('Topcoat operator browser: suspension and OIDC redirect review at 320/390/1280 passed');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => proxy.close(resolve));

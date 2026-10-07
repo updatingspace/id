@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::{io, time::Duration};
 use ydb::{Client, Transaction, TxMode, closure};
 
@@ -11,6 +12,7 @@ pub struct ClientSnapshot {
     pub name: String,
     pub description: String,
     pub redirect_uris: Vec<String>,
+    pub redirect_revision: String,
     pub allowed_scopes: Vec<String>,
     pub grant_types: Vec<String>,
     pub response_types: Vec<String>,
@@ -46,6 +48,7 @@ pub async fn by_client_id(client: &Client, client_id: String) -> Result<LookupOu
                         name: row.remove_field_by_name("name")?.try_into()?,
                         description: row.remove_field_by_name("description")?.try_into()?,
                         redirect_uris: parse_list(&redirects).map_err(ydb::YdbOrCustomerError::from_err)?,
+                        redirect_revision: redirect_revision(&redirects),
                         allowed_scopes: parse_list(&scopes).map_err(ydb::YdbOrCustomerError::from_err)?,
                         grant_types: parse_list(&grants).map_err(ydb::YdbOrCustomerError::from_err)?,
                         response_types: parse_list(&responses).map_err(ydb::YdbOrCustomerError::from_err)?,
@@ -75,4 +78,8 @@ fn parse_list(raw: &str) -> Result<Vec<String>, io::Error> {
         ));
     }
     Ok(values)
+}
+
+pub(crate) fn redirect_revision(raw: &str) -> String {
+    hex::encode(Sha256::digest(raw.as_bytes()))
 }

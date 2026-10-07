@@ -151,11 +151,22 @@ struct OperatorClient {
     name: String,
     description: String,
     redirect_uris: Vec<String>,
+    redirect_revision: String,
     allowed_scopes: Vec<String>,
     grant_types: Vec<String>,
     response_types: Vec<String>,
     is_public: bool,
     is_first_party: bool,
+}
+
+impl OperatorClient {
+    fn redirect_lines(&self) -> String {
+        self.redirect_uris.join("\n")
+    }
+
+    fn redirects_json(&self) -> String {
+        serde_json::to_string(&self.redirect_uris).unwrap_or_default()
+    }
 }
 
 #[derive(Deserialize)]
@@ -272,6 +283,7 @@ struct ClientPage<'a> {
     client: Option<&'a OperatorClient>,
     not_found: bool,
     ambiguous: bool,
+    edit_enabled: bool,
 }
 
 #[derive(Template)]
@@ -436,6 +448,7 @@ fn render_client(
         client,
         not_found,
         ambiguous,
+        edit_enabled: env::var("ID_WEB_ADMIN_CLIENT_REDIRECTS_ENABLED").as_deref() == Ok("true"),
     }
     .render()
     .map_err(|error| topcoat::Error::msg(error.to_string()))?;
@@ -444,8 +457,23 @@ fn render_client(
         .header("Cache-Control", "no-store")
         .header("X-Content-Type-Options", "nosniff")
         .header("Referrer-Policy", "no-referrer")
-        .header("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        .header("Content-Security-Policy", if env::var("ID_WEB_ADMIN_CLIENT_REDIRECTS_ENABLED").as_deref() == Ok("true") {
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        } else {
+            "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        })
         .body(Body::from(html))?)
+}
+
+#[route(GET "/_id/admin-client-redirects.js")]
+pub(crate) async fn client_redirects_script() -> topcoat::Result<Response> {
+    Ok(Response::builder()
+        .header("Content-Type", "application/javascript; charset=utf-8")
+        .header("Cache-Control", "public, max-age=3600")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(include_str!(
+            "../static/admin-client-redirects.js"
+        )))?)
 }
 
 #[route(GET "/admin/accounts/suspend")]
@@ -982,6 +1010,7 @@ mod tests {
             name: "<script>name</script>".into(),
             description: "<script>description</script>".into(),
             redirect_uris: vec!["https://example.invalid/?x=<script>".into()],
+            redirect_revision: "a".repeat(64),
             allowed_scopes: vec!["openid".into()],
             grant_types: vec!["authorization_code".into()],
             response_types: vec!["code".into()],
@@ -993,6 +1022,7 @@ mod tests {
             client: Some(&client),
             not_found: false,
             ambiguous: false,
+            edit_enabled: true,
         }
         .render()?;
         assert!(!html.contains("<script>"));
@@ -1000,6 +1030,23 @@ mod tests {
         assert!(html.contains("Секрет клиента здесь не отображается"));
         assert!(!html.contains("name=\"client_secret\""));
         assert!(html.contains("method=\"post\""));
+        assert!(html.contains("id=\"redirect-editor\""));
+        assert!(html.contains("_id/admin-client-redirects.js"));
+        Ok(())
+    }
+
+    #[test]
+    fn client_editor_is_absent_without_its_feature_gate() -> Result<()> {
+        let html = ClientPage {
+            lookup_id: "client-42",
+            client: None,
+            not_found: false,
+            ambiguous: false,
+            edit_enabled: false,
+        }
+        .render()?;
+        assert!(!html.contains("admin-client-redirects.js"));
+        assert!(!html.contains("id=\"redirect-editor\""));
         Ok(())
     }
 

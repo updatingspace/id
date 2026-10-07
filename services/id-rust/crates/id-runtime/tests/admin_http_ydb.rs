@@ -90,6 +90,42 @@ async fn search_client(
     Ok((status, body))
 }
 
+async fn edit_client_redirects(
+    app: &Router,
+    cookie: &str,
+    csrf: Option<&str>,
+    client_id: &str,
+    revision: &str,
+    redirects: Value,
+    password: &str,
+) -> Result<(StatusCode, Value)> {
+    let mut request = Request::builder()
+        .uri("/api/v1/auth/admin/clients/redirects")
+        .method("POST")
+        .header(header::COOKIE, cookie)
+        .header(header::ORIGIN, "http://id.localhost")
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(csrf) = csrf {
+        request = request.header("x-csrftoken", csrf);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            request.body(Body::from(
+                json!({
+                    "client_id": client_id, "expected_revision": revision,
+                    "redirect_uris": redirects, "current_password": password,
+                })
+                .to_string(),
+            ))?,
+        )
+        .await?;
+    ensure!(response.headers()[header::CACHE_CONTROL] == "no-store");
+    let status = response.status();
+    let body = serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await?)?;
+    Ok((status, body))
+}
+
 async fn suspend(
     app: &Router,
     target_id: i32,
@@ -136,7 +172,8 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         ) && std::env::var("YDB_DATABASE")? == "/local"
             && std::env::var("ID_DISPOSABLE_YDB")? == "true"
             && std::env::var("ID_AUTH_ADMIN_READ_ENABLED")? == "true"
-            && std::env::var("ID_AUTH_ADMIN_SUSPEND_ENABLED")? == "true",
+            && std::env::var("ID_AUTH_ADMIN_SUSPEND_ENABLED")? == "true"
+            && std::env::var("ID_AUTH_ADMIN_CLIENT_REDIRECTS_ENABLED")? == "true",
         "operator HTTP test requires disposable YDB and explicit opt-in"
     );
     let client = Arc::new(id_runtime::connect_ydb().await?);
@@ -255,6 +292,8 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             && body["client"]["is_public"] == true,
             "operator client lookup: {body}");
         ensure!(!body.to_string().contains("never-expose-this-secret-hash"), "OIDC secret hash exposed");
+        let revision = body["client"]["redirect_revision"].as_str().context("client redirect revision")?.to_owned();
+        ensure!(revision.len() == 64, "client revision missing");
         client.query_client().exec("INSERT INTO idp_oidcclient (id, client_id, client_secret_hash, name, description, logo_url, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'second-private-secret', 'Duplicate', '', '', Unwrap(CAST('[]' AS Json)), Unwrap(CAST('[]' AS Json)), Unwrap(CAST('[]' AS Json)), Unwrap(CAST('[]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
             .param("$id", oidc_row_id + 1).param("$client_id", oidc_client_id.clone()).await?;
         let (status, body) = search_client(&app, Some(&cookie), None, &oidc_client_id).await?;
@@ -268,6 +307,54 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         ensure!(status == StatusCode::BAD_REQUEST);
         let (status, _) = search_client(&app, Some(&cookie), None, "missing-client").await?;
         ensure!(status == StatusCode::NOT_FOUND);
+        let changed = json!(["https://new.example.invalid/callback"]);
+        let (status, body) = edit_client_redirects(&app, &csrf_cookie, None, &oidc_client_id,
+            &revision, changed.clone(), "admin-test-password").await?;
+        ensure!(status == StatusCode::FORBIDDEN && body["code"] == "CSRF_FAILED");
+        let (status, body) = edit_client_redirects(&app, &csrf_cookie, Some(csrf), &oidc_client_id,
+            &revision, json!(["http://evil.example.invalid/callback"]), "admin-test-password").await?;
+        ensure!(status == StatusCode::BAD_REQUEST && body["code"] == "INVALID_REDIRECT_UPDATE");
+        let (status, body) = edit_client_redirects(&app, &csrf_cookie, Some(csrf), &oidc_client_id,
+            &revision, changed.clone(), "wrong-password").await?;
+        ensure!(status == StatusCode::BAD_REQUEST && body["code"] == "INVALID_PASSWORD");
+        let (status, body) = edit_client_redirects(&app, &csrf_cookie, Some(csrf), &oidc_client_id,
+            &revision, changed.clone(), "admin-test-password").await?;
+        ensure!(status == StatusCode::OK && body["status"] == "updated"
+            && body["redirect_revision"].as_str().is_some_and(|value| value != revision),
+            "OIDC redirect edit failed: {body}");
+        let updated_revision = body["redirect_revision"].as_str().context("updated redirect revision")?.to_owned();
+        let (status, client_after) = search_client(&app, Some(&cookie), None, &oidc_client_id).await?;
+        ensure!(status == StatusCode::OK && client_after["client"]["redirect_uris"] == changed
+            && client_after["client"]["redirect_revision"] == body["redirect_revision"],
+            "OIDC redirect edit not visible: {client_after}");
+        let (status, body) = edit_client_redirects(&app, &csrf_cookie, Some(csrf), &oidc_client_id,
+            &revision, json!(["https://another.example.invalid/callback"]), "admin-test-password").await?;
+        ensure!(status == StatusCode::CONFLICT && body["code"] == "REVIEW_STALE",
+            "stale OIDC redirect edit was accepted: {body}");
+        let mut audit = client.query_client().query_row("SELECT CAST(meta_json AS Utf8) AS meta FROM usid_audit_log WHERE action = 'oidc_client.redirects_updated' AND target_id = $id LIMIT 1")
+            .param("$id", oidc_client_id.clone()).await?;
+        let meta: String = audit.remove_field_by_name("meta")?.try_into()?;
+        ensure!(meta.contains("new_revision") && !meta.contains("new.example.invalid")
+            && !meta.contains("admin-test-password"), "OIDC redirect audit exposes private input");
+        let mut concurrent = tokio::task::JoinSet::new();
+        for uri in ["https://one.example.invalid/callback", "https://two.example.invalid/callback"] {
+            let app = app.clone();
+            let cookie = csrf_cookie.clone();
+            let client_id = oidc_client_id.clone();
+            let revision = updated_revision.clone();
+            let csrf = csrf.to_owned();
+            concurrent.spawn(async move {
+                edit_client_redirects(&app, &cookie, Some(&csrf), &client_id, &revision,
+                    json!([uri]), "admin-test-password").await
+            });
+        }
+        let mut statuses = Vec::new();
+        while let Some(result) = concurrent.join_next().await {
+            statuses.push(result??.0);
+        }
+        statuses.sort();
+        ensure!(statuses == [StatusCode::OK, StatusCode::CONFLICT],
+            "concurrent redirect changes did not serialize: {statuses:?}");
         let url_search = Request::builder().uri(format!("/api/v1/auth/admin/clients/search?client_id={oidc_client_id}"))
             .method("GET").header(header::COOKIE, &cookie).body(Body::empty())?;
         ensure!(app.clone().oneshot(url_search).await?.status() == StatusCode::METHOD_NOT_ALLOWED,

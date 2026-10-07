@@ -4,6 +4,7 @@
 use crate::{
     account_deletion,
     admin_oidc_client::{self, LookupOutcome},
+    admin_oidc_client_edit::{self, RedirectUpdate, UpdateOutcome},
     admin_suspend::{self, Preflight, SuspendInput, SuspendResult, SuspensionReason},
     cache_store::CacheStore,
     data_export_operation,
@@ -52,6 +53,15 @@ struct ClientLookupRequest {
     client_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RedirectUpdateRequest {
+    client_id: String,
+    expected_revision: String,
+    redirect_uris: Vec<String>,
+    current_password: String,
+}
+
 pub struct AdminReadConfig {
     client: Arc<Client>,
     codec: Arc<SessionCodec>,
@@ -59,6 +69,7 @@ pub struct AdminReadConfig {
     csrf_cookie_name: String,
     trusted_origins: Vec<String>,
     suspend_enabled: bool,
+    client_redirects_enabled: bool,
     suspension_budget: CacheStore,
     hashing_slots: Arc<Semaphore>,
 }
@@ -98,9 +109,10 @@ impl AdminReadConfig {
     pub fn from_env(client: Arc<Client>) -> Result<Option<Arc<Self>>> {
         let read_enabled = env_flag("ID_AUTH_ADMIN_READ_ENABLED", false)?;
         let suspend_enabled = env_flag("ID_AUTH_ADMIN_SUSPEND_ENABLED", false)?;
+        let client_redirects_enabled = env_flag("ID_AUTH_ADMIN_CLIENT_REDIRECTS_ENABLED", false)?;
         ensure!(
-            read_enabled || !suspend_enabled,
-            "operator suspension requires operator lookup"
+            read_enabled || (!suspend_enabled && !client_redirects_enabled),
+            "operator mutations require operator lookup"
         );
         if !read_enabled {
             return Ok(None);
@@ -125,15 +137,15 @@ impl AdminReadConfig {
             })
             .collect::<Result<Vec<_>>>()?;
         ensure!(
-            !suspend_enabled || !trusted_origins.is_empty(),
-            "operator suspension requires a trusted origin"
+            !(suspend_enabled || client_redirects_enabled) || !trusted_origins.is_empty(),
+            "operator mutations require a trusted origin"
         );
-        if suspend_enabled && !env_flag("DJANGO_DEBUG", false)? {
+        if (suspend_enabled || client_redirects_enabled) && !env_flag("DJANGO_DEBUG", false)? {
             ensure!(
                 trusted_origins
                     .iter()
                     .all(|origin| origin.starts_with("https://")),
-                "production operator suspension requires HTTPS origins"
+                "production operator mutations require HTTPS origins"
             );
         }
         let cache_table = env::var("YDB_CACHE_TABLE").unwrap_or_else(|_| "id_shared_cache".into());
@@ -153,6 +165,7 @@ impl AdminReadConfig {
             csrf_cookie_name: env::var("CSRF_COOKIE_NAME").unwrap_or_else(|_| "csrftoken".into()),
             trusted_origins,
             suspend_enabled,
+            client_redirects_enabled,
             hashing_slots: Arc::new(Semaphore::new(2)),
         })))
     }
@@ -172,7 +185,142 @@ pub fn router(config: Arc<AdminReadConfig>) -> Router {
             post(suspend_account),
         );
     }
+    if config.client_redirects_enabled {
+        app = app.route(
+            "/api/v1/auth/admin/clients/redirects",
+            post(update_client_redirects),
+        );
+    }
     app.with_state(config)
+}
+
+async fn update_client_redirects(
+    State(config): State<Arc<AdminReadConfig>>,
+    request: Request,
+) -> Response {
+    let headers = request.headers();
+    if let Err(response) = authorize(&config, headers).await {
+        return *response;
+    }
+    let explicit = match session_token(headers) {
+        Ok(value) => value,
+        Err(_) => return error(StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN"),
+    };
+    if explicit.is_none()
+        && !csrf_allowed(headers, &config.csrf_cookie_name, &config.trusted_origins)
+    {
+        return error(StatusCode::FORBIDDEN, "CSRF_FAILED");
+    }
+    let cookie = cookie_value(headers, &config.session_cookie_name);
+    let Some(token) = explicit.or(cookie.as_deref()) else {
+        return error(StatusCode::UNAUTHORIZED, "UNAUTHORIZED");
+    };
+    let token = token.to_owned();
+    if headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_none_or(|value| !value.trim().eq_ignore_ascii_case("application/json"))
+    {
+        return error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "INVALID_CONTENT_TYPE");
+    }
+    let Ok(body) = to_bytes(request.into_body(), 24 * 1024).await else {
+        return error(StatusCode::PAYLOAD_TOO_LARGE, "INVALID_REQUEST");
+    };
+    let Ok(input) = serde_json::from_slice::<RedirectUpdateRequest>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+    };
+    if input.client_id.trim() != input.client_id
+        || input.client_id.is_empty()
+        || input.client_id.len() > 64
+        || input.client_id.chars().any(char::is_control)
+        || input.expected_revision.len() != 64
+        || !input
+            .expected_revision
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+        || input.current_password.is_empty()
+        || input.current_password.len() > 512
+        || !admin_oidc_client_edit::valid_redirects(&input.redirect_uris)
+    {
+        return error(StatusCode::BAD_REQUEST, "INVALID_REDIRECT_UPDATE");
+    }
+    let now = SystemTime::now();
+    let preflight =
+        match admin_suspend::preflight(&config.client, config.codec.clone(), &token, now).await {
+            Ok(value) => value,
+            Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, "ADMIN_UNAVAILABLE"),
+        };
+    let (actor_id, password_hash) = match preflight {
+        Preflight::Ready {
+            actor_id,
+            password_hash,
+        } => (actor_id, password_hash),
+        Preflight::Unauthorized => {
+            return error(StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN");
+        }
+        Preflight::Forbidden => return error(StatusCode::FORBIDDEN, "OPERATOR_ACCESS_REQUIRED"),
+    };
+    let budget = config
+        .suspension_budget
+        .advance_window(
+            &format!("rl:admin_client_redirects:operator:{actor_id}"),
+            300,
+            now,
+        )
+        .await;
+    match budget {
+        Ok(value) if value.count <= 6 => {}
+        Ok(_) => return error(StatusCode::TOO_MANY_REQUESTS, "RATE_LIMIT_EXCEEDED"),
+        Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, "ADMIN_UNAVAILABLE"),
+    }
+    let Ok(permit) = config.hashing_slots.clone().try_acquire_owned() else {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "ADMIN_UNAVAILABLE");
+    };
+    let password = input.current_password;
+    let hash_for_check = password_hash.clone();
+    let verified = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        id_compat::password::verify(&password, &hash_for_check)
+    })
+    .await;
+    match verified {
+        Ok(Ok(true)) => {}
+        Ok(Ok(false)) => return error(StatusCode::BAD_REQUEST, "INVALID_PASSWORD"),
+        _ => return error(StatusCode::SERVICE_UNAVAILABLE, "ADMIN_UNAVAILABLE"),
+    }
+    let result = admin_oidc_client_edit::update(
+        &config.client,
+        config.codec.clone(),
+        RedirectUpdate {
+            token,
+            actor_id,
+            password_hash,
+            client_id: input.client_id,
+            expected_revision: input.expected_revision,
+            redirect_uris: input.redirect_uris,
+            now,
+        },
+    )
+    .await;
+    match result {
+        Ok(UpdateOutcome::Updated { revision }) => json_response(
+            StatusCode::OK,
+            json!({"status":"updated","redirect_revision":revision}),
+        ),
+        Ok(UpdateOutcome::Unauthorized) => {
+            error(StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN")
+        }
+        Ok(UpdateOutcome::Forbidden) => error(StatusCode::FORBIDDEN, "OPERATOR_ACCESS_REQUIRED"),
+        Ok(UpdateOutcome::PasswordChanged) => error(StatusCode::CONFLICT, "PASSWORD_CHANGED"),
+        Ok(UpdateOutcome::ClientNotFound) => error(StatusCode::NOT_FOUND, "CLIENT_NOT_FOUND"),
+        Ok(UpdateOutcome::Ambiguous) => error(StatusCode::CONFLICT, "CLIENT_ID_AMBIGUOUS"),
+        Ok(UpdateOutcome::StaleReview) => error(StatusCode::CONFLICT, "REVIEW_STALE"),
+        Err(failure) => {
+            tracing::error!(error = %failure, "operator OIDC redirect commit result unknown");
+            error(StatusCode::SERVICE_UNAVAILABLE, "STATE_UNCERTAIN")
+        }
+    }
 }
 
 async fn suspend_account(

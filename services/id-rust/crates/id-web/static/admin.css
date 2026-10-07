@@ -50,6 +50,13 @@ form { margin-top: 1.5rem; }
 label { display: block; margin-bottom: .5rem; font-weight: 700; }
 .search-row { display: flex; gap: .75rem; }
 input, select { min-width: 0; flex: 1; padding: .7rem .8rem; border: 1px solid #8796ad; border-radius: .5rem; font: inherit; }
+textarea { display: block; width: 100%; min-height: 8rem; padding: .7rem .8rem; border: 1px solid #8796ad; border-radius: .5rem; font: inherit; overflow-wrap: anywhere; }
+.redirect-editor { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #dce2ed; }
+.redirect-editor > button { margin-top: .8rem; }
+.redirect-editor .review-actions { padding: 1rem; border: 1px solid #8796ad; border-radius: .5rem; }
+.redirect-editor .review-actions input { width: 100%; }
+.redirect-editor .review-actions .secondary-button { background: transparent; color: #2445b8; border: 1px solid currentColor; }
+.redirect-editor .review-actions .secondary-button:hover { background: #e6edff; }
 .result-panel form > input, .result-panel form > select { display: block; width: min(100%, 28rem); }
 button { min-height: 2.75rem; padding: .7rem 1.1rem; border: 0; border-radius: .5rem; background: #3154bc; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
 button:hover { background: #244497; }
@@ -92,6 +99,10 @@ dd { margin: 0; overflow-wrap: anywhere; }
   a { color: #a8beff; }
   header strong { color: #a8beff; }
   input, select { background: #111827; color: #fff; border-color: #586780; }
+  textarea { background: #111827; color: #fff; border-color: #586780; }
+  .redirect-editor { border-color: #39455a; }
+  .redirect-editor .review-actions .secondary-button { color: #a8beff; }
+  .redirect-editor .review-actions .secondary-button:hover { background: #253351; }
   .next-step { background: #253351; border-color: #a8beff; }
   .result-message { background: #253351; }
   .result-message[role="alert"] { background: #4c252b; color: #ffe1e1; }

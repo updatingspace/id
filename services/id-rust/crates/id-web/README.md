@@ -40,7 +40,7 @@ into SSR HTML.
 The opt-in `/admin/` area offers read-only deletion and export lookups by
 request ID, plus account lookup by exact numeric ID or verified primary email.
 It also looks up an OIDC client by exact `client_id` and displays its public
-configuration without the client secret or editing controls. The client ID is
+configuration without the client secret. The client ID is
 submitted in a bounded POST body, not a URL.
 It verifies the operator session through `id-api` before
 rendering and does not query YDB. Its templates and stylesheet are
@@ -59,12 +59,17 @@ effect on access, and requires a fixed reason plus the operator's current
 password. Browser JavaScript sends the confirmation to `id-api` with CSRF and
 re-reads the account before claiming success. Unknown outcomes are shown as
 uncertain. The production operator area and this action remain disabled until
-an operator rehearsal. Other operator tasks are not yet available in this UI.
+an operator rehearsal. A separate `ID_WEB_ADMIN_CLIENT_REDIRECTS_ENABLED` gate
+adds an inline redirect URI review, diff and password confirmation. The browser
+sends the change directly to `id-api` with CSRF and re-reads the client before
+claiming success. An unknown commit result requires a fresh search, never an
+automatic retry. Changing redirects does not revoke previously issued tokens.
+Other operator tasks are not yet available in this UI.
 `scripts/smoke-web-admin-live.sh` exercises account lookup, deletion status and
 suspension confirmation in Chromium against actual Topcoat, Rust API and local
 YDB. It uses synthetic accounts and checks the final access state in YDB; it
-does not replace a production operator rehearsal. The OIDC client projection is
-covered by the local-YDB operator HTTP test, Topcoat SSR smoke and the 320/390/1280
+does not replace a production operator rehearsal. The OIDC client projection and
+redirect edit are covered by the local-YDB operator HTTP test, Topcoat SSR smoke and the 320/390/1280
 px Chromium operator check.
 
 Run from `services/id-rust`:

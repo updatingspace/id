@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>Проверка OIDC-клиента — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/admin.css?v=20261007-10">
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-11">
+  {% if edit_enabled %}<script src="/_id/admin-client-redirects.js?v=20261007-2" defer></script>{% endif %}
 </head>
 <body>
   <a class="skip-link" href="#main">К содержанию</a>
@@ -32,7 +33,7 @@
       {% if not_found %}<section class="result-panel" role="status"><h2>Клиент не найден</h2><p>Проверьте идентификатор. Отсутствие записи не подтверждает состояние внешнего сервиса.</p></section>{% endif %}
       {% if ambiguous %}<section class="result-panel" role="alert"><h2>Найдены конфликтующие записи</h2><p>Несколько клиентов используют этот идентификатор. Не выбирайте один из них автоматически; проверьте данные и индекс.</p></section>{% endif %}
       {% if let Some(item) = client %}
-      <section class="result-panel" aria-labelledby="client-title">
+      <section class="result-panel" id="client-result" aria-labelledby="client-title">
         <h2 id="client-title">{{ item.name }}</h2>
         <dl>
           <dt>Client ID</dt><dd><code>{{ item.client_id }}</code></dd>
@@ -49,6 +50,25 @@
         <h3>Типы ответа</h3>
         {% if item.response_types.is_empty() %}<p>Не указаны.</p>{% else %}<ul class="value-list">{% for value in item.response_types %}<li><code>{{ value }}</code></li>{% endfor %}</ul>{% endif %}
         <div class="next-step"><h3>Что означает результат</h3><p>Показана конфигурация на момент запроса. Проверка не подтверждает, что внешний сервис работает. Секрет клиента здесь не отображается и не изменяется.</p></div>
+        {% if edit_enabled %}
+        <section class="redirect-editor" id="redirect-editor" aria-labelledby="redirect-editor-title" data-client-id="{{ item.client_id }}" data-revision="{{ item.redirect_revision }}" data-current="{{ item.redirects_json() }}">
+          <h3 id="redirect-editor-title">Изменить адреса возврата</h3>
+          <p>По одному точному HTTPS-адресу на строку. HTTP допускается только для localhost. Удалённые адреса перестанут принимать новые запросы и уже выданные коды. Ранее выданные access и refresh tokens останутся действующими до своего отзыва или истечения.</p>
+          <label for="new-redirects">Разрешённые адреса возврата</label>
+          <textarea id="new-redirects" rows="6" spellcheck="false" autocapitalize="off" autocomplete="off">{{ item.redirect_lines() }}</textarea>
+          <button id="client-redirect-review" type="button">Проверить изменения</button>
+          <div id="client-redirect-confirm" class="review-actions" hidden>
+            <h3 tabindex="-1">Подтвердите изменение</h3>
+            <p>Сверьте полный список: добавленные и удалённые адреса показаны ниже. После сохранения проверьте вход во внешний сервис.</p>
+            <div id="client-redirect-diff"></div>
+            <label for="client-redirect-password">Ваш текущий пароль</label>
+            <input id="client-redirect-password" type="password" autocomplete="current-password" maxlength="512">
+            <button id="client-redirect-save" type="button">Сохранить адреса возврата</button>
+            <button id="client-redirect-cancel" type="button" class="secondary-button">Вернуться к редактированию</button>
+          </div>
+          <p id="client-redirect-message" class="result-message" role="status" tabindex="-1" hidden></p>
+        </section>
+        {% endif %}
       </section>
       {% endif %}
     </div></div>

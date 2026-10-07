@@ -259,7 +259,7 @@ jobs:
           cargo run --locked -p id-runtime --bin idctl -- data-export-escrow-schema
           cargo run --locked -p id-runtime --bin idctl -- data-export-mail-schema
           cargo test --locked -p id-runtime --test data_export_delete_flow_ydb -- --ignored
-          ID_AUTH_ADMIN_READ_ENABLED=true ID_AUTH_ADMIN_SUSPEND_ENABLED=true cargo test --locked -p id-runtime --test admin_http_ydb -- --ignored
+          ID_AUTH_ADMIN_READ_ENABLED=true ID_AUTH_ADMIN_SUSPEND_ENABLED=true ID_AUTH_ADMIN_CLIENT_REDIRECTS_ENABLED=true cargo test --locked -p id-runtime --test admin_http_ydb -- --ignored
 
       - uses: actions/setup-node@v6
         with:

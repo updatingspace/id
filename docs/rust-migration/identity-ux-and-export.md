@@ -39,8 +39,16 @@ send a link or bypass the 24-hour hold. A fourth read-only task finds one OIDC
 client by exact `client_id` and shows its name, redirect URIs, scopes, grant and
 response types, and public/first-party flags. The API never selects the client
 secret hash for this view; ambiguous IDs fail closed. The search ID stays in
-POST bodies, and neither page nor API exposes a client mutation. This is not
-OIDC client management parity. A separate
+POST bodies. Read-only lookup remains independent of mutation gates. An
+independently gated redirect editor now
+shows added, removed and retained addresses before a password-confirmed save.
+The API checks CSRF, the operator's bound MFA and current password, validates
+the exact allowlist and rejects stale reviews. A successful transaction writes
+only the new allowlist plus a redacted audit record. Code exchange rechecks the
+current allowlist, so a removed redirect cannot use an outstanding code; prior
+access and refresh tokens still have their existing lifetime. The gate
+`gateway_rust_admin_client_redirects` remains off until staging rehearsal.
+A separate
 `gateway_rust_admin_suspend` gate stages one write action: a review
 screen shows the exact target and consequences; the operator chooses a fixed
 reason and confirms with their current password. The API requires an active
@@ -49,7 +57,7 @@ rechecks permissions and the reviewed subject in the committing transaction,
 blocks self/other-operator suspension, revokes credentials and writes an audit
 record. Ambiguous identity ownership or an unknown commit result fails closed.
 Production admin and suspension remain disabled until a complete operator
-rehearsal passes. This is **not** parity with the old admin: client management, consent,
+rehearsal passes. This is **not** parity with the old admin: client creation and secret rotation, consent,
 export retry, audit and bootstrap tasks still need dedicated screens or
 documented `idctl` procedures.
 
@@ -346,8 +354,8 @@ plain list of internals or a link to `/legacy/account` is not a replacement.
 
 ## Operator surface: screen contract
 
-The current Rust web service has two read-only operator tasks and a separately
-gated account-suspension review; it does not yet replace the operator console.
+The current Rust web service has read-only operator tasks plus separately
+gated account-suspension and OIDC redirect reviews; it does not yet replace the operator console.
 The public account pages must not be labelled an admin UI.
 The replacement belongs in a separate `/admin` area with its own navigation,
 authorization and audit trail. The backend supplies typed task endpoints; web

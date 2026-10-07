@@ -76,9 +76,11 @@ async fn main() -> anyhow::Result<()> {
     let admin_enabled = std::env::var("ID_WEB_ADMIN_ENABLED").as_deref() == Ok("true");
     let admin_suspend_enabled =
         std::env::var("ID_WEB_ADMIN_SUSPEND_ENABLED").as_deref() == Ok("true");
+    let admin_client_redirects_enabled =
+        std::env::var("ID_WEB_ADMIN_CLIENT_REDIRECTS_ENABLED").as_deref() == Ok("true");
     anyhow::ensure!(
-        !admin_suspend_enabled || admin_enabled,
-        "operator suspension review requires operator pages"
+        !(admin_suspend_enabled || admin_client_redirects_enabled) || admin_enabled,
+        "operator mutations require operator pages"
     );
     if admin_enabled {
         router = router
@@ -96,6 +98,9 @@ async fn main() -> anyhow::Result<()> {
             router = router
                 .route(admin::suspend_review)
                 .route(admin::suspend_script);
+        }
+        if admin_client_redirects_enabled {
+            router = router.route(admin::client_redirects_script);
         }
     }
     if std::env::var("ID_WEB_CONSENT_PILOT_ENABLED").as_deref() == Ok("true") {

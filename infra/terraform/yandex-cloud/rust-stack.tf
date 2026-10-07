@@ -4,6 +4,7 @@ locals {
     ID_AUTH_ME_ENABLED                         = "true"
     ID_AUTH_ADMIN_READ_ENABLED                 = var.gateway_rust_admin ? "true" : "false"
     ID_AUTH_ADMIN_SUSPEND_ENABLED              = var.gateway_rust_admin_suspend ? "true" : "false"
+    ID_AUTH_ADMIN_CLIENT_REDIRECTS_ENABLED     = var.gateway_rust_admin_client_redirects ? "true" : "false"
     ID_AUTH_FORM_TOKEN_ENABLED                 = "true"
     ID_AUTH_LOGIN_PILOT_ENABLED                = "true"
     ID_AUTH_SESSIONS_READ_ENABLED              = "true"
@@ -48,29 +49,30 @@ locals {
   })
 
   rust_web_env = {
-    BUILD_ID                             = var.rust_web_image_tag
-    ID_WEB_LOGIN_PILOT_ENABLED           = "true"
-    ID_WEB_PASSKEY_PILOT_ENABLED         = "true"
-    ID_WEB_RECOVERY_PILOT_ENABLED        = var.enable_rust_password_reset ? "true" : "false"
-    ID_WEB_EMAIL_VERIFY_PILOT_ENABLED    = var.enable_rust_email_verify ? "true" : "false"
-    ID_WEB_SIGNUP_PILOT_ENABLED          = var.enable_rust_signup || var.gateway_rust_signup_page ? "true" : "false"
-    ID_WEB_ACCOUNT_PILOT_ENABLED         = "true"
-    ID_WEB_ADMIN_ENABLED                 = var.gateway_rust_admin ? "true" : "false"
-    ID_WEB_ADMIN_SUSPEND_ENABLED         = var.gateway_rust_admin_suspend ? "true" : "false"
-    ID_WEB_SESSIONS_PILOT_ENABLED        = "true"
-    ID_WEB_LOGOUT_PILOT_ENABLED          = "true"
-    ID_WEB_PROFILE_PILOT_ENABLED         = "true"
-    ID_WEB_PREFERENCES_PILOT_ENABLED     = "true"
-    ID_WEB_CONSENTS_PILOT_ENABLED        = "true"
-    ID_WEB_CONSENT_PILOT_ENABLED         = "true"
-    ID_WEB_APPS_PILOT_ENABLED            = "true"
-    ID_WEB_SECURITY_PILOT_ENABLED        = "true"
-    ID_WEB_LOGIN_HISTORY_PILOT_ENABLED   = "true"
-    ID_WEB_PASSWORD_CHANGE_PILOT_ENABLED = var.gateway_rust_password_change ? "true" : "false"
-    ID_WEB_EMAIL_MANAGEMENT_ENABLED      = var.gateway_rust_email_status && var.gateway_rust_email_cancel && var.gateway_rust_email_verify_api ? "true" : "false"
-    ID_WEB_EXPORTS_ENABLED               = var.enable_rust_export_api ? "true" : "false"
-    ID_WEB_EXPORT_REDEEM_ENABLED         = var.enable_rust_export_delayed ? "true" : "false"
-    ID_WEB_API_ORIGIN                    = local.public_base_url
+    BUILD_ID                              = var.rust_web_image_tag
+    ID_WEB_LOGIN_PILOT_ENABLED            = "true"
+    ID_WEB_PASSKEY_PILOT_ENABLED          = "true"
+    ID_WEB_RECOVERY_PILOT_ENABLED         = var.enable_rust_password_reset ? "true" : "false"
+    ID_WEB_EMAIL_VERIFY_PILOT_ENABLED     = var.enable_rust_email_verify ? "true" : "false"
+    ID_WEB_SIGNUP_PILOT_ENABLED           = var.enable_rust_signup || var.gateway_rust_signup_page ? "true" : "false"
+    ID_WEB_ACCOUNT_PILOT_ENABLED          = "true"
+    ID_WEB_ADMIN_ENABLED                  = var.gateway_rust_admin ? "true" : "false"
+    ID_WEB_ADMIN_SUSPEND_ENABLED          = var.gateway_rust_admin_suspend ? "true" : "false"
+    ID_WEB_ADMIN_CLIENT_REDIRECTS_ENABLED = var.gateway_rust_admin_client_redirects ? "true" : "false"
+    ID_WEB_SESSIONS_PILOT_ENABLED         = "true"
+    ID_WEB_LOGOUT_PILOT_ENABLED           = "true"
+    ID_WEB_PROFILE_PILOT_ENABLED          = "true"
+    ID_WEB_PREFERENCES_PILOT_ENABLED      = "true"
+    ID_WEB_CONSENTS_PILOT_ENABLED         = "true"
+    ID_WEB_CONSENT_PILOT_ENABLED          = "true"
+    ID_WEB_APPS_PILOT_ENABLED             = "true"
+    ID_WEB_SECURITY_PILOT_ENABLED         = "true"
+    ID_WEB_LOGIN_HISTORY_PILOT_ENABLED    = "true"
+    ID_WEB_PASSWORD_CHANGE_PILOT_ENABLED  = var.gateway_rust_password_change ? "true" : "false"
+    ID_WEB_EMAIL_MANAGEMENT_ENABLED       = var.gateway_rust_email_status && var.gateway_rust_email_cancel && var.gateway_rust_email_verify_api ? "true" : "false"
+    ID_WEB_EXPORTS_ENABLED                = var.enable_rust_export_api ? "true" : "false"
+    ID_WEB_EXPORT_REDEEM_ENABLED          = var.enable_rust_export_delayed ? "true" : "false"
+    ID_WEB_API_ORIGIN                     = local.public_base_url
   }
 }
 

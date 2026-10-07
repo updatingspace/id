@@ -71,6 +71,7 @@ http.createServer(async (request, response) => {
       response.writeHead(200, {'content-type':'application/json'});
       response.end(JSON.stringify({client:{client_id:'client-42',name:'<script>bad()</script>',
         description:'Pilot',redirect_uris:['https://rp.invalid/callback?x=<script>'],
+        redirect_revision:'a'.repeat(64),
         allowed_scopes:['openid'],grant_types:['authorization_code'],response_types:['code'],
         is_public:false,is_first_party:false}}));
     } else if (clientId === 'ambiguous-client') {

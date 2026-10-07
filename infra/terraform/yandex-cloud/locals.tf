@@ -148,17 +148,18 @@ locals {
       "/api/v1/auth/security",
       "/api/v1/auth/login-history",
     ], var.gateway_rust_email_status ? ["/api/v1/auth/email"] : [])
-    gateway_rust_login          = var.gateway_rust_login
-    gateway_rust_account        = var.gateway_rust_account
-    gateway_rust_admin          = var.gateway_rust_admin
-    gateway_rust_admin_suspend  = var.gateway_rust_admin_suspend
-    gateway_rust_recovery_pages = var.gateway_rust_recovery_pages
-    enable_rust_password_reset  = var.enable_rust_password_reset
-    enable_rust_email_verify    = var.enable_rust_email_verify
-    enable_rust_signup          = var.enable_rust_signup
-    gateway_rust_signup_page    = var.gateway_rust_signup_page
-    gateway_rust_home_page      = var.gateway_rust_home_page
-    gateway_service_account_id  = yandex_iam_service_account.gateway.id
+    gateway_rust_login                  = var.gateway_rust_login
+    gateway_rust_account                = var.gateway_rust_account
+    gateway_rust_admin                  = var.gateway_rust_admin
+    gateway_rust_admin_suspend          = var.gateway_rust_admin_suspend
+    gateway_rust_admin_client_redirects = var.gateway_rust_admin_client_redirects
+    gateway_rust_recovery_pages         = var.gateway_rust_recovery_pages
+    enable_rust_password_reset          = var.enable_rust_password_reset
+    enable_rust_email_verify            = var.enable_rust_email_verify
+    enable_rust_signup                  = var.enable_rust_signup
+    gateway_rust_signup_page            = var.gateway_rust_signup_page
+    gateway_rust_home_page              = var.gateway_rust_home_page
+    gateway_service_account_id          = yandex_iam_service_account.gateway.id
   })
 
   api_gateway_id     = var.existing_api_gateway_id != "" ? data.yandex_api_gateway.existing[0].id : yandex_api_gateway.id[0].id

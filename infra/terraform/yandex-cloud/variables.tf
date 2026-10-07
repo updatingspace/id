@@ -592,6 +592,17 @@ variable "gateway_rust_admin_suspend" {
   }
 }
 
+variable "gateway_rust_admin_client_redirects" {
+  description = "Enable password-confirmed OIDC client redirect edits in the Rust operator area."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.gateway_rust_admin_client_redirects || var.gateway_rust_admin
+    error_message = "OIDC client redirect edits require the Rust operator area."
+  }
+}
+
 variable "gateway_rust_recovery_pages" {
   description = "Route the Topcoat password recovery and email verification pages through the existing Gateway."
   type        = bool
