@@ -135,6 +135,7 @@ jobs:
           install -m 600 /dev/null "$RUNNER_TEMP/yc-sa-key.json"
           printf '%s' "$YC_SERVICE_ACCOUNT_KEY_JSON" > "$RUNNER_TEMP/yc-sa-key.json"
           "$RUNNER_TEMP/yc/bin/yc" config profile create deploy
+          "$RUNNER_TEMP/yc/bin/yc" config set endpoint api.cloud.yandex.net:443
           "$RUNNER_TEMP/yc/bin/yc" config set service-account-key "$RUNNER_TEMP/yc-sa-key.json"
           "$RUNNER_TEMP/yc/bin/yc" config set cloud-id "$YC_CLOUD_ID"
           "$RUNNER_TEMP/yc/bin/yc" config set folder-id "$YC_FOLDER_ID"

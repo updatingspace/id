@@ -98,6 +98,10 @@ no public export origin. The private recovery timer is active and targets
 Rust jobs, but a timer alone cannot make the workflow available. This gate
 prints missing configuration names rather than secret values; it must pass
 on the exact tested revisions before an end-to-end production rehearsal.
+Later on 2026-10-07, OpenTofu created the managed escrow key and a new runtime
+Lockbox version while preserving all ten existing secret values. The serving
+API and jobs revisions still do not bind that version, so the gate remains
+NOT READY and the delayed flow remains disabled.
 The deploy workflow checks the whole bundle both before and after image rollout
 whenever any delayed-export flag is enabled on the active API, web or jobs
 revision. A partial activation fails instead of being silently skipped; CI

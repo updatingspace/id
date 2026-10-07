@@ -1,7 +1,36 @@
 # ID production verification — 2026-10-07
 
-This is a point-in-time observation, not a release sign-off. The unpublished
-`codex/rust-id-rollout-current` branch is ahead of the production images.
+This document retains the earlier point-in-time observations below. They are
+not a release sign-off and no longer describe the active revisions.
+
+## Later production update on 2026-10-07
+
+The tested commit `d8efc8a324a298c78b62c4c37a07955ee6143772` was
+deployed directly through YC after its GitHub CI passed. The five active Rust
+revisions (main API, sessions, mutations, Topcoat web and jobs) were checked
+against that exact build ID and their tested image digests. Gateway still has
+121 integrations across the four serving Rust containers and no Python ID
+target. Public API, OIDC, web and asset-MIME smoke profiles passed.
+
+On the live site, a synthetic verified account registered a Passkey through
+Topcoat and the Rust API: both `/api/v1/auth/passkeys/begin` and `/complete`
+returned 200 and the recovery-code screen appeared. This used a Chromium
+virtual authenticator; the reported physical iPhone/Safari scenario remains
+unverified. The then-current automatic deployment workflow failed during
+Gateway preflight before changing containers. A follow-up release added a
+specific error annotation for each preflight condition. Its automatic deploy
+run `37638827863` identified the failure as inability of the GitHub deploy
+identity to read the production Gateway specification; image build and push
+passed, and no container revision changed in that run. A later diagnostic
+revision reports the service account ID and sanitized YC error category so
+the exact IAM or CLI failure can be corrected. A separate direct YC
+deployment had completed successfully. On the same date the updated private
+export-storage smoke passed against the production bucket, including exact
+escrow-prefix listing before and after removal of synthetic objects. Delayed
+export and production admin remain disabled.
+
+The sections below record the earlier pre-deployment observations and must
+not be read as current production status.
 
 ## Follow-up preflight on the current candidate
 

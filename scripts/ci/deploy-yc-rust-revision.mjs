@@ -14,7 +14,7 @@ const [containerId, sourceId, image, ...options] = process.argv.slice(2);
 if (!/^bba[a-z0-9]{17}$/.test(containerId ?? '') ||
     !/^bba[a-z0-9]{17}$/.test(sourceId ?? '') ||
     !/^cr\.yandex\/[a-z0-9]+\/[a-z0-9-]+@sha256:[0-9a-f]{64}$/.test(image ?? '')) {
-  die('usage: deploy-yc-rust-revision.mjs CONTAINER_ID SOURCE_REVISION IMAGE@sha256:DIGEST [--expect-active-revision REVISION_ID] [--set-env NAME=VALUE]... [--add-secret ID:VERSION:KEY:ENV] [--apply]');
+  die('usage: deploy-yc-rust-revision.mjs CONTAINER_ID SOURCE_REVISION IMAGE@sha256:DIGEST [--expect-active-revision REVISION_ID] [--set-env NAME=VALUE]... [--add-secret ID:VERSION:KEY:ENV] [--replace-secret-version ID:OLD_VERSION:NEW_VERSION] [--apply]');
 }
 
 let apply = false;
@@ -22,6 +22,7 @@ let expectedActiveId = sourceId;
 let restoring = false;
 const overrides = new Map();
 const addedSecrets = [];
+const replacedSecretVersions = new Map();
 for (let i = 0; i < options.length; i++) {
   const option = options[i];
   if (option === '--apply') {
@@ -50,11 +51,21 @@ for (let i = 0; i < options.length; i++) {
       die('invalid --add-secret entry');
     }
     addedSecrets.push({ id, version_id: versionId, key, environment_variable: environmentVariable });
+  } else if (option === '--replace-secret-version') {
+    const entry = options[++i] ?? '';
+    const [id, oldVersionId, newVersionId, extra] = entry.split(':');
+    if (extra !== undefined || !/^[a-z0-9]{20}$/.test(id ?? '') ||
+        !/^[a-z0-9]{20}$/.test(oldVersionId ?? '') ||
+        !/^[a-z0-9]{20}$/.test(newVersionId ?? '') ||
+        oldVersionId === newVersionId || replacedSecretVersions.has(id)) {
+      die('invalid or duplicate --replace-secret-version entry');
+    }
+    replacedSecretVersions.set(id, { oldVersionId, newVersionId });
   } else {
     die(`unknown option: ${option}`);
   }
 }
-if (restoring && (overrides.size || addedSecrets.length)) {
+if (restoring && (overrides.size || addedSecrets.length || replacedSecretVersions.size)) {
   die('restoring a captured revision cannot override environment or secret bindings');
 }
 
@@ -84,7 +95,18 @@ for (const [name, value] of Object.entries(environment)) {
     die(`cannot safely encode environment variable ${name}`);
   }
 }
-const secrets = [...(source.secrets ?? []), ...addedSecrets];
+const secrets = [...(source.secrets ?? [])].map((secret) => {
+  const replacement = replacedSecretVersions.get(secret.id);
+  if (!replacement) return secret;
+  if (secret.version_id !== replacement.oldVersionId) {
+    die(`secret ${secret.id} has an unexpected source version`);
+  }
+  return { ...secret, version_id: replacement.newVersionId };
+});
+for (const id of replacedSecretVersions.keys()) {
+  if (!secrets.some((secret) => secret.id === id)) die(`secret ${id} is not bound to the source revision`);
+}
+secrets.push(...addedSecrets);
 const names = secrets.map((secret) => secret.environment_variable);
 if (new Set(names).size !== names.length || names.some((name) => name in environment)) {
   die('duplicate secret binding or collision with environment');

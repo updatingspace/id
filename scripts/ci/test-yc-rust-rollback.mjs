@@ -102,6 +102,14 @@ try {
   writeState({ revisions, next: 1 });
   run(['scripts/ci/check-yc-rust-rollout.mjs']);
   run(['scripts/ci/rollback-yc-rust-revisions.mjs', 'capture', manifestPath]);
+  const rotation = ['scripts/ci/deploy-yc-rust-revision.mjs', ids[0], revisions[0].id,
+    `cr.yandex/registry/updatingspace-id-api@${oldDigest}`,
+    '--replace-secret-version', `${'e6' + 'a'.repeat(18)}:${'e6' + 'b'.repeat(18)}:${'e6' + 'c'.repeat(18)}`];
+  run([...rotation, '--apply']);
+  const rotated = readState().revisions.findLast(row => row.container_id === ids[0] && row.status === 'ACTIVE');
+  assert.equal(rotated.secrets[0].version_id, 'e6' + 'c'.repeat(18));
+  run([...rotation, '--apply'], false);
+  writeState({ revisions, next: 1 });
   for (const [index, id] of ids.entries()) {
     const imageName = index === 3 ? 'web' : index === 4 ? 'jobs' : 'api';
     const args = ['scripts/ci/deploy-yc-rust-revision.mjs', id, revisions[index].id,
