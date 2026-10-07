@@ -85,6 +85,10 @@ no public export origin. The private recovery timer is active and targets
 Rust jobs, but a timer alone cannot make the workflow available. This gate
 prints missing configuration names rather than secret values; it must pass
 on the exact tested revisions before an end-to-end production rehearsal.
+The deploy workflow checks the whole bundle both before and after image rollout
+whenever any delayed-export flag is enabled on the active API, web or jobs
+revision. A partial activation fails instead of being silently skipped; CI
+tests disabled, partial and aligned revisions with synthetic YC responses.
 The 2026-10-07 Gateway check also found no delayed-export cancellation,
 capability redemption or public delivery-page route. The gate now checks those
 method/path/container bindings as well as revision flags; it reports NOT READY

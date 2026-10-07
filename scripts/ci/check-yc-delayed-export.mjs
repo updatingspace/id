@@ -10,10 +10,11 @@ const containerIds = {
 const expectedBuild = process.env.EXPECTED_BUILD_ID;
 const origin = process.env.ID_EXPORT_PUBLIC_ORIGIN ?? 'https://id.updspace.com';
 const gatewayId = process.env.ID_GATEWAY_ID;
-const issues = [];
-if (!/^[0-9a-f]{40}$/.test(expectedBuild ?? '')) {
-  issues.push('EXPECTED_BUILD_ID must be the tested 40-character commit SHA');
+const conditional = process.argv[2] === '--if-enabled';
+if (process.argv.length > (conditional ? 3 : 2)) {
+  throw new Error('usage: check-yc-delayed-export.mjs [--if-enabled]');
 }
+const issues = [];
 
 function yc(...args) {
   return JSON.parse(execFileSync('yc', [...args, '--format', 'json'], {
@@ -72,6 +73,19 @@ try {
   const api = activeRevision('api', containerIds.api);
   const web = activeRevision('web', containerIds.web);
   const jobs = activeRevision('jobs', containerIds.jobs);
+  const anyDelayed = [
+    api?.image?.environment?.ID_EXPORT_DELAYED_ROLLOUT_ENABLED,
+    web?.image?.environment?.ID_WEB_EXPORT_REDEEM_ENABLED,
+    jobs?.image?.environment?.ID_EXPORT_ESCROW_JOBS_ROLLOUT_ENABLED,
+    jobs?.image?.environment?.ID_EXPORT_ESCROW_MAIL_ROLLOUT_ENABLED,
+  ].includes('true');
+  if (conditional && !anyDelayed && issues.length === 0) {
+    console.log('disabled');
+    process.exit(0);
+  }
+  if (!/^[0-9a-f]{40}$/.test(expectedBuild ?? '')) {
+    issues.push('EXPECTED_BUILD_ID must be the tested 40-character commit SHA');
+  }
   for (const name of ['ID_EXPORT_API_ROLLOUT_ENABLED', 'ID_EXPORT_DELAYED_ROLLOUT_ENABLED', 'ID_RUST_EARLY_ROLLOUT_ENABLED']) flag('api', api, name);
   for (const name of ['ID_WEB_EXPORTS_ENABLED', 'ID_WEB_EXPORT_REDEEM_ENABLED']) flag('web', web, name);
   for (const name of ['ID_EXPORT_JOBS_ENABLED', 'ID_EXPORT_ESCROW_JOBS_ROLLOUT_ENABLED', 'ID_EXPORT_ESCROW_MAIL_ROLLOUT_ENABLED', 'ID_JOBS_HTTP_ENABLED']) flag('jobs', jobs, name);
@@ -126,5 +140,5 @@ if (issues.length) {
   for (const issue of issues) console.error(`NOT READY: ${issue}`);
   process.exitCode = 1;
 } else {
-  console.log('Delayed export revisions, escrow key, bucket, timer and Gateway routes are aligned. Run end-to-end checks before traffic.');
+  console.log(conditional ? 'enabled' : 'Delayed export revisions, escrow key, bucket, timer and Gateway routes are aligned. Run end-to-end checks before traffic.');
 }

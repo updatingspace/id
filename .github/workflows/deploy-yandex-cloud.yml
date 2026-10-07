@@ -157,6 +157,11 @@ jobs:
           done
       - name: Preflight all five Rust revisions
         run: node scripts/ci/check-yc-rust-rollout.mjs
+      - name: Reject a partially enabled delayed export before deployment
+        run: |
+          set -euo pipefail
+          active_build=$(yc serverless container revision list --container-id "$RUST_MUTATIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")][0].image.environment.BUILD_ID // ""')
+          EXPECTED_BUILD_ID="$active_build" node scripts/ci/check-yc-delayed-export.mjs --if-enabled
       - name: Apply additive Rust YDB schemas
         working-directory: services/id-rust
         run: |
@@ -215,9 +220,8 @@ jobs:
       - name: Verify delayed export bundle when enabled
         run: |
           set -euo pipefail
-          delayed=$(yc serverless container revision list --container-id "$RUST_MUTATIONS_CONTAINER_ID" --format json | jq -r '[.[] | select(.status == "ACTIVE")][0].image.environment.ID_EXPORT_DELAYED_ROLLOUT_ENABLED // "false"')
-          if [[ "$delayed" == "true" ]]; then
-            EXPECTED_BUILD_ID="$DEPLOY_SHA" node scripts/ci/check-yc-delayed-export.mjs
+          delayed=$(EXPECTED_BUILD_ID="$DEPLOY_SHA" node scripts/ci/check-yc-delayed-export.mjs --if-enabled)
+          if [[ "$delayed" == "enabled" ]]; then
             node scripts/ci/smoke-yc-rust-http.mjs delayed-export
           fi
       - name: Restore previous Rust revisions after failed deployment

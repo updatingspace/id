@@ -27,6 +27,9 @@ jobs:
         working-directory: services/id-rust
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - name: Reject retired application runtimes
         working-directory: .
         run: |
@@ -44,6 +47,9 @@ jobs:
             echo 'Retired React Gateway fallback returned' >&2
             exit 1
           fi
+      - name: Verify delayed-export deploy gate
+        working-directory: .
+        run: node scripts/ci/test-check-yc-delayed-export.mjs
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Install WebAuthn build dependencies
