@@ -35,6 +35,7 @@ button[type=submit]:hover:not(:disabled), .primary:hover { background: var(--act
 .danger { color: var(--danger); border-color: var(--danger); }
 :where(a,button,input,select,textarea,summary):focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 label, legend { font-weight: 600; }
+legend { max-width: 100%; overflow-wrap: anywhere; }
 label { display: block; }
 input, select, textarea { width: 100%; min-width: 0; max-width: 100%; min-height: 46px; border: 1px solid var(--line); border-radius: 8px; padding: .65rem .8rem; background: var(--surface); color: var(--ink); }
 input:hover, select:hover { border-color: var(--muted); }
