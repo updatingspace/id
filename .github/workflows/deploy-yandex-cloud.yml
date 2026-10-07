@@ -155,6 +155,8 @@ jobs:
           for id in "$RUST_API_CONTAINER_ID" "$RUST_SESSIONS_CONTAINER_ID" "$RUST_MUTATIONS_CONTAINER_ID" "$RUST_WEB_CONTAINER_ID" "$RUST_JOBS_CONTAINER_ID"; do
             yc serverless container get --id "$id" --format json >/dev/null
           done
+      - name: Preflight all five Rust revisions
+        run: node scripts/ci/check-yc-rust-rollout.mjs
       - name: Apply additive Rust YDB schemas
         working-directory: services/id-rust
         run: |

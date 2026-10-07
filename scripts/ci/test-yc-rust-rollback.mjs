@@ -83,7 +83,8 @@ if (command === 'list') {
 chmodSync(join(scratch, 'yc'), 0o700);
 
 const env = { ...process.env, PATH: `${scratch}:${process.env.PATH}`, ID_FAKE_YC_STATE: statePath,
-  DEPLOY_SHA: newBuild, API_DIGEST: newDigest, WEB_DIGEST: newDigest, JOBS_DIGEST: newDigest,
+  DEPLOY_SHA: newBuild, REGISTRY_ID: 'registry',
+  API_DIGEST: newDigest, WEB_DIGEST: newDigest, JOBS_DIGEST: newDigest,
   RUST_API_CONTAINER_ID: ids[0], RUST_SESSIONS_CONTAINER_ID: ids[1],
   RUST_MUTATIONS_CONTAINER_ID: ids[2], RUST_WEB_CONTAINER_ID: ids[3], RUST_JOBS_CONTAINER_ID: ids[4] };
 function run(args, success = true) {
@@ -96,8 +97,10 @@ try {
   const ambiguous = readState();
   ambiguous.revisions.push({ ...structuredClone(ambiguous.revisions[0]), id: `bba${'z'.repeat(17)}` });
   writeState(ambiguous);
+  run(['scripts/ci/check-yc-rust-rollout.mjs'], false);
   run(['scripts/ci/rollback-yc-rust-revisions.mjs', 'capture', manifestPath], false);
   writeState({ revisions, next: 1 });
+  run(['scripts/ci/check-yc-rust-rollout.mjs']);
   run(['scripts/ci/rollback-yc-rust-revisions.mjs', 'capture', manifestPath]);
   for (const [index, id] of ids.entries()) {
     const args = ['scripts/ci/deploy-yc-rust-revision.mjs', id, revisions[index].id,

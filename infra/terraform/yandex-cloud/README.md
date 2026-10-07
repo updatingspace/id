@@ -12,6 +12,10 @@ Rollback restores the captured image, environment, secret bindings and runtime
 limits from each prior revision. It refuses to overwrite a revision changed
 outside the deployment. The local CI double exercises both outcomes.
 The workflow does not apply OpenTofu or publish a React bundle.
+Before any schema or revision change, it dry-runs cloning all five active
+Rust revisions with the tested image digests and SHA. A missing or ambiguous
+active revision, incompatible environment, or secret collision stops the
+deployment before the first production mutation.
 
 The checked-in [`production.performance.tfvars`](production.performance.tfvars)
 records the intended Rust routing and scale-to-zero configuration. It is not a
