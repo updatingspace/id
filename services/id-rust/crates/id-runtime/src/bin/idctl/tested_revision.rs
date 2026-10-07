@@ -6,11 +6,12 @@ use serde_json::Value;
 use std::{collections::BTreeMap, env, time::Duration};
 
 const WORKFLOW: &str = ".github/workflows/ci-cd.yml";
-const REQUIRED_JOBS: [&str; 4] = [
+const REQUIRED_JOBS: [&str; 5] = [
     "Rust API and Topcoat",
     "Rust YDB schema and auth integration",
     "Terraform validate",
     "OpenTofu validate",
+    "Rust extended integration gate",
 ];
 
 fn validate_run(run: &Value, sha: &str, repository: &str) -> Result<u64> {

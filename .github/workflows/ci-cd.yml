@@ -346,3 +346,14 @@ jobs:
 
       - name: OpenTofu local check
         run: scripts/ci/check-yc-terraform-local.sh
+
+  rust-extended:
+    uses: ./.github/workflows/rust-pilot.yml
+
+  rust-extended-gate:
+    name: Rust extended integration gate
+    needs: rust-extended
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: test '${{ needs.rust-extended.result }}' = success

@@ -1,15 +1,7 @@
 name: Rust extended integration
 
 on:
-  pull_request:
-    paths:
-      - "services/id-rust/**"
-      - ".github/workflows/rust-pilot.yml"
-  push:
-    branches: [main, master]
-    paths:
-      - "services/id-rust/**"
-      - ".github/workflows/rust-pilot.yml"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -17,7 +9,7 @@ permissions:
 
 jobs:
   rust-pilot:
-    # Extended checks supplement the deployment CI; this job does not deploy.
+    # The caller's deploy gate waits for these integration checks.
     name: Rust auth, YDB and Topcoat integration
     runs-on: ubuntu-latest
     timeout-minutes: 90
