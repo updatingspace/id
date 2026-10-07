@@ -68,8 +68,8 @@ for (const [path, status, type, expectedBody] of checks) {
 }
 
 if (target === 'oidc') {
-  const issuer = new URL(baseUrl).origin;
-  const discovery = await fetch(`${issuer}/.well-known/openid-configuration`, {
+  const issuer = new URL(process.env.SMOKE_EXPECTED_ISSUER ?? baseUrl).origin;
+  const discovery = await fetch(`${baseUrl}/.well-known/openid-configuration`, {
     signal: AbortSignal.timeout(15_000),
   }).then(response => response.json());
   const endpoints = {
@@ -95,7 +95,7 @@ if (target === 'oidc') {
       throw new Error(`OIDC ${field} omits ${required}`);
     }
   }
-  const jwks = await fetch(discovery.jwks_uri, {
+  const jwks = await fetch(`${baseUrl}/.well-known/jwks.json`, {
     signal: AbortSignal.timeout(15_000),
   }).then(response => response.json());
   if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) throw new Error('OIDC JWKS has no public keys');

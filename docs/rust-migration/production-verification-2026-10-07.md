@@ -20,8 +20,16 @@ key were unchanged.
 
 The automatic deployment for that tested source, run `37650626628`, failed
 after creating the API revision and then restored the captured revisions.
-The exact API smoke failure was not available in the public GitHub annotation;
-the same image digest passed operator-run public smoke and was deployed directly.
+The diagnostic rerun `37660810386` later identified the exact failure:
+GitHub's runner received Cloudflare `403 text/html` for public `/health` while
+the same image and public route passed operator-run smoke. Its rollback
+completed successfully. The deploy workflow now reads the existing Yandex
+Gateway system domain, verifies it against `*.apigw.yandexcloud.net`, and runs
+machine smoke through that Gateway. OIDC discovery is still checked against
+the public `https://id.updspace.com` issuer. A read-only Gateway smoke runs
+before any revision change, so runner transport failure cannot trigger a
+pointless deploy and rollback. Public-domain smoke remains a separate operator
+check.
 Commit `cee552d` added a sanitized smoke failure annotation. Both parallel
 CI runs for that commit failed before deployment. The main run's five executed
 jobs all passed, but its redundant final integration gate never appeared as a

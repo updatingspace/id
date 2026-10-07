@@ -162,11 +162,19 @@ jobs:
           done
           [[ "$spec" != *"bbab7jbbhqhupu9idvh0"* ]] || fail "Gateway still references the retired Python container"
           printf '%s' "$spec" | node scripts/ci/check-yc-gateway-containers.mjs || fail "Gateway routing contract failed"
+          gateway_domain=$(yc serverless api-gateway get --id "$ID_GATEWAY_ID" --format json | jq -er '.domain | select(type == "string")') || fail "Cannot read the production Gateway domain"
+          [[ "$gateway_domain" =~ ^[a-z0-9.-]+\.apigw\.yandexcloud\.net$ ]] || fail "Unexpected production Gateway domain"
+          echo "SMOKE_BASE_URL=https://$gateway_domain" >> "$GITHUB_ENV"
+          echo 'SMOKE_EXPECTED_ISSUER=https://id.updspace.com' >> "$GITHUB_ENV"
           for id in "$RUST_API_CONTAINER_ID" "$RUST_SESSIONS_CONTAINER_ID" "$RUST_MUTATIONS_CONTAINER_ID" "$RUST_WEB_CONTAINER_ID" "$RUST_JOBS_CONTAINER_ID"; do
             yc serverless container get --id "$id" --format json >/dev/null || fail "Cannot read Rust container $id with the deploy identity"
           done
       - name: Preflight all five Rust revisions
         run: node scripts/ci/check-yc-rust-rollout.mjs
+      - name: Verify runner can reach the existing Gateway revision
+        run: |
+          node scripts/ci/smoke-yc-rust-http.mjs api
+          node scripts/ci/smoke-yc-rust-http.mjs oidc
       - name: Reject a partially enabled delayed export before deployment
         run: |
           set -euo pipefail
