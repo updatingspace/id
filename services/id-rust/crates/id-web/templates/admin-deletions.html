@@ -4,25 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <title>Состояние удаления — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/admin.css?v=20261007-3">
+  <title>Проверка заявки на удаление — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-4">
 </head>
 <body>
   <a class="skip-link" href="#main">К содержанию</a>
-  <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторские задачи</span></header>
+  <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторский доступ</span></header>
   <main id="main">
     <nav aria-label="Навигация"><a href="/account">Мой аккаунт</a><span aria-hidden="true">/</span><span>Состояние удаления</span></nav>
     <div class="page-heading">
-      <p class="eyebrow">Данные аккаунта · только просмотр</p>
-      <h1>Проверить состояние удаления</h1>
-      <p class="intro">Эта страница отвечает на один вопрос: завершена ли очистка по известной заявке. Она не удаляет данные и не подтверждает личность владельца.</p>
+      <p class="eyebrow">Заявки на удаление · только просмотр</p>
+      <h1>Проверка заявки на удаление</h1>
+      <p class="intro">Укажите номер заявки и проверьте, завершена ли очистка данных. Здесь нельзя запустить удаление или подтвердить личность заявителя.</p>
     </div>
     <div class="workspace">
       <div class="task-column">
         <section class="lookup-panel" aria-labelledby="lookup-title">
-          <p class="panel-step">Шаг 1</p>
-          <h2 id="lookup-title">Укажите номер заявки</h2>
-          <p>Возьмите номер из обращения или операторского журнала. По имени и адресу почты здесь нельзя искать намеренно.</p>
+          <h2 id="lookup-title">Поиск по номеру</h2>
+          <p>Номер есть в обращении или операторском журнале. Поиск по имени и почте здесь недоступен.</p>
           <form action="/admin/" method="get">
             <label for="deletion-id">Номер заявки</label>
             <div class="search-row">
@@ -35,19 +34,18 @@
         {% if not_found %}<section class="result-panel" role="status"><h2>Заявка не найдена</h2><p>Проверьте номер. Если он верный, посмотрите операторский журнал; отсутствие результата здесь не доказывает, что удаления не было.</p></section>{% endif %}
         {% if let Some(item) = operation %}
         <section class="result-panel" aria-labelledby="operation-title">
-          <p class="panel-step">Шаг 2 · результат</p>
           <h2 id="operation-title">Заявка № {{ item.id }}</h2>
           <dl><dt>Состояние</dt><dd><strong class="status">{{ item.status_label() }}</strong></dd><dt>Очистка данных</dt><dd>{% if item.cleanup_completed %}Завершена и подтверждена{% else %}Очистка ещё не подтверждена{% endif %}</dd></dl>
           <div class="next-step"><h3>Следующее действие</h3><p>{{ item.next_step() }}</p></div>
         </section>
         {% endif %}
       </div>
-      <aside class="scope-panel" aria-labelledby="scope-title">
-        <h2 id="scope-title">Что означает результат</h2>
-        <p>Статус «принята» или «выполняется» не означает, что данные уже удалены. Сообщать о завершении можно только после подтверждения очистки.</p>
-        <p>Для расследования ошибки и повторной обработки используйте операторский журнал и утверждённую команду <code>idctl</code>. Веб-интерфейс пока не выполняет эти действия.</p>
-      </aside>
     </div>
+    <aside class="scope-panel" aria-labelledby="scope-title">
+      <h2 id="scope-title">Как трактовать состояние</h2>
+      <p>«Ожидает обработки» и «Очистка выполняется» не означают, что данные уже удалены. Подтверждать завершение можно только после состояния «Очистка завершена».</p>
+      <p>Если требуется расследование или повторная обработка, используйте операторский журнал и <code>idctl</code>: эта страница показывает состояние, но не изменяет заявку.</p>
+    </aside>
   </main>
 </body>
 </html>

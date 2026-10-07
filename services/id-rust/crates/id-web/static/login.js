@@ -34,8 +34,8 @@
   if (authContext && requestedNext && (returnPath.startsWith("/oauth/consent?") || returnPath.startsWith("/authorize?"))) {
     document.getElementById("login-title").textContent = "Войдите, чтобы продолжить";
     document.querySelector(".intro").textContent = "Вы открываете другой сервис через единый аккаунт UpdSpace ID.";
-    submit.textContent = "Продолжить к разрешениям";
-    authContext.textContent = "Это вход в ваш аккаунт. Затем мы покажем название приложения и запрошенные сведения. Разрешения вы выберете отдельно; без вашего решения данные приложению не передадутся.";
+    submit.textContent = "Войти и продолжить";
+    authContext.textContent = "Сейчас вы входите только в UpdSpace ID. Если приложению нужны новые разрешения, мы покажем его название и запрошенные сведения на следующем шаге. Здесь вы ещё не даёте приложению доступ.";
     authContext.hidden = false;
   }
 

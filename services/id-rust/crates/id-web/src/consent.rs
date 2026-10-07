@@ -298,8 +298,8 @@ mod tests {
         assert!(html.contains("value=\"email\" />"));
         assert!(html.contains("https://example.com"));
         assert!(!html.contains("id=\"remember\" type=\"checkbox\" checked"));
-        assert!(html.contains("Вернуться без доступа"));
-        assert!(html.contains("Продолжить с выбранными данными"));
+        assert!(html.contains("Не предоставлять доступ"));
+        assert!(html.contains("Разрешить выбранное"));
         Ok(())
     }
 

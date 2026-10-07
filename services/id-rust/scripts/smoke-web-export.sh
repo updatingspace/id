@@ -78,12 +78,16 @@ html="$(<"${scratch_dir}/export.html")"
 rg -qi '^cache-control: no-store' "${scratch_dir}/export.headers"
 curl --silent --fail --max-time 5 -H 'Cookie: sessionid=valid' \
   "http://127.0.0.1:${web_port}/account?section=data&export=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" >"${scratch_dir}/pending.html"
-rg -q 'http-equiv="refresh"' "${scratch_dir}/pending.html"
+rg -q 'Обновить состояние' "${scratch_dir}/pending.html"
 curl --silent --fail --max-time 5 -H 'Cookie: sessionid=valid' \
   "http://127.0.0.1:${web_port}/account?section=data&export=bad" >"${scratch_dir}/missing.html"
-rg -q 'Экспорт не найден' "${scratch_dir}/missing.html"
+rg -q 'Запрос недоступен' "${scratch_dir}/missing.html"
+if rg -q 'id="export-form"' "${scratch_dir}/missing.html"; then
+  echo 'immediate export form must be hidden until delayed delivery is enabled' >&2
+  exit 1
+fi
 curl --silent --fail --max-time 5 "http://127.0.0.1:${web_port}/_id/export.js" | rg -q 'Idempotency-Key'
 guest_status="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
   "http://127.0.0.1:${web_port}/account?section=data")"
 [[ "${guest_status}" == 303 ]]
-echo "Topcoat export smoke: owner-scoped SSR status, escaping, pending refresh and guest redirect"
+echo "Topcoat export smoke: owner-scoped SSR status, escaping, explicit refresh, no immediate request and guest redirect"

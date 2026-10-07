@@ -2,11 +2,14 @@
 * { box-sizing: border-box; }
 body { margin: 0; }
 .consent-shell { min-height: 100vh; display: grid; place-items: center; padding: 1.25rem; box-sizing: border-box; }
-.consent-card { width: min(100%, 34rem); border: 1px solid #cbd5e5; border-radius: 1rem; padding: clamp(1.25rem, 4vw, 2rem); background: #fff; box-shadow: 0 1rem 3rem #24365312; }
+.consent-card { width: min(100%, 38rem); border: 1px solid #cbd5e5; border-radius: 1rem; padding: clamp(1.25rem, 4vw, 2rem); background: #fff; box-shadow: 0 1rem 3rem #24365312; }
 .brand { color: #3154bc; font-weight: 750; text-decoration: none; }
 .context-label { margin: 1.5rem 0 .4rem; color: #3154bc; font-size: .85rem; font-weight: 750; }
 h1 { font-size: 1.55rem; line-height: 1.25; }
 p { line-height: 1.55; }
+.app-identity { display: grid; gap: .2rem; margin: 1rem 0 1.4rem; padding: 1rem 1.15rem; border: 1px solid #cbd5e5; border-radius: .7rem; background: #f0f3fa; overflow-wrap: anywhere; }
+.app-identity strong { font-size: 1.08rem; }
+.app-identity span { color: #51627e; font-size: .9rem; }
 fieldset { border: 0; border-top: 1px solid #dce2ed; padding: 1.25rem 0 0; margin: 1.5rem 0; }
 legend { font-weight: 650; margin-bottom: .6rem; }
 .scope { display: flex; gap: .7rem; align-items: start; margin: .7rem 0; }
@@ -15,13 +18,23 @@ legend { font-weight: 650; margin-bottom: .6rem; }
 .scope-marker { flex: none; display: grid; place-items: center; width: 1.3rem; height: 1.3rem; border-radius: 50%; background: #3154bc; color: #fff; font-size: .85rem; font-weight: 800; }
 .scope > span { display: grid; gap: .15rem; }
 .scope small { color: #51627e; font-size: .78rem; }
-.scope-code { color: #64748b; font-size: .74rem; overflow-wrap: anywhere; }
 .remember { display: flex; gap: .6rem; align-items: center; }
 .choice-note { color: #51627e; font-size: .87rem; }
 .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: 1.5rem; }
 button { min-height: 2.75rem; border: 1px solid #3154bc; border-radius: .55rem; background: #fff; color: #3154bc; font: inherit; font-weight: 650; padding: .7rem 1rem; cursor: pointer; }
 #approve { background: #3154bc; color: #fff; }
+button:hover { box-shadow: 0 0 0 2px #3154bc33; }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #496be0; outline-offset: 3px; }
 button:disabled { cursor: wait; opacity: .6; }
 [role="alert"] { color: #b91c1c; }
-@media (max-width: 470px) { .actions { grid-template-columns: 1fr; } }
+@media (max-width: 470px) { .actions { grid-template-columns: 1fr; } .consent-shell { align-items: start; } }
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; background: #111827; color: #f5f7fb; }
+  .consent-card { background: #1c2637; border-color: #39455a; }
+  .brand, .context-label { color: #a8beff; }
+  .app-identity, .required-scope { background: #253351; border-color: #39455a; }
+  .app-identity span, .scope small, .choice-note { color: #b5c1d4; }
+  fieldset { border-color: #39455a; }
+  .scope-marker, #approve { background: #a8beff; color: #111827; }
+  button { border-color: #a8beff; background: transparent; color: #a8beff; }
+}

@@ -28,9 +28,9 @@
       {% else %}<p role="alert">Сначала подтвердите адрес <strong>{{ delivery_email }}</strong> в разделе <a href="/account?section=profile">«Личные сведения»</a>. Без подтверждения мы не можем отправить архив.</p>{% endif %}
       <p>Если запрос сделали не вы, отзовите его в аккаунте. Если аккаунт будет удалён после запроса, подготовка и доставка уже запрошенной копии продолжатся: ссылка придёт на тот же адрес. После удаления для отмены понадобится обратиться к оператору с номером запроса из письма.</p>
       {% else %}
-      <p>Подтвердите личность паролем{% if has_mfa %} и кодом{% endif %}. Архив станет доступен здесь после подготовки. Сейчас этот способ не предусматривает ожидания и доставки по почте.</p>
+      <p role="status">Новые запросы временно недоступны: получение копии переводится на доставку после 24-часового ожидания. Уже созданную копию можно открыть по её ссылке, пока она действует.</p>
       {% endif %}
-      {% if !delayed_enabled || email_verified %}
+      {% if delayed_enabled && email_verified %}
       <form id="export-form" action="/account?section=data" method="post">
         <label for="export-password">Текущий пароль</label>
         <input id="export-password" name="password" type="password" autocomplete="current-password" required />
@@ -57,25 +57,26 @@
       {% if result.status == "cooldown" %}<p role="status">Копия подготовлена и хранится приватно. Ссылка пока недоступна: мы отправим её на подтверждённый адрес почты после периода ожидания.</p>{% endif %}
       {% if result.status == "ready" %}<p role="status">Ссылка для получения отправлена на подтверждённый адрес почты. Она работает и после удаления аккаунта до окончания срока доступа.</p>{% endif %}
       {% if let Some(release) = result.release_at %}
-      {% if result.status == "ready" %}<p>Период ожидания завершился: <time datetime="{{ release }}">{{ release }}</time>.</p>
-      {% else %}<p>Ссылка будет отправлена не раньше: <time datetime="{{ release }}">{{ release }}</time>.</p>{% endif %}
+      {% if result.status == "ready" %}<p>Период ожидания завершился: <time datetime="{{ release }}">{{ release_label }}</time>.</p>
+      {% else %}<p>Ссылка будет отправлена не раньше: <time datetime="{{ release }}">{{ release_label }}</time>.</p>{% endif %}
       <p>Если вы удалите аккаунт, ранее запрошенная копия останется доступна по письму в течение ограниченного срока.</p>
       {% endif %}
       {% if result.status == "failed" %}<p role="alert">Не удалось подготовить архив. Данные по этому запросу не будут отправлены. Повторите запрос, если копия всё ещё нужна.</p>{% endif %}
       {% if let Some(href) = download %}
       <p>Архив готов. <a href="{{ href }}" rel="noreferrer">Скачать</a></p>
-      {% if let Some(expiry) = result.expires_at %}<p>Доступен до: {{ expiry }}</p>{% endif %}
+      {% if result.expires_at.is_some() %}<p>Доступен до: {{ expiry_label }}</p>{% endif %}
       {% endif %}
       {% if let Some(manifest) = result.manifest %}
-      <h3>Состав архива</h3>
-      <p>Формат: {{ manifest.format }}; согласованность: {{ manifest.consistency }}</p>
-      <dl>
-        {% for category in manifest.categories %}<dt>{{ category.category }}</dt><dd>{{ category.records }}</dd>{% endfor %}
-      </dl>
-      {% if !manifest.excluded.is_empty() %}
-      <h3>Не включено</h3>
-      <ul>{% for excluded in manifest.excluded %}<li>{{ excluded }}</li>{% endfor %}</ul>
-      {% endif %}
+      <details class="export-manifest">
+        <summary>Что входит в копию</summary>
+        <dl>{% for category in categories %}<dt>{{ category.label }}</dt><dd>{{ category.records }}</dd>{% endfor %}</dl>
+        <p>{{ consistency_note }}</p>
+        <p>Формат файла: {{ manifest.format }}.</p>
+        {% if !manifest.excluded.is_empty() %}
+        <h3>Что не входит</h3>
+        <ul>{% for excluded in manifest.excluded %}<li>{{ excluded }}</li>{% endfor %}</ul>
+        {% endif %}
+      </details>
       {% endif %}
       {% if delayed_enabled && result.status != "failed" && result.status != "expired" && result.status != "cancelled" %}
       <div class="export-cancel" data-export-id="{{ result.id }}">

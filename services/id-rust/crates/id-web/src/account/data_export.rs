@@ -19,6 +19,43 @@ struct ExportPage<'a> {
     email_verified: bool,
     operation: Option<&'a ExportStatus>,
     download: Option<&'a str>,
+    release_label: String,
+    expiry_label: String,
+    categories: Vec<CategoryView>,
+    consistency_note: &'static str,
+}
+
+struct CategoryView {
+    label: String,
+    records: u64,
+}
+
+fn readable_time(value: Option<&str>) -> String {
+    value
+        .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+        .map(|time| {
+            time.with_timezone(&chrono::Utc)
+                .format("%d.%m.%Y в %H:%M UTC")
+                .to_string()
+        })
+        .unwrap_or_else(|| "время уточняется".to_owned())
+}
+
+fn category_label(name: &str) -> &str {
+    match name {
+        "account" => "Основные сведения аккаунта",
+        "email_addresses" => "Адреса почты",
+        "profile" => "Профиль",
+        "preferences" => "Настройки",
+        "consents" => "Согласия",
+        "login_events" => "История входов",
+        "account_events" => "События аккаунта",
+        "devices" => "Устройства",
+        "oidc_consents" => "Разрешения приложений",
+        "linked_accounts" => "Связанные аккаунты",
+        "avatar_bytes" => "Аватар",
+        _ => name,
+    }
 }
 
 pub(super) async fn page(
@@ -41,6 +78,41 @@ pub(super) async fn page(
         (value.status == "succeeded")
             .then(|| format!("/api/v1/auth/data/exports/{}/download", value.id))
     });
+    let release_label = readable_time(
+        operation
+            .as_ref()
+            .and_then(|value| value.release_at.as_deref()),
+    );
+    let expiry_label = readable_time(
+        operation
+            .as_ref()
+            .and_then(|value| value.expires_at.as_deref()),
+    );
+    let categories = operation
+        .as_ref()
+        .and_then(|value| value.manifest.as_ref())
+        .map(|manifest| {
+            manifest
+                .categories
+                .iter()
+                .map(|category| CategoryView {
+                    label: category_label(&category.category).to_owned(),
+                    records: category.records,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let consistency_note = match operation
+        .as_ref()
+        .and_then(|value| value.manifest.as_ref())
+        .map(|manifest| manifest.consistency.as_str())
+    {
+        Some("paged-live-read") => {
+            "Данные собирались по частям. Если аккаунт менялся во время подготовки, записи могут относиться к разным моментам."
+        }
+        Some("snapshot") => "Данные отражают состояние на момент подготовки копии.",
+        _ => "Способ подготовки данных не указан.",
+    };
     let html = ExportPage {
         logout_enabled: api.logout_enabled,
         delayed_enabled: std::env::var("ID_WEB_EXPORT_REDEEM_PILOT_ENABLED").as_deref()
@@ -53,6 +125,10 @@ pub(super) async fn page(
         email_verified,
         operation: operation.as_ref(),
         download: download.as_deref(),
+        release_label,
+        expiry_label,
+        categories,
+        consistency_note,
     }
     .render()
     .map_err(|error| topcoat::Error::msg(error.to_string()))?;
@@ -72,6 +148,15 @@ pub(crate) async fn script() -> topcoat::Result<Response> {
 mod tests {
     use super::*;
     use crate::account::api::{ExportCategory, ExportManifest};
+
+    #[test]
+    fn export_deadline_is_readable_and_explicit_about_timezone() {
+        assert_eq!(
+            readable_time(Some("2026-10-08T15:30:00+03:00")),
+            "08.10.2026 в 12:30 UTC"
+        );
+        assert_eq!(readable_time(Some("invalid")), "время уточняется");
+    }
 
     #[test]
     fn export_template_escapes_manifest_and_keeps_download_hook() -> Result<(), askama::Error> {
@@ -100,12 +185,19 @@ mod tests {
             email_verified: true,
             operation: Some(&operation),
             download: Some("/api/v1/auth/data/exports/0123456789abcdef0123456789abcdef/download"),
+            release_label: readable_time(None),
+            expiry_label: readable_time(operation.expires_at.as_deref()),
+            categories: vec![CategoryView {
+                label: "<script>bad()</script>".into(),
+                records: 205,
+            }],
+            consistency_note: "Данные собирались по частям.",
         }
         .render()?;
         assert!(!html.contains("<script>bad()</script>"));
         assert!(!html.contains("<img src=x onerror=bad()>"));
-        assert!(html.contains("id=\"export-form\""));
-        assert!(html.contains("id=\"export-mfa\""));
+        assert!(html.contains("Новые запросы временно недоступны"));
+        assert!(!html.contains("id=\"export-form\""));
         assert!(html.contains("id=\"export-error\""));
         assert!(html.contains("/download\" rel=\"noreferrer\""));
         assert!(!html.contains("Подождите 24 часа"));
@@ -131,6 +223,10 @@ mod tests {
             email_verified: true,
             operation: Some(&operation),
             download: None,
+            release_label: readable_time(operation.release_at.as_deref()),
+            expiry_label: readable_time(operation.expires_at.as_deref()),
+            categories: Vec::new(),
+            consistency_note: "Данные отражают состояние на момент подготовки копии.",
         }
         .render()?;
         assert!(html.contains("Ссылка для получения отправлена"));
@@ -155,6 +251,10 @@ mod tests {
             email_verified: false,
             operation: None,
             download: None,
+            release_label: readable_time(None),
+            expiry_label: readable_time(None),
+            categories: Vec::new(),
+            consistency_note: "Способ подготовки данных не указан.",
         }
         .render()?;
         assert!(html.contains("Сначала подтвердите адрес"));

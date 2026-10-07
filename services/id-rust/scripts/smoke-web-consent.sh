@@ -61,7 +61,7 @@ done
 [[ "${ready}" == true ]]
 
 html="$(<"${scratch_dir}/consent.html")"
-[[ "${html}" == *'Разрешить доступ приложению?'* ]]
+[[ "${html}" == *'Какие сведения передать приложению?'* ]]
 [[ "${html}" == *'data-request-id="pilot-request"'* ]]
 [[ "${html}" == *'/_id/consent.js'* ]]
 [[ "${html}" != *'<script>приложение</script>'* ]]

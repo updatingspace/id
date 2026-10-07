@@ -17,6 +17,10 @@ snapshot of the current cloud environment. In particular,
 still delivers an archive without the requested 24-hour wait. The delayed
 export and deletion flow has local YDB/Object Storage/SMTP coverage, but still
 needs production rehearsal and explicit activation.
+The next API/web revision stops accepting new immediate exports while keeping
+status and downloads for existing requests. The UI shows that new requests are
+temporarily unavailable until the delayed flow is activated across API, web
+and jobs. This source change alone does not alter the live production revision.
 
 ## Validation and production changes
 

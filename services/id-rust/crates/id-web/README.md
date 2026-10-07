@@ -3,6 +3,8 @@
 `id-web` is the separately deployed Topcoat web service. `id-api` owns
 authentication, credentials, sessions and YDB; the web service has no direct
 access to them. Public routes share the ID origin through API Gateway.
+The page tasks, wording rules and responsive review checklist are recorded in
+[`UX.md`](UX.md).
 
 UI authors can edit `templates/` and `static/` without changing Rust handlers.
 The public home page is a static template with a responsive stylesheet.

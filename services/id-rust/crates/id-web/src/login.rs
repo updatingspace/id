@@ -28,14 +28,14 @@ fn render_login(passkey: bool, recovery: bool, signup: bool, from_app: bool) -> 
         .replace(
             "{{AUTH_CONTEXT}}",
             if from_app {
-                "Это вход в ваш аккаунт. Затем мы покажем название приложения и запрошенные сведения. Разрешения вы выберете отдельно; без вашего решения данные приложению не передадутся."
+                "Сейчас вы входите только в UpdSpace ID. Если приложению нужны новые разрешения, мы покажем его название и запрошенные сведения на следующем шаге. Здесь вы ещё не даёте приложению доступ."
             } else {
                 ""
             },
         )
         .replace(
             "{{LOGIN_ACTION}}",
-            if from_app { "Продолжить к разрешениям" } else { "Войти" },
+            if from_app { "Войти и продолжить" } else { "Войти" },
         )
         .replace(
             "{{PASSKEY_ACTION}}",
@@ -156,8 +156,8 @@ mod tests {
     fn app_sign_in_explains_separate_consent_before_javascript() {
         let html = render_login(false, false, false, true);
         assert!(html.contains("Войдите, чтобы продолжить"));
-        assert!(html.contains("Разрешения вы выберете отдельно"));
-        assert!(html.contains("Продолжить к разрешениям"));
+        assert!(html.contains("Здесь вы ещё не даёте приложению доступ"));
+        assert!(html.contains("Войти и продолжить"));
         assert!(!html.contains("id=\"auth-context\" role=\"status\" hidden"));
         assert!(!html.contains("{{"));
     }

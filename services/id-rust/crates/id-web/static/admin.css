@@ -31,7 +31,7 @@ h3 { margin: 0 0 .25rem; font-size: 1rem; }
 p { margin: .4rem 0 1rem; }
 .eyebrow { color: #3154bc; font-size: .8rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .intro, .lookup-panel > p, .scope-panel p, .field-help { color: #526078; max-width: 65ch; }
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(15rem, 19rem); align-items: start; gap: 1.5rem; margin-top: 2rem; }
+.workspace { max-width: 44rem; margin-top: 2rem; }
 .task-column { min-width: 0; }
 .lookup-panel, .result-panel, .scope-panel {
   margin-top: 1.5rem;
@@ -41,9 +41,8 @@ p { margin: .4rem 0 1rem; }
   background: #fff;
   box-shadow: 0 8px 28px rgb(30 48 84 / 5%);
 }
-.lookup-panel, .scope-panel { margin-top: 0; }
-.panel-step { color: #3154bc; font-size: .83rem; font-weight: 750; }
-.scope-panel { box-shadow: none; background: #f0f3fa; }
+.lookup-panel { margin-top: 0; }
+.scope-panel { max-width: 44rem; margin-top: 1.5rem; box-shadow: none; background: #f0f3fa; }
 .scope-panel p:last-child { margin-bottom: 0; }
 .scope-panel code { color: inherit; }
 form { margin-top: 1.5rem; }
@@ -59,7 +58,6 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .status { font-weight: 750; }
 .next-step { padding: 1rem 1.2rem; border-left: 4px solid #3154bc; background: #f3f6ff; }
 .next-step p { margin-bottom: 0; }
-@media (max-width: 48rem) { .workspace { grid-template-columns: 1fr; } }
 @media (max-width: 36rem) {
   header { flex-wrap: wrap; }
   main { margin-top: 1.25rem; }

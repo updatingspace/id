@@ -4,17 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Доступ к аккаунту — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/consent.css?v=ux-20261007-1" />
+  <link rel="stylesheet" href="/_id/consent.css?v=ux-20261007-2" />
   <script src="/_id/consent.js?v=ux-20261007-1" defer></script>
 </head>
 <body>
   <main class="consent-shell">
     <section class="consent-card" aria-labelledby="consent-title">
       <a class="brand" href="/">UpdSpace ID</a>
-      <p class="context-label">Вход в приложение · выбор доступа</p>
-      <h1 id="consent-title">Разрешить {{ client_name }} доступ к вашим сведениям?</h1>
-      <p>Теперь решите, какие сведения сможет получить <strong>{{ client_name }}</strong>. После вашего выбора браузер вернётся на <strong>{{ destination }}</strong>.</p>
-      <p>Сейчас решаете, какие сведения получит приложение от вашего аккаунта UpdSpace ID. Обязательные для входа сведения показаны отдельно; дополнительные выключены. Этот шаг не запрашивает пароль повторно.</p>
+      <p class="context-label">Подключение приложения</p>
+      <h1 id="consent-title">Какие сведения передать приложению?</h1>
+      <div class="app-identity"><strong>{{ client_name }}</strong><span>После выбора вы вернётесь на {{ destination }}</span></div>
+      <p>Вы уже вошли в UpdSpace ID. Теперь проверьте, какие сведения получит приложение. Дополнительные сведения выключены, пока вы сами их не выберете.</p>
       <form id="consent-form" data-request-id="{{ request_id }}" data-csrf-cookie="{{ csrf_cookie_name }}">
         <fieldset>
           <legend>Какие сведения получит приложение</legend>
@@ -23,22 +23,22 @@
           <div class="scope required-scope">
             <input type="hidden" name="required-scope" value="{{ scope.name }}" />
             <span class="scope-marker" aria-hidden="true">✓</span>
-            <span><strong>{{ scope.description }}</strong><small>Необходимо для входа. Если не хотите передавать эти сведения, выберите «Вернуться без доступа».</small><span class="scope-code">{{ scope.name }}</span></span>
+            <span><strong>{{ scope.description }}</strong><small>Необходимо для входа. Если не хотите передавать эти сведения, выберите «Не предоставлять доступ».</small></span>
           </div>
           {% else %}
           <label class="scope">
             <input type="checkbox" name="scope" value="{{ scope.name }}" />
-            <span><strong>{{ scope.description }}</strong><small>По вашему выбору</small><span class="scope-code">{{ scope.name }}</span></span>
+            <span><strong>{{ scope.description }}</strong><small>Только если вы отметите этот пункт</small></span>
           </label>
           {% endif %}
           {% endfor %}
         </fieldset>
-        <label class="remember"><input id="remember" type="checkbox" />Не спрашивать снова о выбранных правах</label>
-        <p class="choice-note">Вы сможете пересмотреть разрешения в разделе «Приложения» своего аккаунта. Отказ вернёт вас в приложение без доступа к аккаунту.</p>
+        <label class="remember"><input id="remember" type="checkbox" />Сохранить этот выбор для следующих входов</label>
+        <p class="choice-note">Этот выбор можно изменить в разделе «Подключённые приложения». Отказ вернёт вас в приложение без нового доступа к аккаунту.</p>
         <p id="consent-error" role="alert" hidden></p>
         <div class="actions">
-          <button id="deny" type="button">Вернуться без доступа</button>
-          <button id="approve" type="submit">Продолжить с выбранными данными</button>
+          <button id="deny" type="button">Не предоставлять доступ</button>
+          <button id="approve" type="submit">Разрешить выбранное</button>
         </div>
       </form>
     </section>

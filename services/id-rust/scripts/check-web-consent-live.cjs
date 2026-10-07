@@ -39,9 +39,9 @@ async function main() {
     const verifier = crypto.randomBytes(48).toString('base64url');
     await page.goto(authorizeUrl('browser-approve', 'browser-nonce', verifier));
     assert.equal(new URL(page.url()).pathname, '/oauth/consent');
-    assert.equal(await page.locator('h1').textContent(), 'Разрешить доступ приложению?');
-    assert.equal(await page.locator('input[name="scope"][value="openid"]').isDisabled(), true);
-    assert.equal(await page.locator('input[name="scope"][value="email"]').isChecked(), true);
+    assert.equal(await page.locator('h1').textContent(), 'Какие сведения передать приложению?');
+    assert.equal(await page.locator('input[name="scope"][value="openid"]').count(), 0);
+    assert.equal(await page.locator('input[name="scope"][value="email"]').isChecked(), false);
     assert((await context.cookies(origin)).some(cookie => cookie.name === 'csrftoken'));
 
     const requestId = await page.locator('#consent-form').getAttribute('data-request-id');

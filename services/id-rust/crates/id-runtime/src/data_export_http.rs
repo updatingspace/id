@@ -40,6 +40,7 @@ pub struct ExportHttpConfig {
     session_cookie_name: String,
     csrf_cookie_name: String,
     trusted_origins: Vec<String>,
+    accept_new_requests: bool,
 }
 
 pub struct ExportHttpSettings {
@@ -116,7 +117,8 @@ impl ExportHttpConfig {
         let session_cookie_name =
             env::var("SESSION_COOKIE_NAME").unwrap_or_else(|_| "sessionid".into());
         let csrf_cookie_name = env::var("CSRF_COOKIE_NAME").unwrap_or_else(|_| "csrftoken".into());
-        Ok(Some(Arc::new(Self::new(
+        let accept_new_requests = accept_new_export_requests(local_ydb, escrow_key.is_some());
+        let mut config = Self::new(
             client,
             session_codec_from_env()?,
             S3Export::from_env()?,
@@ -129,7 +131,11 @@ impl ExportHttpConfig {
                 csrf_cookie_name,
                 trusted_origins,
             },
-        )?)))
+        )?;
+        // Keep legacy status/download routes available for existing exports,
+        // but do not issue new immediate archives in production.
+        config.accept_new_requests = accept_new_requests;
+        Ok(Some(Arc::new(config)))
     }
 
     pub fn new(
@@ -170,7 +176,24 @@ impl ExportHttpConfig {
             session_cookie_name,
             csrf_cookie_name,
             trusted_origins,
+            accept_new_requests: true,
         })
+    }
+}
+
+fn accept_new_export_requests(local_ydb: bool, delayed_delivery_ready: bool) -> bool {
+    local_ydb || delayed_delivery_ready
+}
+
+#[cfg(test)]
+mod creation_policy_tests {
+    use super::accept_new_export_requests;
+
+    #[test]
+    fn production_requires_delayed_delivery_for_new_exports() {
+        assert!(!accept_new_export_requests(false, false));
+        assert!(accept_new_export_requests(false, true));
+        assert!(accept_new_export_requests(true, false));
     }
 }
 
@@ -277,6 +300,9 @@ async fn create_inner(config: &ExportHttpConfig, request: Request) -> Response {
     };
     if !explicit && !csrf_allowed(&headers, &config.csrf_cookie_name, &config.trusted_origins) {
         return error(StatusCode::FORBIDDEN, "CSRF_FAILED");
+    }
+    if !config.accept_new_requests {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "EXPORT_NOT_READY");
     }
     let Some(key) = headers
         .get("idempotency-key")

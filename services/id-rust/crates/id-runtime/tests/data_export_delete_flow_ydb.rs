@@ -425,17 +425,28 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
             .await?
             .context("profile deletion operation missing")?;
         if pass == 0 {
-            ensure!(!result.profile_history_removed, "profile cleanup skipped its bounded first batch");
+            ensure!(
+                !result.profile_history_removed,
+                "profile cleanup skipped its bounded first batch"
+            );
         }
         if result.profile_history_removed {
             profile_complete = true;
             break;
         }
     }
-    ensure!(profile_complete, "profile job did not finish after bounded batches");
     ensure!(
-        client.query_client().query_row("SELECT event_id FROM accounts_newdevicemailoutbox WHERE event_id = $id")
-            .param("$id", first_event).optional().await?.is_none(),
+        profile_complete,
+        "profile job did not finish after bounded batches"
+    );
+    ensure!(
+        client
+            .query_client()
+            .query_row("SELECT event_id FROM accounts_newdevicemailoutbox WHERE event_id = $id")
+            .param("$id", first_event)
+            .optional()
+            .await?
+            .is_none(),
         "profile cleanup left an orphaned device-mail intent"
     );
     ensure!(
