@@ -57,6 +57,9 @@ button:hover { background: #244497; }
 dl { display: grid; grid-template-columns: minmax(8rem, .5fr) 1fr; gap: .8rem 1rem; margin: 1.5rem 0; }
 dt { color: #526078; }
 dd { margin: 0; overflow-wrap: anywhere; }
+.value-list { padding-left: 1.4rem; margin: .5rem 0 1.5rem; }
+.value-list li { margin: .3rem 0; overflow-wrap: anywhere; }
+.result-panel code { overflow-wrap: anywhere; white-space: normal; }
 .status { font-weight: 750; }
 .next-step { padding: 1rem 1.2rem; border-left: 4px solid #3154bc; background: #f3f6ff; }
 .next-step p { margin-bottom: 0; }

@@ -35,7 +35,12 @@ third operator task checks an export by its opaque request ID, including the
 post-deletion escrow state, snapshot confirmation, release time and expiry. It
 does not disclose the recipient, manifest, object key or download capability.
 The page distinguishes snapshot preparation, cooldown and delivery; it cannot
-send a link or bypass the 24-hour hold. A separate
+send a link or bypass the 24-hour hold. A fourth read-only task finds one OIDC
+client by exact `client_id` and shows its name, redirect URIs, scopes, grant and
+response types, and public/first-party flags. The API never selects the client
+secret hash for this view; ambiguous IDs fail closed. The search ID stays in
+POST bodies, and neither page nor API exposes a client mutation. This is not
+OIDC client management parity. A separate
 `gateway_rust_admin_suspend` gate stages one write action: a review
 screen shows the exact target and consequences; the operator chooses a fixed
 reason and confirms with their current password. The API requires an active
@@ -44,7 +49,7 @@ rechecks permissions and the reviewed subject in the committing transaction,
 blocks self/other-operator suspension, revokes credentials and writes an audit
 record. Ambiguous identity ownership or an unknown commit result fails closed.
 Production admin and suspension remain disabled until a complete operator
-rehearsal passes. This is **not** parity with the old admin: client, consent,
+rehearsal passes. This is **not** parity with the old admin: client management, consent,
 export retry, audit and bootstrap tasks still need dedicated screens or
 documented `idctl` procedures.
 
@@ -302,8 +307,8 @@ an unverified address shows a confirmation path and no submit control. The
 deletion HTTP endpoint is restricted to local debug YDB and its own source
 labels it incomplete. Therefore a production deletion control must **not**
 be added by merely linking a form to that endpoint. The Rust web has read-only
-operator lookups for deletion and export requests, exact account IDs and verified primary
-email addresses, gated off in
+operator lookups for deletion and export requests, exact account IDs, verified primary
+email addresses and exact OIDC client IDs, gated off in
 production; other admin tasks remain open parity gaps. After retiring the React Gateway
 fallback on 2026-10-07, production `/admin/` returns an honest 404 rather
 than the old React shell. The local layout is not a completed admin console.

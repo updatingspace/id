@@ -64,6 +64,32 @@ async fn search_email(
     Ok((status, body))
 }
 
+async fn search_client(
+    app: &Router,
+    cookie: Option<&str>,
+    header_token: Option<&str>,
+    client_id: &str,
+) -> Result<(StatusCode, Value)> {
+    let mut request = Request::builder()
+        .uri("/api/v1/auth/admin/clients/search")
+        .method("POST")
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(cookie) = cookie {
+        request = request.header(header::COOKIE, cookie);
+    }
+    if let Some(token) = header_token {
+        request = request.header("x-session-token", token);
+    }
+    let response = app
+        .clone()
+        .oneshot(request.body(Body::from(json!({"client_id":client_id}).to_string()))?)
+        .await?;
+    ensure!(response.headers()[header::CACHE_CONTROL] == "no-store");
+    let status = response.status();
+    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await?)?;
+    Ok((status, body))
+}
+
 async fn suspend(
     app: &Router,
     target_id: i32,
@@ -124,6 +150,8 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
     let email_id = target_id - 1_000_000_000;
     let deletion_id = i64::try_from(stamp % 1_000_000_000_000 + 1)?;
     let export_id = format!("{stamp:032x}");
+    let oidc_client_id = format!("operator-client-{stamp}");
+    let oidc_row_id = i64::try_from(stamp)?;
     let identity_id = Uuid::from_u128((stamp << 32) | u128::from(std::process::id()));
     let target_identity_id = Uuid::from_u128(identity_id.as_u128() + 1);
     let token = format!("admin-test-{stamp}");
@@ -180,6 +208,9 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             .param("$id", export_id.clone())
             .param("$release", now + Duration::from_secs(86400))
             .param("$expiry", now + Duration::from_secs(172800)).await?;
+        client.query_client().exec("INSERT INTO idp_oidcclient (id, client_id, client_secret_hash, name, description, logo_url, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'never-expose-this-secret-hash', '<script>client</script>', 'Test service', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
+            .param("$id", oidc_row_id).param("$client_id", oidc_client_id.clone())
+            .param("$redirects", json!(["https://client.example.invalid/callback?x=<script>"]).to_string()).await?;
 
         let path = format!("/api/v1/auth/admin/deletions/{deletion_id}");
         let export_path = format!("/api/v1/auth/admin/exports/{export_id}");
@@ -196,6 +227,8 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         let (status, _) = get(&app, &account_path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::FORBIDDEN);
         let (status, _) = search_email(&app, Some(&cookie), None, &target_email).await?;
+        ensure!(status == StatusCode::FORBIDDEN);
+        let (status, _) = search_client(&app, Some(&cookie), None, &oidc_client_id).await?;
         ensure!(status == StatusCode::FORBIDDEN);
         client.query_client().exec("UPDATE auth_user SET is_staff = true WHERE id = $id")
             .param("$id", account_id).await?;
@@ -215,6 +248,30 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
             .param("$id", i64::from(account_id)).param("$user", account_id).await?;
         let (status, body) = get(&app, "/api/v1/auth/admin/me", Some(&cookie), None).await?;
         ensure!(status == StatusCode::OK && body == json!({"operator":true}));
+        let (status, body) = search_client(&app, Some(&cookie), None, &oidc_client_id).await?;
+        ensure!(status == StatusCode::OK && body["client"]["client_id"] == oidc_client_id
+            && body["client"]["name"] == "<script>client</script>"
+            && body["client"]["redirect_uris"][0] == "https://client.example.invalid/callback?x=<script>"
+            && body["client"]["is_public"] == true,
+            "operator client lookup: {body}");
+        ensure!(!body.to_string().contains("never-expose-this-secret-hash"), "OIDC secret hash exposed");
+        client.query_client().exec("INSERT INTO idp_oidcclient (id, client_id, client_secret_hash, name, description, logo_url, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'second-private-secret', 'Duplicate', '', '', Unwrap(CAST('[]' AS Json)), Unwrap(CAST('[]' AS Json)), Unwrap(CAST('[]' AS Json)), Unwrap(CAST('[]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
+            .param("$id", oidc_row_id + 1).param("$client_id", oidc_client_id.clone()).await?;
+        let (status, body) = search_client(&app, Some(&cookie), None, &oidc_client_id).await?;
+        ensure!(status == StatusCode::CONFLICT && body["code"] == "CLIENT_ID_AMBIGUOUS",
+            "duplicate OIDC client was selected: {body}");
+        client.query_client().exec("DELETE FROM idp_oidcclient WHERE id = $id")
+            .param("$id", oidc_row_id + 1).await?;
+        let (status, _) = search_client(&app, Some(&cookie), Some("invalid"), &oidc_client_id).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED, "invalid header fell back to cookie for client lookup");
+        let (status, _) = search_client(&app, Some(&cookie), None, "bad\nclient").await?;
+        ensure!(status == StatusCode::BAD_REQUEST);
+        let (status, _) = search_client(&app, Some(&cookie), None, "missing-client").await?;
+        ensure!(status == StatusCode::NOT_FOUND);
+        let url_search = Request::builder().uri(format!("/api/v1/auth/admin/clients/search?client_id={oidc_client_id}"))
+            .method("GET").header(header::COOKIE, &cookie).body(Body::empty())?;
+        ensure!(app.clone().oneshot(url_search).await?.status() == StatusCode::METHOD_NOT_ALLOWED,
+            "client lookup exposed through GET URL");
         let (status, body) = get(&app, &path, Some(&cookie), None).await?;
         ensure!(status == StatusCode::OK && body["operation"]["status"] == "pending");
         ensure!(body["operation"]["cleanup_completed"] == false);
@@ -378,6 +435,11 @@ async fn operator_lookup_requires_role_and_bound_mfa() -> Result<()> {
         ensure!(status == StatusCode::UNAUTHORIZED);
         Ok(())
     }.await;
+    client
+        .query_client()
+        .exec("DELETE FROM idp_oidcclient WHERE id = $id")
+        .param("$id", oidc_row_id)
+        .await?;
     client
         .query_client()
         .exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")

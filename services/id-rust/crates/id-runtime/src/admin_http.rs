@@ -3,6 +3,7 @@
 
 use crate::{
     account_deletion,
+    admin_oidc_client::{self, LookupOutcome},
     admin_suspend::{self, Preflight, SuspendInput, SuspendResult, SuspensionReason},
     cache_store::CacheStore,
     data_export_operation,
@@ -43,6 +44,12 @@ enum EmailLookupOutcome {
 #[serde(deny_unknown_fields)]
 struct EmailLookupRequest {
     email: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClientLookupRequest {
+    client_id: String,
 }
 
 pub struct AdminReadConfig {
@@ -155,6 +162,7 @@ pub fn router(config: Arc<AdminReadConfig>) -> Router {
     let mut app = Router::new()
         .route("/api/v1/auth/admin/me", get(operator_session))
         .route("/api/v1/auth/admin/accounts/search", post(account_by_email))
+        .route("/api/v1/auth/admin/clients/search", post(client_by_id))
         .route("/api/v1/auth/admin/accounts/{id}", get(account_status))
         .route("/api/v1/auth/admin/deletions/{id}", get(deletion_status))
         .route("/api/v1/auth/admin/exports/{id}", get(export_status));
@@ -408,6 +416,44 @@ async fn account_by_email(
         Err(err) => {
             tracing::error!(error = %err, "operator email lookup failed");
             error(StatusCode::SERVICE_UNAVAILABLE, "ACCOUNT_UNAVAILABLE")
+        }
+    }
+}
+
+async fn client_by_id(State(config): State<Arc<AdminReadConfig>>, request: Request) -> Response {
+    if let Err(response) = authorize(&config, request.headers()).await {
+        return *response;
+    }
+    if request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_none_or(|value| !value.trim().eq_ignore_ascii_case("application/json"))
+    {
+        return error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "INVALID_CONTENT_TYPE");
+    }
+    let Ok(body) = to_bytes(request.into_body(), 256).await else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_CLIENT_ID");
+    };
+    let Ok(ClientLookupRequest { client_id }) =
+        serde_json::from_slice::<ClientLookupRequest>(&body)
+    else {
+        return error(StatusCode::BAD_REQUEST, "INVALID_CLIENT_ID");
+    };
+    let client_id = client_id.trim();
+    if client_id.is_empty() || client_id.len() > 64 || client_id.chars().any(char::is_control) {
+        return error(StatusCode::BAD_REQUEST, "INVALID_CLIENT_ID");
+    }
+    match admin_oidc_client::by_client_id(&config.client, client_id.to_owned()).await {
+        Ok(LookupOutcome::Found(client)) => {
+            json_response(StatusCode::OK, json!({"client": client}))
+        }
+        Ok(LookupOutcome::NotFound) => error(StatusCode::NOT_FOUND, "CLIENT_NOT_FOUND"),
+        Ok(LookupOutcome::Ambiguous) => error(StatusCode::CONFLICT, "CLIENT_ID_AMBIGUOUS"),
+        Err(err) => {
+            tracing::error!(error = %err, "operator OIDC client lookup failed");
+            error(StatusCode::SERVICE_UNAVAILABLE, "CLIENT_UNAVAILABLE")
         }
     }
 }

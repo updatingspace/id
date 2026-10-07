@@ -748,6 +748,13 @@ paths:
         container_id: ${rust_api_container_id}
         service_account_id: ${gateway_service_account_id}
 
+  /api/v1/auth/admin/clients/search:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${rust_api_container_id}
+        service_account_id: ${gateway_service_account_id}
+
   /api/v1/auth/admin/accounts/{id}:
     get:
       parameters:
@@ -816,6 +823,17 @@ paths:
         service_account_id: ${gateway_service_account_id}
 
   /admin/accounts/:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: ${web_container_id}
+        service_account_id: ${gateway_service_account_id}
+  /admin/clients/:
     get:
       x-yc-apigateway-integration:
         type: serverless_containers

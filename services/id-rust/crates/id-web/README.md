@@ -39,6 +39,9 @@ delivery email contains a separate download token. Neither token is rendered
 into SSR HTML.
 The opt-in `/admin/` area offers read-only deletion and export lookups by
 request ID, plus account lookup by exact numeric ID or verified primary email.
+It also looks up an OIDC client by exact `client_id` and displays its public
+configuration without the client secret or editing controls. The client ID is
+submitted in a bounded POST body, not a URL.
 It verifies the operator session through `id-api` before
 rendering and does not query YDB. Its templates and stylesheet are
 frontend-owned; the API owns authorization and account/request state. Account
@@ -46,8 +49,8 @@ lookup shows effective ID access status (including a pending deletion, disabled
 account, inactive identity, or broken binding) and identity binding, not
 credentials or editing controls. The label is a snapshot, not a command to
 change access.
-Email lookup submits a read-only POST from the SSR form to `id-web`, then to
-`id-api`; the address is not placed in a page or API URL. Both responses use
+Email and client lookups submit read-only POSTs from the SSR form to `id-web`,
+then to `id-api`; the search value is not placed in a page or API URL. Responses use
 `Cache-Control: no-store`.
 Export lookup shows only lifecycle state, archive preparation and delivery
 times; it never exposes the recipient, object key or download capability.
@@ -57,10 +60,12 @@ password. Browser JavaScript sends the confirmation to `id-api` with CSRF and
 re-reads the account before claiming success. Unknown outcomes are shown as
 uncertain. The production operator area and this action remain disabled until
 an operator rehearsal. Other operator tasks are not yet available in this UI.
-`scripts/smoke-web-admin-live.sh` exercises lookup, deletion status and
+`scripts/smoke-web-admin-live.sh` exercises account lookup, deletion status and
 suspension confirmation in Chromium against actual Topcoat, Rust API and local
 YDB. It uses synthetic accounts and checks the final access state in YDB; it
-does not replace a production operator rehearsal.
+does not replace a production operator rehearsal. The OIDC client projection is
+covered by the local-YDB operator HTTP test, Topcoat SSR smoke and the 320/390/1280
+px Chromium operator check.
 
 Run from `services/id-rust`:
 

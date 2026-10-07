@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Проверка OIDC-клиента — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/admin.css?v=20261007-10">
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержанию</a>
+  <header><a href="/">UpdSpace <strong>ID</strong></a><span>Операторский доступ</span></header>
+  <main id="main">
+    <nav aria-label="Навигация"><a href="/account">Мой аккаунт</a><span aria-hidden="true">/</span><a href="/admin/">Операторский раздел</a><span aria-hidden="true">/</span><span>OIDC-клиенты</span></nav>
+    <div class="page-heading">
+      <p class="eyebrow">Подключённые сервисы · только просмотр</p>
+      <h1>Проверка OIDC-клиента</h1>
+      <p class="intro">Найдите сервис по точному идентификатору, чтобы сверить его разрешённые адреса возврата и права. Поиск не меняет настройки клиента.</p>
+    </div>
+    <div class="workspace"><div class="task-column">
+      <section class="lookup-panel" aria-labelledby="lookup-title">
+        <h2 id="lookup-title">Найти клиент</h2>
+        <form action="/admin/clients/" method="post">
+          <label for="client-id">Идентификатор клиента</label>
+          <div class="search-row">
+            <input id="client-id" name="client_id" autocomplete="off" maxlength="64" value="{{ lookup_id }}" aria-describedby="client-help" required>
+            <button type="submit">Проверить</button>
+          </div>
+          <p id="client-help" class="field-help">Нужен точный client_id. Он не попадёт в адрес страницы и историю браузера.</p>
+        </form>
+      </section>
+      {% if not_found %}<section class="result-panel" role="status"><h2>Клиент не найден</h2><p>Проверьте идентификатор. Отсутствие записи не подтверждает состояние внешнего сервиса.</p></section>{% endif %}
+      {% if ambiguous %}<section class="result-panel" role="alert"><h2>Найдены конфликтующие записи</h2><p>Несколько клиентов используют этот идентификатор. Не выбирайте один из них автоматически; проверьте данные и индекс.</p></section>{% endif %}
+      {% if let Some(item) = client %}
+      <section class="result-panel" aria-labelledby="client-title">
+        <h2 id="client-title">{{ item.name }}</h2>
+        <dl>
+          <dt>Client ID</dt><dd><code>{{ item.client_id }}</code></dd>
+          <dt>Описание</dt><dd>{% if item.description.is_empty() %}Не указано{% else %}{{ item.description }}{% endif %}</dd>
+          <dt>Тип клиента</dt><dd>{% if item.is_public %}Публичный{% else %}Конфиденциальный{% endif %}</dd>
+          <dt>Принадлежность</dt><dd>{% if item.is_first_party %}Сервис UpdSpace{% else %}Внешний сервис{% endif %}</dd>
+        </dl>
+        <h3>Разрешённые адреса возврата</h3>
+        {% if item.redirect_uris.is_empty() %}<p>Не указаны.</p>{% else %}<ul class="value-list">{% for value in item.redirect_uris %}<li><code>{{ value }}</code></li>{% endfor %}</ul>{% endif %}
+        <h3>Разрешённые права</h3>
+        {% if item.allowed_scopes.is_empty() %}<p>Не указаны.</p>{% else %}<ul class="value-list">{% for value in item.allowed_scopes %}<li><code>{{ value }}</code></li>{% endfor %}</ul>{% endif %}
+        <h3>Способы выдачи доступа</h3>
+        {% if item.grant_types.is_empty() %}<p>Не указаны.</p>{% else %}<ul class="value-list">{% for value in item.grant_types %}<li><code>{{ value }}</code></li>{% endfor %}</ul>{% endif %}
+        <h3>Типы ответа</h3>
+        {% if item.response_types.is_empty() %}<p>Не указаны.</p>{% else %}<ul class="value-list">{% for value in item.response_types %}<li><code>{{ value }}</code></li>{% endfor %}</ul>{% endif %}
+        <div class="next-step"><h3>Что означает результат</h3><p>Показана конфигурация на момент запроса. Проверка не подтверждает, что внешний сервис работает. Секрет клиента здесь не отображается и не изменяется.</p></div>
+      </section>
+      {% endif %}
+    </div></div>
+    <aside class="scope-panel" aria-labelledby="scope-title"><h2 id="scope-title">Другие операторские задачи</h2><p><a href="/admin/accounts/">Проверить аккаунт</a> · <a href="/admin/">Проверить удаление</a> · <a href="/admin/exports/">Проверить копию данных</a></p><p>Создание и изменение клиентов пока недоступны в этом интерфейсе.</p></aside>
+  </main>
+</body>
+</html>

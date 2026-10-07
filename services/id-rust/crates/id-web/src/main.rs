@@ -89,6 +89,8 @@ async fn main() -> anyhow::Result<()> {
             .route(admin::account_page)
             .route(admin::account_page_slash)
             .route(admin::account_search_page)
+            .route(admin::client_page)
+            .route(admin::client_search_page)
             .route(admin::style);
         if admin_suspend_enabled {
             router = router

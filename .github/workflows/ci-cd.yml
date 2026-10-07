@@ -287,7 +287,7 @@ jobs:
       - name: Verify inline passkey management in Chromium
         run: node scripts/check-web-passkey-management-browser.cjs
 
-      - name: Verify operator suspension review in Chromium
+      - name: Verify operator suspension and OIDC client lookup in Chromium
         run: node scripts/check-web-admin-suspend-browser.cjs
 
       - name: Verify real operator journey through Topcoat and Rust on local YDB

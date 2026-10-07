@@ -62,6 +62,24 @@ http.createServer(async (request, response) => {
       response.writeHead(404, {'content-type':'application/json'});
       response.end('{"code":"ACCOUNT_NOT_FOUND"}');
     }
+  } else if (url.pathname === '/api/v1/auth/admin/clients/search'
+    && request.method === 'POST' && !url.search) {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const clientId = JSON.parse(raw).client_id;
+    if (clientId === 'client-42') {
+      response.writeHead(200, {'content-type':'application/json'});
+      response.end(JSON.stringify({client:{client_id:'client-42',name:'<script>bad()</script>',
+        description:'Pilot',redirect_uris:['https://rp.invalid/callback?x=<script>'],
+        allowed_scopes:['openid'],grant_types:['authorization_code'],response_types:['code'],
+        is_public:false,is_first_party:false}}));
+    } else if (clientId === 'ambiguous-client') {
+      response.writeHead(409, {'content-type':'application/json'});
+      response.end('{"code":"CLIENT_ID_AMBIGUOUS"}');
+    } else {
+      response.writeHead(404, {'content-type':'application/json'});
+      response.end('{"code":"CLIENT_NOT_FOUND"}');
+    }
   } else {
     response.writeHead(404, {'content-type':'application/json'});
     response.end('{"code":"ACCOUNT_NOT_FOUND"}');
@@ -133,6 +151,22 @@ email_get="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_cod
   -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?email=pilot%40example.invalid")"
 [[ "${email_get}" == '400' ]]
 
+client_html="$(curl --silent --show-error --fail --max-time 5 \
+  -H 'Cookie: sessionid=valid' -d 'client_id=client-42' \
+  "http://127.0.0.1:${web_port}/admin/clients/")"
+[[ "${client_html}" == *'Проверка OIDC-клиента'* && "${client_html}" == *'client-42'* ]]
+[[ "${client_html}" == *'Конфиденциальный'* && "${client_html}" != *'<script>bad()'* ]]
+[[ "${client_html}" == *'&#60;script&#62;bad()&#60;/script&#62;'* ]]
+client_ambiguous="$(curl --silent --show-error --fail --max-time 5 \
+  -H 'Cookie: sessionid=valid' -d 'client_id=ambiguous-client' \
+  "http://127.0.0.1:${web_port}/admin/clients/")"
+[[ "${client_ambiguous}" == *'Найдены конфликтующие записи'* ]]
+client_guest="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
+  "http://127.0.0.1:${web_port}/admin/clients/")"
+client_url="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
+  -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/clients/?client_id=client-42")"
+[[ "${client_guest}" == 303 && "${client_url}" == 400 ]]
+
 guest="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
   "http://127.0.0.1:${web_port}/admin/accounts/")"
 guest_headers="$(curl --silent --show-error --max-time 5 -D - -o /dev/null \
@@ -145,4 +179,4 @@ invalid="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}
   -H 'Cookie: sessionid=valid' "http://127.0.0.1:${web_port}/admin/accounts/?id=0")"
 [[ "${guest}" == 303 && "${forbidden}" == 403 && "${missing}" == 200 && "${invalid}" == 400 ]]
 [[ "${guest_headers,,}" == *'location: /login?next=%2fadmin%2faccounts%2f'* ]]
-echo 'Topcoat operator account smoke: SSR, escaping, authorization and lookup outcomes passed'
+echo 'Topcoat operator smoke: account and client SSR, escaping, authorization and lookup outcomes passed'

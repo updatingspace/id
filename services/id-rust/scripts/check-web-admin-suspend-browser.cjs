@@ -48,6 +48,16 @@ async function main() {
           access_state: suspended ? 'account_disabled' : 'active' } }));
         return;
       }
+      if (pathname === '/api/v1/auth/admin/clients/search' && request.method === 'POST') {
+        let raw = '';
+        for await (const chunk of request) raw += chunk;
+        assert.equal(JSON.parse(raw).client_id, 'client-42');
+        response.end(JSON.stringify({client:{client_id:'client-42',name:'<script>bad()</script>',
+          description:'Pilot',redirect_uris:['https://client.invalid/callback?x=<script>'],
+          allowed_scopes:['openid'],grant_types:['authorization_code'],response_types:['code'],
+          is_public:false,is_first_party:false}}));
+        return;
+      }
       if (pathname === '/api/v1/auth/admin/accounts/43/suspend' && request.method === 'POST') {
         let raw = '';
         for await (const chunk of request) raw += chunk;
@@ -126,6 +136,25 @@ async function main() {
         assert.equal(await page.locator('#suspend-form').isHidden(), true);
       }
       await page.close();
+      const clientPage = await context.newPage();
+      await clientPage.setViewportSize({ width, height: 820 });
+      const clientResponse = await clientPage.goto(`${origin}/admin/clients/`);
+      assert.equal(clientResponse.status(), 200);
+      assert.equal(await clientPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await clientPage.getByLabel('Идентификатор клиента').fill('client-42');
+      await clientPage.getByRole('button', { name: 'Проверить' }).click();
+      await clientPage.getByRole('heading', { name: '<script>bad()</script>' }).waitFor();
+      assert.equal(await clientPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.equal(await clientPage.locator('script').count(), 0);
+      assert.match(await clientPage.locator('main').innerText(), /https:\/\/client.invalid\/callback\?x=<script>/);
+      if (width === 390) {
+        await clientPage.emulateMedia({ colorScheme: 'dark' });
+        assert.equal(await clientPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        if (process.env.ID_ADMIN_CLIENT_SCREENSHOT_PATH) {
+          await clientPage.screenshot({ path: process.env.ID_ADMIN_CLIENT_SCREENSHOT_PATH, fullPage: true });
+        }
+      }
+      await clientPage.close();
     }
     assert.equal(attempts.length, 3);
     for (const attempt of attempts) {
@@ -134,7 +163,7 @@ async function main() {
       assert.equal(attempt.body.expected_subject, 'subject-43');
       assert.equal(attempt.body.reason, 'security_incident');
     }
-    console.log('Topcoat operator suspension browser: 320/390/1280 layout and request states passed');
+    console.log('Topcoat operator browser: suspension and client lookup at 320/390/1280 passed');
   } finally {
     if (browser) await browser.close();
     await new Promise(resolve => proxy.close(resolve));

@@ -17,6 +17,7 @@ pub(crate) struct AdminApi {
     export_url: Url,
     account_url: Url,
     account_search_url: Url,
+    client_search_url: Url,
 }
 
 impl AdminApi {
@@ -38,11 +39,13 @@ impl AdminApi {
         let mut export_url = operator_url.clone();
         let mut account_url = operator_url.clone();
         let mut account_search_url = operator_url.clone();
+        let mut client_search_url = operator_url.clone();
         operator_url.set_path("/api/v1/auth/admin/me");
         deletion_url.set_path("/api/v1/auth/admin/deletions/");
         export_url.set_path("/api/v1/auth/admin/exports/");
         account_url.set_path("/api/v1/auth/admin/accounts/");
         account_search_url.set_path("/api/v1/auth/admin/accounts/search");
+        client_search_url.set_path("/api/v1/auth/admin/clients/search");
         Ok(Self {
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
@@ -53,6 +56,7 @@ impl AdminApi {
             export_url,
             account_url,
             account_search_url,
+            client_search_url,
         })
     }
 }
@@ -134,6 +138,24 @@ fn format_timestamp(value: Option<u64>) -> String {
 #[derive(Deserialize)]
 struct AccountResponse {
     account: OperatorAccount,
+}
+
+#[derive(Deserialize)]
+struct ClientResponse {
+    client: OperatorClient,
+}
+
+#[derive(Deserialize)]
+struct OperatorClient {
+    client_id: String,
+    name: String,
+    description: String,
+    redirect_uris: Vec<String>,
+    allowed_scopes: Vec<String>,
+    grant_types: Vec<String>,
+    response_types: Vec<String>,
+    is_public: bool,
+    is_first_party: bool,
 }
 
 #[derive(Deserialize)]
@@ -244,6 +266,15 @@ struct AccountPage<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "admin-clients.html")]
+struct ClientPage<'a> {
+    lookup_id: &'a str,
+    client: Option<&'a OperatorClient>,
+    not_found: bool,
+    ambiguous: bool,
+}
+
+#[derive(Template)]
 #[template(path = "admin-suspend.html")]
 struct SuspendPage<'a> {
     account: &'a OperatorAccount,
@@ -288,6 +319,133 @@ pub(crate) async fn account_search_page(
     RawForm(body): RawForm,
 ) -> topcoat::Result<Response> {
     render_account_page(cx, Some(&body)).await
+}
+
+#[route(GET "/admin/clients/")]
+pub(crate) async fn client_page(cx: &Cx) -> topcoat::Result<Response> {
+    render_client_page(cx, None).await
+}
+
+#[route(POST "/admin/clients/")]
+pub(crate) async fn client_search_page(
+    cx: &Cx,
+    RawForm(body): RawForm,
+) -> topcoat::Result<Response> {
+    render_client_page(cx, Some(&body)).await
+}
+
+async fn render_client_page(cx: &Cx, form: Option<&[u8]>) -> topcoat::Result<Response> {
+    if request::uri(cx).query().is_some() {
+        return problem(400, "Не добавляйте идентификатор клиента в URL.");
+    }
+    let api = app_context::<AdminApi>(cx);
+    let cookie = request::headers(cx)
+        .get("cookie")
+        .and_then(|value| value.to_str().ok());
+    let operator = api
+        .client
+        .get(api.operator_url.clone())
+        .header(reqwest::header::ACCEPT, "application/json");
+    let operator = if let Some(cookie) = cookie {
+        operator.header(reqwest::header::COOKIE, cookie)
+    } else {
+        operator
+    };
+    let operator = match operator.send().await {
+        Ok(response) => response,
+        Err(_) => return problem(503, "Не удалось проверить права. Попробуйте позже."),
+    };
+    match operator.status().as_u16() {
+        200 => {}
+        401 => return redirect_to_login("/login?next=%2Fadmin%2Fclients%2F"),
+        403 => return problem(403, "У вас нет доступа к операторскому разделу."),
+        _ => return problem(503, "Не удалось проверить права. Попробуйте позже."),
+    }
+    let Some(form) = form else {
+        return render_client("", None, false, false);
+    };
+    if form.len() > 256 {
+        return problem(400, "Слишком длинный идентификатор клиента.");
+    }
+    let fields = url::form_urlencoded::parse(form)
+        .into_owned()
+        .collect::<Vec<_>>();
+    let [(key, value)] = fields.as_slice() else {
+        return problem(400, "Укажите один идентификатор клиента.");
+    };
+    if key != "client_id" {
+        return problem(400, "Укажите идентификатор клиента.");
+    }
+    let client_id = value.trim();
+    if client_id.is_empty() || client_id.len() > 64 || client_id.chars().any(char::is_control) {
+        return problem(400, "Укажите корректный идентификатор клиента.");
+    }
+    let lookup = api
+        .client
+        .post(api.client_search_url.clone())
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(serde_json::json!({"client_id":client_id}).to_string());
+    let lookup = if let Some(cookie) = cookie {
+        lookup.header(reqwest::header::COOKIE, cookie)
+    } else {
+        lookup
+    };
+    let mut lookup = match lookup.send().await {
+        Ok(response) => response,
+        Err(_) => return problem(503, "Не удалось загрузить клиента. Попробуйте позже."),
+    };
+    match lookup.status().as_u16() {
+        200 => {}
+        401 => return redirect_to_login("/login?next=%2Fadmin%2Fclients%2F"),
+        403 => return problem(403, "У вас нет доступа к операторскому разделу."),
+        404 => return render_client(client_id, None, true, false),
+        409 => return render_client(client_id, None, false, true),
+        _ => return problem(503, "Не удалось загрузить клиента. Попробуйте позже."),
+    }
+    let mut body = Vec::new();
+    loop {
+        let chunk = match lookup.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => return problem(503, "Не удалось загрузить клиента. Попробуйте позже."),
+        };
+        if body.len().saturating_add(chunk.len()) > 16 * 1024 {
+            return problem(503, "Некорректный ответ сервиса клиентов.");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let result: ClientResponse = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(_) => return problem(503, "Некорректный ответ сервиса клиентов."),
+    };
+    if result.client.client_id != client_id {
+        return problem(503, "Некорректный ответ сервиса клиентов.");
+    }
+    render_client(client_id, Some(&result.client), false, false)
+}
+
+fn render_client(
+    lookup_id: &str,
+    client: Option<&OperatorClient>,
+    not_found: bool,
+    ambiguous: bool,
+) -> topcoat::Result<Response> {
+    let html = ClientPage {
+        lookup_id,
+        client,
+        not_found,
+        ambiguous,
+    }
+    .render()
+    .map_err(|error| topcoat::Error::msg(error.to_string()))?;
+    Ok(Response::builder()
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Referrer-Policy", "no-referrer")
+        .header("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        .body(Body::from(html))?)
 }
 
 #[route(GET "/admin/accounts/suspend")]
@@ -816,6 +974,34 @@ pub(crate) async fn suspend_script() -> topcoat::Result<Response> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_page_escapes_operator_data_and_has_no_secret_controls() -> Result<()> {
+        let client = OperatorClient {
+            client_id: "<script>id</script>".into(),
+            name: "<script>name</script>".into(),
+            description: "<script>description</script>".into(),
+            redirect_uris: vec!["https://example.invalid/?x=<script>".into()],
+            allowed_scopes: vec!["openid".into()],
+            grant_types: vec!["authorization_code".into()],
+            response_types: vec!["code".into()],
+            is_public: false,
+            is_first_party: false,
+        };
+        let html = ClientPage {
+            lookup_id: "<script>id</script>",
+            client: Some(&client),
+            not_found: false,
+            ambiguous: false,
+        }
+        .render()?;
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("Конфиденциальный"));
+        assert!(html.contains("Секрет клиента здесь не отображается"));
+        assert!(!html.contains("name=\"client_secret\""));
+        assert!(html.contains("method=\"post\""));
+        Ok(())
+    }
 
     #[test]
     fn account_page_escapes_identity_fields_and_explains_read_only_scope() -> Result<()> {
