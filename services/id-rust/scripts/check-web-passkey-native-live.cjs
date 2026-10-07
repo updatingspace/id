@@ -52,6 +52,7 @@ async function main() {
     await page.goto(`${origin}/account?section=security`);
     assert.equal(await page.locator('#passkey-register').count(), 1,
       `registration form missing at ${page.url()}`);
+    await page.locator('#passkey-create-panel > summary').click();
     await page.locator('#passkey-name').fill('Browser passkey');
     await page.locator('#passkey-register').click();
     await Promise.race([

@@ -353,6 +353,9 @@ jobs:
       - name: Verify login MFA state and account return path in Chromium
         run: node scripts/check-web-login-state-browser.cjs
 
+      - name: Verify responsive account UI, themes and form state in Chromium
+        run: node scripts/check-web-ui-browser.cjs
+
       - name: Verify gated account deletion review in Chromium
         run: bash scripts/smoke-web-deletion.sh
 

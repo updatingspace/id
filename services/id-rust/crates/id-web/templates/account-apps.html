@@ -1,22 +1,19 @@
+{% import "account-shell.html" as shell %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-1" />
   <title>Приложения — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261008-1" />
-  <script src="/_id/apps.js?v=ux-20261006-2" defer></script>
-  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  <script src="/_id/apps.js?v=ui-20261008-1" defer></script>
+  {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
 <body>
-  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
-  <main>
+  {% call shell::open(features, "apps", "Приложения") %}{% endcall %}
     <h1>Подключённые приложения</h1>
-    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
-    <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a>
-      {% if sessions_enabled %}<a href="/account?section=sessions">Активные устройства</a>{% endif %}
-      {% if preferences_enabled %}<a href="/account?section=privacy">Настройки и приватность</a>{% endif %}
-    </nav>
     <p id="apps-message" role="status" aria-live="polite" hidden></p>
     <p id="apps-error" role="alert" hidden></p>
     <section id="revoke-app-review" aria-labelledby="revoke-app-title" hidden>
@@ -36,13 +33,13 @@
           <div>
             <strong>{{ app.name }}</strong>
             <small>{{ app.scopes }}</small>
-            <small>Последнее использование: {{ app.last_used_at }}</small>
+            <small>Последнее использование: <time datetime="{{ app.last_used_at }}">{{ app.last_used_at }}</time></small>
           </div>
-          <button type="button" data-revoke-app="{{ app.client_id }}">Проверить отзыв</button>
+          <button type="button" data-revoke-app="{{ app.client_id }}">Отозвать доступ</button>
         </li>
         {% endfor %}
       </ul>
     </section>
-  </main>
+  {% call shell::close() %}{% endcall %}
 </body>
 </html>

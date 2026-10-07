@@ -17,7 +17,7 @@ their browser behavior and styles live in `static/`. The login template's
 accept only checked-in static fragments selected by deployment feature flags.
 No request data is interpolated into these placeholders.
 
-The dynamic `consent.html` page and all seven `account-*.html` pages are Askama
+The dynamic consent and account pages are Askama
 templates with typed Rust page models.
 Askama escapes API and profile values before inserting them into HTML. Template
 authors can change structure and copy without editing the API integration.
@@ -112,3 +112,22 @@ a synthetic API: return to the requested account section, clearing MFA after
 credential edits, cancellation during form-token preparation, and delayed login
 responses. Credential fields become read-only while a login POST is in flight
 because that request may already have issued a session cookie.
+
+
+The user UI shares `static/ui.css` colour/control tokens and `static/ui.js`
+(theme, readable dates, password visibility, error focus and explicit recovery
+code copy/download). Load both on every public/account document. The system
+colour scheme is the default; an explicit choice is stored locally and applied
+before paint. `templates/account-shell.html` owns the six-section navigation,
+desktop sidebar and native mobile disclosure. Profile editors use native
+`details[name=profile-editor]` so only one opens, without discarding form inputs.
+Language/timezone use `section=settings` within Profile; existing query links
+remain valid. Both preference views preserve the full existing API payload.
+
+`scripts/check-web-ui-browser.cjs` starts real Topcoat with a synthetic API and
+checks 17 pages at 320/390/1280 px in both themes, 200% text (also expanded
+forms), token contrast, navigation, draft/error retention, revoked/empty device
+lists, consent defaults, theme persistence and current-session vs reauth entry.
+Run with the same browser dependencies as the other scripts. `--preview` keeps
+the synthetic preview running for manual visual review; it is never a live
+account or proof of delivery/deletion success.

@@ -10,7 +10,7 @@ use topcoat::{
 #[derive(Template)]
 #[template(path = "account-export.html")]
 struct ExportPage<'a> {
-    logout_enabled: bool,
+    features: super::OverviewFeatures,
     delayed_enabled: bool,
     refreshing: bool,
     requested: bool,
@@ -114,7 +114,7 @@ pub(super) async fn page(
         _ => "Способ подготовки данных не указан.",
     };
     let html = ExportPage {
-        logout_enabled: api.logout_enabled,
+        features: super::OverviewFeatures::from(api),
         delayed_enabled: std::env::var("ID_WEB_EXPORT_REDEEM_PILOT_ENABLED").as_deref()
             == Ok("true")
             || std::env::var("ID_WEB_EXPORT_REDEEM_ENABLED").as_deref() == Ok("true"),
@@ -176,7 +176,7 @@ mod tests {
             expires_at: Some("2026-10-07T12:00:00Z".into()),
         };
         let html = ExportPage {
-            logout_enabled: true,
+            features: crate::account::OverviewFeatures::default(),
             delayed_enabled: false,
             refreshing: false,
             requested: true,
@@ -214,7 +214,7 @@ mod tests {
             release_at: Some("2026-10-07T12:00:00Z".into()),
         };
         let html = ExportPage {
-            logout_enabled: false,
+            features: crate::account::OverviewFeatures::default(),
             delayed_enabled: true,
             refreshing: false,
             requested: true,
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn unverified_email_cannot_start_delayed_export() -> Result<(), askama::Error> {
         let html = ExportPage {
-            logout_enabled: true,
+            features: crate::account::OverviewFeatures::default(),
             delayed_enabled: true,
             refreshing: false,
             requested: false,

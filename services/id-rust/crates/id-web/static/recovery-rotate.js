@@ -24,6 +24,8 @@
     }
     busy = true;
     button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = "Обновляем коды…";
     error.hidden = true;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30000);
@@ -66,6 +68,8 @@
     } finally {
       clearTimeout(timer);
       busy = false;
+      button.removeAttribute("aria-busy");
+      button.textContent = "Обновить резервные коды";
     }
   });
 

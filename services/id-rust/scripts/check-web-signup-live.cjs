@@ -36,6 +36,7 @@ async function main() {
     assert.equal(await page.locator('#guardian-email').getAttribute('required'), '');
     await page.locator('#is-minor').uncheck();
     assert.equal(await page.locator('#guardian-fields').isVisible(), false);
+    await page.getByText('Дополнительные сведения', { exact: true }).click();
     await page.locator('#username').fill(username);
     await page.locator('#email').fill(email);
     await page.locator('#password').fill('A remarkable celestial phrase 2026!');
@@ -73,6 +74,7 @@ async function main() {
 
     const duplicate = await context.newPage();
     await duplicate.goto(origin + '/signup');
+    await duplicate.getByText('Дополнительные сведения', { exact: true }).click();
     await duplicate.locator('#username').fill(username + '-other');
     await duplicate.locator('#email').fill(email);
     await duplicate.locator('#password').fill('A remarkable celestial phrase 2026!');
@@ -90,6 +92,7 @@ async function main() {
     await minor.goto(origin + '/signup');
     const born = new Date();
     born.setFullYear(born.getFullYear() - 17);
+    await minor.getByText('Дополнительные сведения', { exact: true }).click();
     await minor.locator('#birth-date').fill(born.toISOString().slice(0, 10));
     assert.equal(await minor.locator('#guardian-fields').isVisible(), true);
     await minor.locator('#username').fill(`minor-${id}`);

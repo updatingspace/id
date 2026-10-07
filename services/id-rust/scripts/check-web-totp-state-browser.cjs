@@ -110,6 +110,21 @@ async function main() {
     assert.equal(await page.locator('#totp-secret').innerText(), '');
     assert.equal(securityReads, initialReads, 'codes must stay visible without an automatic reload');
     assert.equal(confirmations, 2, 'invalid and valid confirmation are each sent only once');
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedCodes = text; } } }));
+    await page.locator('#totp-recovery').getByRole('button', { name: 'Скопировать коды' }).click();
+    assert.equal(await page.evaluate(() => window.copiedCodes), codes.join('\n'));
+    await page.locator('#totp-recovery').getByText('Коды скопированы.', { exact: false }).waitFor();
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('denied'); } } }));
+    await page.locator('#totp-recovery').getByRole('button', { name: 'Скопировать коды' }).click();
+    await page.locator('#totp-recovery').getByText('Копирование недоступно.', { exact: false }).waitFor();
+    const downloadEvent = page.waitForEvent('download');
+    await page.locator('#totp-recovery').getByRole('button', { name: 'Скачать коды (.txt)' }).click();
+    const download = await downloadEvent;
+    assert.equal(download.suggestedFilename(), 'updspace-recovery-codes.txt');
+    const stream = await download.createReadStream();
+    let downloaded = ''; for await (const chunk of stream) downloaded += chunk;
+    assert.ok(downloaded.endsWith(codes.join('\n')));
+
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     let allowRotation = false;
     page.on('dialog', async dialog => {

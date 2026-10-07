@@ -3,28 +3,34 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-1" />
   <title>Регистрация — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/login.css?v=ux-20261007-3" />
-  <link rel="stylesheet" href="/_id/signup.css?v=ux-20261007-1" />
-  <script src="/_id/signup.js" defer></script>
+  <link rel="stylesheet" href="/_id/login.css?v=ui-20261008-1" />
+  <link rel="stylesheet" href="/_id/signup.css?v=ui-20261008-1" />
+  <script src="/_id/signup.js?v=ui-20261008-1" defer></script>
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
 <body>
   <main class="auth-shell">
     <section class="auth-card signup-card" aria-labelledby="signup-title">
       <a class="brand" href="/">UpdSpace ID</a>
       <h1 id="signup-title">Создать аккаунт</h1>
-      <p class="intro">После регистрации подтвердите адрес письмом, затем войдите в аккаунт.</p>
+      <p class="intro">Создайте аккаунт, затем подтвердите почту.</p>
       <p id="status" role="status" aria-live="polite" hidden></p>
       <p id="error" role="alert" aria-live="assertive" hidden></p>
-      <form id="signup-form" method="post" action="/signup">
-        <label for="username">Имя пользователя</label>
-        <input id="username" name="username" type="text" autocomplete="username" maxlength="150" />
+      <form id="signup-form" aria-describedby="error" method="post" action="/signup">
+
         <label for="email">Электронная почта</label>
         <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required />
         <label for="password">Пароль</label>
-        <input id="password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="4096" required />
+        <input id="password" aria-describedby="password-help" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="4096" required />
+        <p id="password-help" class="field-help">Не менее 10 символов. Используйте уникальный пароль.</p>
         <label for="confirmation">Повторите пароль</label>
         <input id="confirmation" name="confirmation" type="password" autocomplete="new-password" minlength="10" maxlength="4096" required />
+
+        <details><summary>Дополнительные сведения</summary><div>
+        <label for="username">Имя пользователя (необязательно)</label>
+        <input id="username" name="username" type="text" autocomplete="username" maxlength="150" />
         <label for="language">Язык</label>
         <select id="language" name="language">
           <option value="ru">Русский</option>
@@ -32,6 +38,11 @@
         </select>
         <label for="birth-date">Дата рождения (необязательно)</label>
         <input id="birth-date" name="birth-date" type="date" />
+        <label class="check" for="consent-marketing">
+          <input id="consent-marketing" name="consent-marketing" type="checkbox" />
+          <span>Я хочу получать маркетинговые сообщения (необязательно).</span>
+        </label>
+        </div></details>
         <label class="check" for="is-minor">
           <input id="is-minor" name="is-minor" type="checkbox" />
           <span>Мне меньше 18 лет</span>
@@ -49,14 +60,11 @@
           <input id="consent-data" name="consent-data" type="checkbox" required />
           <span>Я согласен на обработку персональных данных.</span>
         </label>
-        <label class="check" for="consent-marketing">
-          <input id="consent-marketing" name="consent-marketing" type="checkbox" />
-          <span>Я хочу получать маркетинговые сообщения (необязательно).</span>
-        </label>
         <button id="submit" type="submit">Создать аккаунт</button>
       </form>
       <noscript>Для регистрации включите JavaScript.</noscript>
       <p class="help">Уже есть аккаунт? <a href="/login">Войти</a></p>
+    <label class="theme-control">Оформление<select data-theme-select aria-label="Оформление"><option value="system">Как на устройстве</option><option value="light">Светлое</option><option value="dark">Тёмное</option></select></label>
     </section>
   </main>
 </body>

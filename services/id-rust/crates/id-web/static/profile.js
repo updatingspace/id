@@ -42,6 +42,8 @@
       if (!response.ok || result.ok !== true) {
         throw new Error(typeof result.message === "string" ? result.message : "Не удалось сохранить профиль.");
       }
+      const summary = form.closest("details")?.querySelector("summary small");
+      if (summary) summary.textContent = [data.get("first_name"), data.get("last_name")].map(value => value.trim()).filter(Boolean).join(" ") || "Имя не указано";
       message.textContent = "Профиль сохранён.";
       message.hidden = false;
     } catch (failure) {

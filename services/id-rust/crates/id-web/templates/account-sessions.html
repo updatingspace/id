@@ -1,40 +1,44 @@
+{% import "account-shell.html" as shell %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-1" />
   <title>Сессии — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261008-1" />
-  <script src="/_id/sessions.js" defer></script>
-  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  <script src="/_id/sessions.js?v=ui-20261008-1" defer></script>
+  {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
 <body>
-  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
-  <main>
+  {% call shell::open(features, "sessions", "Устройства") %}{% endcall %}
     <h1>Активные устройства</h1>
-    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
-    <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
-    {% if preferences_enabled %}<nav aria-label="Настройки аккаунта"><a href="/account?section=privacy">Настройки и приватность</a></nav>{% endif %}
-    {% if apps_enabled %}<nav aria-label="Приложения"><a href="/account?section=apps">Подключённые приложения</a></nav>{% endif %}
     <p id="session-message" role="status" aria-live="polite" hidden></p>
     <p id="session-error" role="alert" hidden></p>
+    <p class="page-intro">Проверьте, где открыт аккаунт. Завершение сеанса потребует нового входа на выбранном устройстве.</p>
+    <nav class="subnav" aria-label="Устройства и активность"><a href="/account?section=sessions" aria-current="page">Активные устройства</a>{% if features.history_enabled %}<a href="/account?section=activity">История входов</a>{% endif %}</nav>
     <section aria-label="Сессии">
-      {% if sessions.is_empty() %}<p>Активных сессий нет.</p>{% endif %}
-      <ul class="session-list">
-        {% for session in sessions %}
-        <li class="session-row">
-          <div>
-            <strong>{{ session.user_agent }}</strong>
-            <small>{{ session.ip }}</small>
-            {% if session.current %}<span>Текущая сессия</span>{% endif %}
-            {% if session.revoked %}<span>Доступ отозван</span>{% endif %}
-          </div>
-          {% if !session.current && !session.revoked %}<button type="button" data-revoke-session="{{ session.id }}">Завершить</button>{% endif %}
-        </li>
-        {% endfor %}
+      {% if !has_active %}<p>Активных сессий нет.</p>{% endif %}
+      {% for revoked_group in [false, true] %}
+      {% if !revoked_group || has_revoked %}
+      {% if revoked_group %}<details><summary>Завершённые сеансы</summary>{% endif %}
+      <ul class="session-list" {% if !revoked_group %}aria-label="Действующие сеансы"{% endif %}>
+        {% for session in sessions %}{% if session.revoked == *revoked_group %}
+        <li class="session-row"><div>
+          <strong>{{ session.device }}</strong>
+          {% if session.current %}<span class="badge">Это устройство · Текущая сессия</span>{% endif %}
+          {% if session.revoked %}<span class="badge">Доступ отозван</span>{% endif %}
+          {% if let Some(time) = session.last_seen %}<small>Последняя активность: <time datetime="{{ time }}">{{ time }}</time></small>{% endif %}
+          <details><summary>Технические сведения</summary><p>{{ session.user_agent }}</p><p>IP: {{ session.ip }}</p></details>
+        </div>
+        {% if !session.current && !session.revoked %}<button type="button" data-revoke-session="{{ session.id }}">Завершить сеанс</button>{% endif %}
+        </li>{% endif %}{% endfor %}
       </ul>
+      {% if revoked_group %}</details>{% endif %}
+      {% endif %}{% endfor %}
       {% if has_other %}<button id="revoke-others" type="button">Завершить другие сессии</button>{% endif %}
     </section>
-  </main>
+  {% call shell::close() %}{% endcall %}
 </body>
 </html>

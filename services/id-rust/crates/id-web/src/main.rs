@@ -6,12 +6,17 @@ mod home;
 mod login;
 mod recovery;
 mod signup;
+mod ui;
 
 use topcoat::router::Router;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut router = Router::builder().route(home::page).route(home::style);
+    let mut router = Router::builder()
+        .route(home::page)
+        .route(home::style)
+        .route(ui::style)
+        .route(ui::script);
     let login_enabled = std::env::var("ID_WEB_LOGIN_PILOT_ENABLED").as_deref() == Ok("true");
     let recovery_enabled = std::env::var("ID_WEB_RECOVERY_PILOT_ENABLED").as_deref() == Ok("true");
     let email_verify_enabled =

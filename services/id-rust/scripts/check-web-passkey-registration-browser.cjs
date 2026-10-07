@@ -142,6 +142,7 @@ async function main() {
     assert.equal(await page.getByText('Ключей доступа пока нет.', { exact: true }).count(), 1);
     assert.equal(await page.locator('#passkey-recovery-saved').evaluate(button => button.hidden), true,
       'an older script must not expose an unhandled completion button');
+    await page.locator('#passkey-create-panel > summary').click();
     await page.locator('#passkey-name').fill('My passkey');
     await page.locator('#passkey-register').click();
     await page.locator('#passkey-recovery').waitFor({ state: 'visible' });
@@ -165,6 +166,7 @@ async function main() {
     await rejectedPage.setViewportSize({ width: 390, height: 844 });
     await rejectedPage.goto(`${origin}/account?section=security`);
     assert.equal(await rejectedPage.locator('main > section').count(), 3);
+    await rejectedPage.locator('#passkey-create-panel > summary').click();
     const createButton = await rejectedPage.locator('#passkey-register').boundingBox();
     const createInput = await rejectedPage.locator('#passkey-name').boundingBox();
     assert.ok(createButton && createInput);
@@ -184,6 +186,7 @@ async function main() {
     const uncertainPage = await context.newPage();
     await uncertainPage.setViewportSize({ width: 390, height: 844 });
     await uncertainPage.goto(`${origin}/account?section=security`);
+    await uncertainPage.locator('#passkey-create-panel > summary').click();
     await uncertainPage.locator('#passkey-name').fill('Uncertain passkey');
     await uncertainPage.locator('#passkey-register').click();
     await uncertainPage.locator('#passkey-review:not([hidden])').waitFor();
@@ -213,9 +216,10 @@ async function main() {
       }
       document.getElementById('passkey-recovery-saved').remove();
     });
+    await legacyPage.locator('#passkey-create-panel > summary').click();
     await legacyPage.locator('#passkey-name').fill('My passkey');
     await legacyPage.locator('#passkey-register').click();
-    await legacyPage.locator('#passkey-register-message').waitFor({ state: 'visible' });
+    await legacyPage.locator('#passkey-recovery').waitFor({ state: 'visible' });
     assert.equal(await legacyPage.locator('#passkey-error').isHidden(), true);
     assert.equal(await legacyPage.locator('#passkey-register').isHidden(), true);
     assert.deepEqual(await legacyPage.locator('#passkey-recovery-codes li').allTextContents(), ['12345678', '87654321']);

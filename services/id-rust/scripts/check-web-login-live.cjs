@@ -49,7 +49,7 @@ async function main() {
     assert.equal(me.status, 200, 'Rust /me must restore the browser session');
     assert.equal(me.body.user.email.toLowerCase(), email.toLowerCase());
     if (process.env.ID_LIVE_ACCOUNT_SSR === 'true') {
-      assert.equal(await page.locator('h1').textContent(), 'Аккаунт');
+      assert.equal(await page.locator('h1').textContent(), 'Обзор аккаунта');
       assert(await page.locator('main').textContent().then(text => text.includes(email)));
       assert.equal((await page.locator('html').getAttribute('lang')), 'ru');
     }

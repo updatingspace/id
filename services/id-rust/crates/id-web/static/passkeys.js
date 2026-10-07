@@ -121,6 +121,9 @@
         return;
       }
       register.disabled = true;
+      register.setAttribute("aria-busy", "true");
+      message.textContent = "Подтвердите добавление ключа в окне браузера или устройства…";
+      message.hidden = false;
       let needsReview = false;
       error.hidden = true;
       try {
@@ -128,7 +131,7 @@
         const credential = await navigator.credentials.create({
           publicKey: creationOptions(begin.creation_options),
         });
-        if (!credential) return;
+        if (!credential) { message.hidden = true; return; }
         const result = await post("/api/v1/auth/passkeys/complete", {
           name,
           credential: serializeAttestation(credential),
@@ -144,6 +147,8 @@
           }
           recovery.hidden = false;
           codesVisible = true;
+          const guidance = document.getElementById("recovery-guidance");
+          if (guidance) guidance.hidden = true;
           const passkeysStatus = document.getElementById("passkeys-status");
           const recoveryStatus = document.getElementById("recovery-status");
           const recoveryLeft = document.getElementById("recovery-left");
@@ -161,6 +166,7 @@
           window.location.reload();
         }
       } catch (failure) {
+        message.hidden = true;
         if (failure?.uncertainPasskey || failure?.invalidPasskey) {
           needsReview = true;
           review.hidden = false;
@@ -178,6 +184,7 @@
         error.hidden = false;
       } finally {
         register.disabled = needsReview;
+        register.removeAttribute("aria-busy");
       }
     });
   }

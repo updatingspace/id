@@ -35,7 +35,7 @@ struct AccountOverview<'a> {
     has_avatar: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct OverviewFeatures {
     logout_enabled: bool,
     profile_enabled: bool,
@@ -69,16 +69,18 @@ impl From<&AccountApi> for OverviewFeatures {
 #[derive(Template)]
 #[template(path = "account-sessions.html")]
 struct SessionsPage<'a> {
+    features: OverviewFeatures,
     sessions: &'a [SessionView<'a>],
     has_other: bool,
-    logout_enabled: bool,
-    preferences_enabled: bool,
-    apps_enabled: bool,
+    has_active: bool,
+    has_revoked: bool,
 }
 
 struct SessionView<'a> {
+    last_seen: Option<&'a str>,
     id: &'a str,
     user_agent: &'a str,
+    device: String,
     ip: &'a str,
     current: bool,
     revoked: bool,
@@ -87,6 +89,7 @@ struct SessionView<'a> {
 #[derive(Template)]
 #[template(path = "account-history.html")]
 struct HistoryPage<'a> {
+    features: OverviewFeatures,
     events: &'a [HistoryView<'a>],
 }
 
@@ -94,6 +97,7 @@ struct HistoryView<'a> {
     status_label: &'static str,
     created_at: &'a str,
     user_agent: &'a str,
+    device: String,
     ip: &'a str,
     is_new_device: bool,
     reason: Option<&'a str>,
@@ -102,10 +106,8 @@ struct HistoryView<'a> {
 #[derive(Template)]
 #[template(path = "account-apps.html")]
 struct AppsPage<'a> {
+    features: OverviewFeatures,
     apps: &'a [AppView<'a>],
-    logout_enabled: bool,
-    sessions_enabled: bool,
-    preferences_enabled: bool,
 }
 
 struct AppView<'a> {
@@ -118,10 +120,9 @@ struct AppView<'a> {
 #[derive(Template)]
 #[template(path = "account-privacy.html")]
 struct PrivacyPage<'a> {
-    logout_enabled: bool,
-    sessions_enabled: bool,
-    apps_enabled: bool,
+    features: OverviewFeatures,
     consents_enabled: bool,
+    settings_mode: bool,
     language_ru: bool,
     language_en: bool,
     timezone_empty: bool,
@@ -134,10 +135,9 @@ struct PrivacyPage<'a> {
 #[derive(Template)]
 #[template(path = "account-delete.html")]
 struct DeletePage<'a> {
+    features: OverviewFeatures,
     email: &'a str,
     has_mfa: bool,
-    exports_enabled: bool,
-    logout_enabled: bool,
 }
 
 struct TimezoneView<'a> {
@@ -165,7 +165,7 @@ struct ConsentView<'a> {
 #[derive(Template)]
 #[template(path = "account-security.html")]
 struct SecurityPage<'a> {
-    logout_enabled: bool,
+    features: OverviewFeatures,
     password_change_enabled: bool,
     passkey_registration_enabled: bool,
     show_passkey_script: bool,
@@ -185,6 +185,44 @@ struct PasskeyView<'a> {
     is_passwordless: bool,
     can_manage: bool,
 }
+fn device_label(agent: &str) -> String {
+    // ponytail: coarse UA labels; use a maintained parser if device models are needed.
+    let browser = [
+        ("Edg/", "Edge"),
+        ("EdgiOS/", "Edge"),
+        ("OPR/", "Opera"),
+        ("FxiOS/", "Firefox"),
+        ("Firefox/", "Firefox"),
+        ("CriOS/", "Chrome"),
+        ("Chrome/", "Chrome"),
+        ("Safari/", "Safari"),
+    ]
+    .into_iter()
+    .find(|(pattern, _)| agent.contains(pattern))
+    .map(|(_, name)| name)
+    .unwrap_or("Браузер");
+    let system = [
+        ("iPhone", "iPhone"),
+        ("iPad", "iPad"),
+        ("Android", "Android"),
+        ("Windows", "Windows"),
+        ("Macintosh", "macOS"),
+        ("Linux", "Linux"),
+    ]
+    .into_iter()
+    .find(|(pattern, _)| agent.contains(pattern))
+    .map(|(_, name)| name);
+    system
+        .map(|name| format!("{browser} · {name}"))
+        .unwrap_or_else(|| {
+            if browser == "Браузер" {
+                "Неизвестное устройство".into()
+            } else {
+                browser.into()
+            }
+        })
+}
+
 #[route(GET "/account")]
 pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     let api = app_context::<AccountApi>(cx);
@@ -229,10 +267,9 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
                 .body(Body::empty())?);
         }
         let html = DeletePage {
+            features: OverviewFeatures::from(app_context::<AccountApi>(cx)),
             email: &user.email,
             has_mfa: user.has_2fa,
-            exports_enabled: api.exports_enabled,
-            logout_enabled: api.logout_enabled,
         }
         .render()
         .map_err(|error| topcoat::Error::msg(error.to_string()))?;
@@ -255,8 +292,9 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     }
     let privacy_section = api.preferences_enabled
         && request::uri(cx).query().is_some_and(|query| {
-            url::form_urlencoded::parse(query.as_bytes())
-                .any(|(key, value)| key == "section" && value == "privacy")
+            url::form_urlencoded::parse(query.as_bytes()).any(|(key, value)| {
+                key == "section" && matches!(value.as_ref(), "privacy" | "settings")
+            })
         });
     if privacy_section {
         let preferences = match preferences(api, cookie).await {
@@ -411,13 +449,12 @@ async fn sessions_page(
     let has_other = sessions
         .iter()
         .any(|session| !session.current && !session.revoked);
-    let logout_enabled = app_context::<AccountApi>(cx).logout_enabled;
-    let preferences_enabled = app_context::<AccountApi>(cx).preferences_enabled;
-    let apps_enabled = app_context::<AccountApi>(cx).apps_enabled;
     let rows = sessions
         .iter()
         .map(|session| SessionView {
             id: &session.id,
+            device: device_label(session.user_agent.as_deref().unwrap_or("")),
+            last_seen: session.last_seen.as_deref(),
             user_agent: session
                 .user_agent
                 .as_deref()
@@ -433,11 +470,11 @@ async fn sessions_page(
         })
         .collect::<Vec<_>>();
     let html = SessionsPage {
+        features: OverviewFeatures::from(app_context::<AccountApi>(cx)),
         sessions: &rows,
         has_other,
-        logout_enabled,
-        preferences_enabled,
-        apps_enabled,
+        has_active: rows.iter().any(|row| !row.revoked),
+        has_revoked: rows.iter().any(|row| row.revoked),
     }
     .render()
     .map_err(|error| topcoat::Error::msg(error.to_string()))?;
@@ -445,13 +482,14 @@ async fn sessions_page(
 }
 
 async fn history_page(
-    _cx: &Cx,
+    cx: &Cx,
     events: Vec<LoginEventRow>,
     cookies: Vec<String>,
 ) -> topcoat::Result<Response> {
     let rows = events
         .iter()
         .map(|event| HistoryView {
+            device: device_label(event.user_agent.as_deref().unwrap_or("")),
             status_label: if event.status == "success" {
                 "Успешный вход"
             } else {
@@ -472,9 +510,12 @@ async fn history_page(
             reason: event.reason.as_deref().filter(|value| !value.is_empty()),
         })
         .collect::<Vec<_>>();
-    let html = HistoryPage { events: &rows }
-        .render()
-        .map_err(|error| topcoat::Error::msg(error.to_string()))?;
+    let html = HistoryPage {
+        features: OverviewFeatures::from(app_context::<AccountApi>(cx)),
+        events: &rows,
+    }
+    .render()
+    .map_err(|error| topcoat::Error::msg(error.to_string()))?;
     page_response(html, cookies, false)
 }
 
@@ -524,10 +565,13 @@ async fn privacy_page(
         })
         .collect::<Vec<_>>();
     let html = PrivacyPage {
-        logout_enabled: api.logout_enabled,
-        sessions_enabled: api.sessions_enabled,
-        apps_enabled: api.apps_enabled,
+        features: OverviewFeatures::from(app_context::<AccountApi>(cx)),
+
         consents_enabled: api.consents_enabled,
+        settings_mode: request::uri(cx).query().is_some_and(|query| {
+            url::form_urlencoded::parse(query.as_bytes())
+                .any(|(k, v)| k == "section" && v == "settings")
+        }),
         language_ru: preferences.language == "ru",
         language_en: preferences.language == "en",
         timezone_empty: preferences.timezone.is_empty(),
@@ -546,21 +590,30 @@ async fn apps_page(
     apps: Vec<AuthorizedApp>,
     cookies: Vec<String>,
 ) -> topcoat::Result<Response> {
-    let api = app_context::<AccountApi>(cx);
     let rows = apps
         .iter()
         .map(|app| AppView {
             client_id: &app.client_id,
             name: &app.name,
-            scopes: app.scopes.join(", "),
+            scopes: app
+                .scopes
+                .iter()
+                .map(|scope| match scope.as_str() {
+                    "openid" => "Идентификатор аккаунта",
+                    "profile" => "Основные сведения профиля",
+                    "email" => "Электронная почта",
+                    "phone" => "Номер телефона",
+                    "offline_access" => "Доступ без вашего присутствия",
+                    other => other,
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
             last_used_at: app.last_used_at.as_deref().unwrap_or("нет данных"),
         })
         .collect::<Vec<_>>();
     let html = AppsPage {
+        features: OverviewFeatures::from(app_context::<AccountApi>(cx)),
         apps: &rows,
-        logout_enabled: api.logout_enabled,
-        sessions_enabled: api.sessions_enabled,
-        preferences_enabled: api.preferences_enabled,
     }
     .render()
     .map_err(|error| topcoat::Error::msg(error.to_string()))?;
@@ -594,7 +647,7 @@ async fn security_page(
         })
         .collect::<Vec<_>>();
     let html = SecurityPage {
-        logout_enabled: api.logout_enabled,
+        features: OverviewFeatures::from(app_context::<AccountApi>(cx)),
         password_change_enabled: api.password_change_enabled,
         passkey_registration_enabled: api.passkey_registration_enabled,
         show_passkey_script,
@@ -744,7 +797,7 @@ fn page_response(html: String, cookies: Vec<String>, script: bool) -> topcoat::R
     let csp = if script {
         "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https://storage.yandexcloud.net; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
     } else {
-        "default-src 'none'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
     };
     let mut response = Response::builder()
         .header("Content-Type", "text/html; charset=utf-8")
@@ -768,12 +821,7 @@ pub(crate) async fn sessions_script() -> topcoat::Result<Response> {
 }
 
 fn error_page(message: &str) -> topcoat::Result<Response> {
-    Ok(Response::builder()
-        .status(503)
-        .header("Content-Type", "text/plain; charset=utf-8")
-        .header("Cache-Control", "no-store")
-        .header("X-Content-Type-Options", "nosniff")
-        .body(Body::from(message.to_owned()))?)
+    crate::ui::unavailable(message, true)
 }
 
 #[route(GET "/_id/account.css")]
@@ -790,6 +838,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn devices_use_readable_browser_labels_with_safe_fallbacks() {
+        assert_eq!(
+            device_label("Mozilla/5.0 (X11; Linux x86_64) Chrome/131 Safari/537.36"),
+            "Chrome · Linux"
+        );
+        assert_eq!(
+            device_label("Mozilla/5.0 (Windows NT 10.0) Chrome/131 Safari/537.36 Edg/131"),
+            "Edge · Windows"
+        );
+        assert_eq!(
+            device_label("Mozilla/5.0 (iPhone) CriOS/123 Safari/605"),
+            "Chrome · iPhone"
+        );
+        assert_eq!(device_label(""), "Неизвестное устройство");
+    }
+
+    #[test]
     fn security_template_keeps_mfa_and_passkey_hooks_and_escapes_names() -> Result<(), askama::Error>
     {
         let keys = [PasskeyView {
@@ -799,7 +864,7 @@ mod tests {
             can_manage: true,
         }];
         let html = SecurityPage {
-            logout_enabled: true,
+            features: OverviewFeatures::default(),
             password_change_enabled: true,
             passkey_registration_enabled: true,
             show_passkey_script: true,
@@ -831,7 +896,7 @@ mod tests {
     #[test]
     fn security_template_shows_totp_setup_without_existing_key() -> Result<(), askama::Error> {
         let html = SecurityPage {
-            logout_enabled: false,
+            features: OverviewFeatures::default(),
             password_change_enabled: false,
             passkey_registration_enabled: false,
             show_passkey_script: false,
@@ -876,10 +941,9 @@ mod tests {
             revocable: true,
         }];
         let html = PrivacyPage {
-            logout_enabled: true,
-            sessions_enabled: true,
-            apps_enabled: true,
+            features: OverviewFeatures::default(),
             consents_enabled: true,
+            settings_mode: false,
             language_ru: true,
             language_en: false,
             timezone_empty: false,
@@ -908,10 +972,8 @@ mod tests {
             last_used_at: "нет данных",
         }];
         let html = AppsPage {
+            features: OverviewFeatures::default(),
             apps: &rows,
-            logout_enabled: true,
-            sessions_enabled: true,
-            preferences_enabled: true,
         }
         .render()?;
         assert!(!html.contains("<script>bad()</script>"));
@@ -930,6 +992,8 @@ mod tests {
     {
         let rows = [
             SessionView {
+                device: "Chrome · Linux".into(),
+                last_seen: None,
                 id: "other\" onmouseover=\"bad",
                 user_agent: "<script>bad()</script>",
                 ip: "192.0.2.1",
@@ -937,6 +1001,8 @@ mod tests {
                 revoked: false,
             },
             SessionView {
+                device: "Chrome · Linux".into(),
+                last_seen: None,
                 id: "current",
                 user_agent: "Current device",
                 ip: "—",
@@ -945,11 +1011,11 @@ mod tests {
             },
         ];
         let html = SessionsPage {
+            features: OverviewFeatures::default(),
             sessions: &rows,
             has_other: true,
-            logout_enabled: true,
-            preferences_enabled: true,
-            apps_enabled: true,
+            has_active: true,
+            has_revoked: false,
         }
         .render()?;
         assert!(!html.contains("<script>bad()</script>"));
@@ -964,6 +1030,7 @@ mod tests {
     #[test]
     fn history_template_escapes_event_data() -> Result<(), askama::Error> {
         let rows = [HistoryView {
+            device: "Chrome · Linux".into(),
             status_label: "Неудачная попытка",
             created_at: "2026-10-06\" onclick=\"bad",
             user_agent: "<img src=x onerror=bad()>",
@@ -971,7 +1038,11 @@ mod tests {
             is_new_device: true,
             reason: Some("<script>bad()</script>"),
         }];
-        let html = HistoryPage { events: &rows }.render()?;
+        let html = HistoryPage {
+            features: OverviewFeatures::default(),
+            events: &rows,
+        }
+        .render()?;
         assert!(!html.contains("<script>bad()</script>"));
         assert!(!html.contains("<img src=x onerror=bad()>"));
         assert!(!html.contains("datetime=\"2026-10-06\" onclick="));
@@ -1083,7 +1154,7 @@ mod tests {
         assert!(html.contains("Кто имеет доступ"));
         assert!(html.contains("Защита входа"));
         assert!(html.contains("Ваши данные"));
-        assert!(html.find("id=\"profile-title\"") < html.find("class=\"account-nav\""));
+        assert!(html.contains("Настроить защиту"));
         assert!(!html.contains("/_id/profile.js"));
         Ok(())
     }
@@ -1137,10 +1208,12 @@ mod tests {
         assert!(overview(features).render()?.contains("section=delete"));
 
         let html = DeletePage {
+            features: OverviewFeatures {
+                exports_enabled: true,
+                ..OverviewFeatures::default()
+            },
             email: "<script>bad()</script>@example.invalid",
             has_mfa: true,
-            exports_enabled: true,
-            logout_enabled: false,
         }
         .render()?;
         assert!(!html.contains("<script>bad()</script>"));

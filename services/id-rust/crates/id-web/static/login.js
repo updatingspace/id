@@ -13,12 +13,17 @@
   if (!form || !submit || !error || !status || !mfaFields || !mfaMethod || !mfaCode) return;
   const email = form.elements.email;
   const password = form.elements.password;
+  const credentialFields = document.getElementById("credential-fields");
+  const mfaBack = document.getElementById("mfa-back");
+  let defaultAction = submit.textContent;
   let credentialsVersion = 0;
   let activeAttempt = null;
 
   function credentialsChanged() {
     credentialsVersion += 1;
     mfaFields.hidden = true;
+    if (credentialFields) credentialFields.hidden = false;
+    submit.textContent = defaultAction;
     mfaCode.required = false;
     mfaCode.value = "";
     error.hidden = true;
@@ -32,6 +37,7 @@
       if (passkeyButton) passkeyButton.disabled = false;
     }
   }
+  mfaBack?.addEventListener("click", () => { if (!submit.disabled) { credentialsChanged(); password.focus(); } });
   email.addEventListener("input", credentialsChanged);
   password.addEventListener("input", credentialsChanged);
 
@@ -58,6 +64,7 @@
     document.getElementById("login-title").textContent = "Войдите, чтобы продолжить";
     document.querySelector(".intro").textContent = "Вы открываете другой сервис через единый аккаунт UpdSpace ID.";
     submit.textContent = "Войти и продолжить";
+    defaultAction = submit.textContent;
     authContext.textContent = "Сейчас вы входите только в UpdSpace ID. Если приложению нужны новые разрешения, мы покажем его название и запрошенные сведения на следующем шаге. Здесь вы ещё не даёте приложению доступ.";
     authContext.hidden = false;
   }
@@ -226,7 +233,7 @@
         method: "POST", credentials: "include", cache: "no-store", headers, body: "{}", signal: timeout.signal,
       });
       const challenge = await jsonResponse(begun);
-      if (!begun.ok) throw new Error(challenge.message || "Не удалось начать вход с Passkey.");
+      if (!begun.ok) throw new Error(challenge.message || "Не удалось начать вход с ключом доступа.");
       const credential = await navigator.credentials.get({
         publicKey: passkeyOptions(challenge.request_options), signal: timeout.signal,
       });
@@ -237,14 +244,14 @@
         body: JSON.stringify({ credential: assertionJson(credential) }), signal: timeout.signal,
       });
       const result = await jsonResponse(completed);
-      if (!completed.ok) throw new Error(result.message || "Не удалось войти с Passkey.");
+      if (!completed.ok) throw new Error(result.message || "Не удалось войти с ключом доступа.");
       clearLegacyToken();
       window.location.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
     } catch (cause) {
       if (cause instanceof DOMException && ["NotAllowedError", "AbortError"].includes(cause.name)) {
         status.hidden = true;
       } else {
-        showError(cause instanceof Error ? cause.message : "Не удалось войти с Passkey.");
+        showError(cause instanceof Error ? cause.message : "Не удалось войти с ключом доступа.");
       }
     } finally {
       clearTimeout(timer);
@@ -312,6 +319,8 @@
         if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
         if (body.code === "MFA_REQUIRED") {
           mfaFields.hidden = false;
+          if (credentialFields) credentialFields.hidden = true;
+          submit.textContent = "Подтвердить вход";
           mfaCode.required = true;
           mfaCode.focus();
           status.textContent = "Введите код подтверждения.";
@@ -341,4 +350,28 @@
   });
 
   void restoreLegacySession();
+  if (!window.location.search) {
+    let touched = false;
+    form.addEventListener("input", () => { touched = true; }, { once: true });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    fetch("/api/v1/auth/me", { credentials: "include", cache: "no-store", signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(body => {
+        if (!body?.user || touched || activeAttempt || !mfaFields.hidden) return;
+        const choice = document.getElementById("session-choice");
+        if (!choice) return;
+        document.getElementById("session-name").textContent = body.user.email || body.user.username || "Ваш аккаунт";
+        choice.hidden = false;
+        form.hidden = true;
+        const passkeyVisible = passkeyButton && !passkeyButton.hidden;
+        if (passkeyButton) passkeyButton.hidden = true;
+        document.getElementById("choose-another").addEventListener("click", () => {
+          choice.hidden = true;
+          form.hidden = false;
+          if (passkeyButton) passkeyButton.hidden = !passkeyVisible;
+          email.focus();
+        });
+      }).catch(() => {}).finally(() => clearTimeout(timer));
+  }
 })();

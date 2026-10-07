@@ -55,6 +55,7 @@ pub(super) struct LoginEventRow {
 
 #[derive(Deserialize)]
 pub(super) struct SessionRow {
+    pub(super) last_seen: Option<String>,
     pub(super) id: String,
     pub(super) user_agent: Option<String>,
     pub(super) ip: Option<String>,

@@ -60,7 +60,7 @@ async function main() {
       await dialog.accept();
     });
     await page.goto(origin + '/account?section=security');
-    assert.equal(await page.locator('h1').textContent(), 'Безопасность');
+    assert.equal(await page.locator('h1').textContent(), 'Вход и защита');
     assert.equal(await page.locator('#totp-begin').isVisible(), true);
     assert((await context.cookies(origin)).some(cookie => cookie.name === 'csrftoken'));
 
@@ -103,7 +103,7 @@ async function main() {
 
     await page.locator('#totp-recovery-saved').click();
     await page.locator('#totp-disable').waitFor();
-    assert.equal(await page.locator('h1').textContent(), 'Безопасность');
+    assert.equal(await page.locator('h1').textContent(), 'Вход и защита');
     assert.equal(await page.locator('#totp-status').textContent(), 'Включена');
     assert.equal(await page.locator('#totp-begin').count(), 0);
     assert.equal(await page.locator('#totp-recovery-codes').count(), 0);

@@ -41,6 +41,7 @@ async function main() {
       '/login?next=%2Faccount%3Fsection%3Dsecurity');
     const born = new Date();
     born.setFullYear(born.getFullYear() - 17);
+    await page.getByText('Дополнительные сведения', { exact: true }).click();
     await page.locator('#birth-date').fill(born.toISOString().slice(0, 10));
     assert.equal(await page.locator('#guardian-fields').isVisible(), true);
     await page.locator('#email').fill('signup-ui-test@example.invalid');

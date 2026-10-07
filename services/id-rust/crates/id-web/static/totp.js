@@ -52,6 +52,8 @@
     if (busy) return;
     busy = true;
     begin.disabled = true;
+    begin.setAttribute("aria-busy", "true");
+    begin.textContent = "Готовим настройку…";
     error.hidden = true;
     message.hidden = true;
     try {
@@ -68,6 +70,8 @@
     } finally {
       busy = false;
       begin.disabled = false;
+      begin.removeAttribute("aria-busy");
+      begin.textContent = "Настроить приложение с кодами";
     }
   });
 
@@ -76,6 +80,8 @@
     if (busy) return;
     busy = true;
     confirm.disabled = true;
+    form.setAttribute("aria-busy", "true");
+    confirm.textContent = "Проверяем код…";
     error.hidden = true;
     message.hidden = true;
     try {
@@ -97,6 +103,8 @@
         }
         recovery.hidden = false;
         recoveryVisible = true;
+        const guidance = document.getElementById("recovery-guidance");
+        if (guidance) guidance.hidden = true;
         const recoveryStatus = document.getElementById("recovery-status");
         const recoveryLeft = document.getElementById("recovery-left");
         if (recoveryStatus) recoveryStatus.textContent = "Есть";
@@ -111,6 +119,8 @@
     } finally {
       busy = false;
       confirm.disabled = false;
+      form.removeAttribute("aria-busy");
+      confirm.textContent = "Подтвердить и включить";
     }
   });
 

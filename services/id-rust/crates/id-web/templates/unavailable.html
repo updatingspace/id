@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Временно недоступно — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-1" />
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+</head>
+<body>
+  <main class="unavailable">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">ID</span>UpdSpace ID</a>
+    <h1>{% if retryable %}Не удалось загрузить страницу{% else %}Не удалось продолжить{% endif %}</h1>
+    <p>{{ message }}</p>
+    <p class="muted">{% if retryable %}Данные аккаунта не изменены. Проверьте соединение и повторите загрузку.{% else %}Вернитесь в приложение и начните вход заново. Доступ не предоставлен.{% endif %}</p>
+    <div class="actions">{% if retryable %}<a class="button primary" href="">Повторить загрузку</a>{% endif %}<a class="button" href="/account">К аккаунту</a></div>
+  </main>
+</body>
+</html>

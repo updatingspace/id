@@ -139,6 +139,7 @@ async function main() {
     const ownerHtml = await owner.goto(`${origin}/account?section=data`);
     assert.equal(ownerHtml.status(), 200);
     assert.match(await owner.locator('main').innerText(), /Подождите 24 часа/);
+    await owner.getByText('Отмена запроса и удаление аккаунта', { exact: true }).click();
     assert.match(await owner.locator('main').innerText(), /Ссылка отмены из первого письма работает и после удаления аккаунта/);
     assert.equal(await owner.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
       'export request page overflows a phone viewport');

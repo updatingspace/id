@@ -1,35 +1,37 @@
+{% import "account-shell.html" as shell %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-1" />
   <title>Безопасность — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261008-1" />
-  {% if show_totp_setup %}<script src="/_id/totp.js?v=20261008-1" defer></script>{% endif %}
-  {% if show_totp_disable %}<script src="/_id/totp-disable.js" defer></script>{% endif %}
-  {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js?v=20261008-1" defer></script>{% endif %}
-  {% if show_passkey_script %}<script src="/_id/passkeys.js?v=20261008-1" defer></script>{% endif %}
-  {% if password_change_enabled %}<script src="/_id/password-change.js" defer></script>{% endif %}
-  {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
+  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  {% if show_totp_setup %}<script src="/_id/totp.js?v=ui-20261008-1" defer></script>{% endif %}
+  {% if show_totp_disable %}<script src="/_id/totp-disable.js?v=ui-20261008-1" defer></script>{% endif %}
+  {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js?v=ui-20261008-1" defer></script>{% endif %}
+  {% if show_passkey_script %}<script src="/_id/passkeys.js?v=ui-20261008-1" defer></script>{% endif %}
+  {% if password_change_enabled %}<script src="/_id/password-change.js?v=ui-20261008-1" defer></script>{% endif %}
+  {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
+  <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
 <body>
-  <header><a href="/">UpdSpace ID</a>{% if logout_enabled %}<button id="logout" type="button">Выйти</button>{% endif %}</header>
-  <main>
-    <h1>Безопасность</h1>
+  {% call shell::open(features, "security", "Вход и защита") %}{% endcall %}
+    <p class="eyebrow">Безопасность</p><h1>Вход и защита</h1>
     <p class="page-intro">Выберите удобный способ входа и проверьте, как восстановить доступ, если устройство окажется недоступно.</p>
-    {% if logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
-    <nav aria-label="Разделы аккаунта"><a href="/account">← К аккаунту</a></nav>
     <section aria-labelledby="passkeys-title">
       <h2 id="passkeys-title">Ключи доступа</h2>
       <p>Ключ позволяет подтверждать вход с помощью защиты телефона или компьютера. Состояние: <strong id="passkeys-status">{{ passkeys_status }}</strong>.</p>
       {% if passkey_registration_enabled %}
       <div id="passkey-registration">
+        <details id="passkey-create-panel"><summary>Добавить ключ доступа</summary>
         <p>Назовите ключ так, чтобы позднее узнать своё устройство. После нажатия браузер попросит подтвердить добавление.</p>
         <div class="passkey-create">
           <label for="passkey-name">Название нового ключа</label>
           <input id="passkey-name" name="passkey_name" maxlength="80" value="Мой ключ доступа" autocomplete="off" />
-          <button id="passkey-register" type="button">Добавить ключ доступа</button>
+          <button id="passkey-register" class="primary" type="button">Добавить ключ доступа</button>
         </div>
+        </details>
         <button id="passkey-review" type="button" hidden>Обновить список ключей</button>
         <p id="passkey-register-message" role="status" aria-live="polite" hidden></p>
         <div id="passkey-recovery" hidden>
@@ -108,6 +110,7 @@
     <section aria-labelledby="recovery-title">
       <h2 id="recovery-title">Резервные коды</h2>
       <p>Используйте их, если основной способ подтверждения недоступен. Состояние: <strong id="recovery-status">{{ recovery_status }}</strong>; осталось: <strong id="recovery-left">{{ recovery_left }}</strong>.</p>
+      {% if show_totp_setup && recovery_left == 0 %}<p id="recovery-guidance">Сначала <a href="#totp-title">настройте приложение с кодами</a>{% if passkey_registration_enabled %} или <a href="#passkeys-title">добавьте ключ доступа</a>{% endif %}. После настройки сохраните выданные резервные коды отдельно от устройства.</p>{% endif %}
       {% if show_recovery_rotation %}
       <div id="recovery-rotation">
         <p>При обновлении все прежние резервные коды перестанут работать. Новый набор будет показан только здесь.</p>
@@ -125,17 +128,19 @@
     <section aria-labelledby="password-title">
       <h2 id="password-title">Смена пароля</h2>
       <p>После смены пароля вход потребуется на всех устройствах.</p>
-      <form id="password-change-form">
+      <details><summary>Сменить пароль</summary>
+      <form id="password-change-form" aria-describedby="password-change-error">
         <label for="current-password">Текущий пароль</label>
         <input id="current-password" name="current_password" type="password" autocomplete="current-password" required />
         <label for="new-password">Новый пароль</label>
         <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="10" required />
         <button type="submit">Сменить пароль</button>
       </form>
+      </details>
       <p id="password-change-message" role="status" aria-live="polite" hidden></p>
       <p id="password-change-error" role="alert" hidden></p>
     </section>
     {% endif %}
-  </main>
+  {% call shell::close() %}{% endcall %}
 </body>
 </html>

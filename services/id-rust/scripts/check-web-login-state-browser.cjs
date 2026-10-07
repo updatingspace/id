@@ -104,13 +104,14 @@ async function main() {
     await page.locator('#submit').click();
     await page.locator('#mfa-fields').waitFor({ state: 'visible' });
     await page.locator('#mfa-code').fill('123456');
+    await page.locator('#mfa-back').click();
     await page.locator('#email').fill('plain@example.invalid');
     assert.equal(await page.locator('#mfa-fields').isHidden(), true);
     assert.equal(await page.locator('#mfa-code').inputValue(), '');
     assert.equal(await page.locator('#mfa-code').evaluate(input => input.required), false);
     await page.locator('#submit').click();
     await page.waitForURL(securityUrl);
-    assert.equal(await page.locator('h1').innerText(), 'Безопасность');
+    assert.equal(await page.locator('h1').innerText(), 'Вход и защита');
     assert.equal(loginCalls.length, 2);
     assert.equal(loginCalls[1].email, 'plain@example.invalid');
     assert.equal('mfa_code' in loginCalls[1], false);
@@ -123,6 +124,7 @@ async function main() {
     await passwordPage.locator('#password').fill('SyntheticPass123!');
     await passwordPage.locator('#submit').click();
     await passwordPage.locator('#mfa-fields').waitFor({ state: 'visible' });
+    await passwordPage.locator('#mfa-back').click();
     await passwordPage.locator('#password').fill('ChangedPass123!');
     assert.equal(await passwordPage.locator('#mfa-fields').isHidden(), true);
     assert.equal(await passwordPage.locator('#login-form').evaluate(form => form.checkValidity()), true);
@@ -175,7 +177,7 @@ async function main() {
     });
     loginGate.release();
     await delayed.waitForURL(securityUrl);
-    assert.equal(await delayed.locator('h1').innerText(), 'Безопасность',
+    assert.equal(await delayed.locator('h1').innerText(), 'Вход и защита',
       'a successful submitted login must complete even if a script edited the fields');
     console.log('PASS: account return section; MFA reset; cancelled token preparation; delayed login state and readonly credentials');
   } finally {
