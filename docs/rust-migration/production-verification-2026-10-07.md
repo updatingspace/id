@@ -38,6 +38,10 @@ operator command's required-job fixture still named the removed gate. The
 next candidate checks the reusable extended integration job directly and
 limits Rust build parallelism to reduce peak resource use. This is a source
 correction awaiting CI, not a new production revision.
+Its first CI run then rejected an `expect` in that test under the repository's
+Clippy policy. The follow-up uses a default value that makes the contract
+assertion fail if the job is absent; the focused test and Clippy check passed
+locally. It too awaits remote CI.
 
 ## Later production update on 2026-10-07
 

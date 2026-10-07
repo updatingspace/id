@@ -212,7 +212,7 @@ mod tests {
         let extended_job = extended
             .lines()
             .find_map(|line| line.strip_prefix("    name: "))
-            .expect("extended workflow job name");
+            .unwrap_or("");
         jobs.push(format!("rust-extended / {extended_job}"));
         assert_eq!(jobs, REQUIRED_JOBS);
     }
