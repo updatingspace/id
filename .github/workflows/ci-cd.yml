@@ -54,7 +54,7 @@ jobs:
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Install WebAuthn build dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config ripgrep
       - name: Format and lint
         run: |
           cargo fmt --all -- --check

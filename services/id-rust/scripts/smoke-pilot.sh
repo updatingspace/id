@@ -38,7 +38,7 @@ for ((attempt=0; attempt<45; attempt++)); do
 done
 [[ "${ready}" == true ]]
 [[ "$(<"${scratch_dir}/ready.json")" == *'"status":"ready"'* ]]
-[[ "$(<"${scratch_dir}/index.html")" == *'Пользовательский вход ещё не подключён.'* ]]
+[[ "$(<"${scratch_dir}/index.html")" == *'Один аккаунт для сервисов UpdSpace.'* ]]
 
 curl --silent --show-error --fail --max-time 5 -D "${scratch_dir}/headers" \
   "http://127.0.0.1:${api_port}/healthz" > /dev/null
