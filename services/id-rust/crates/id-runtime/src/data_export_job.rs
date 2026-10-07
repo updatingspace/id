@@ -106,20 +106,46 @@ pub async fn clean_expired_escrow(
     let mut result = ExportDrain::default();
     for stored in crate::data_export_escrow::expired(client, now, limit).await? {
         result.attempted += 1;
-        let deleted = if stored.object_key.is_empty() {
-            Ok(())
-        } else {
-            storage.delete_object(&stored.object_key).await
-        };
-        match deleted {
-            Ok(()) => match crate::data_export_escrow::forget_expired(client, &stored, now).await {
-                Ok(true) => result.completed += 1,
-                Ok(false) | Err(_) => result.deferred += 1,
-            },
+        if !stored.object_key.is_empty()
+            && !stored
+                .object_key
+                .starts_with(&format!("exports/escrow/{}/", stored.id))
+        {
+            tracing::warn!(operation_id = %stored.id, "expired escrow key crossed request prefix");
+            result.deferred += 1;
+            continue;
+        }
+        if !stored.object_key.is_empty()
+            && let Err(error) = storage.delete_object(&stored.object_key).await
+        {
+            tracing::warn!(operation_id = %stored.id, error = %error, "expired escrow deletion deferred");
+            result.deferred += 1;
+            continue;
+        }
+        let page = match storage.list_escrow_objects(&stored.id).await {
+            Ok(page) => page,
             Err(error) => {
-                tracing::warn!(operation_id = %stored.id, error = %error, "expired escrow deletion deferred");
+                tracing::warn!(operation_id = %stored.id, error = %error, "expired escrow listing deferred");
                 result.deferred += 1;
+                continue;
             }
+        };
+        let mut deleted_page = true;
+        for key in &page.keys {
+            if let Err(error) = storage.delete_object(key).await {
+                tracing::warn!(operation_id = %stored.id, error = %error, "expired escrow orphan deletion deferred");
+                deleted_page = false;
+            }
+        }
+        // A later pass confirms the prefix is empty before forgetting the
+        // encrypted recipient and the only durable pointer to this request.
+        if !deleted_page || !page.keys.is_empty() || page.truncated {
+            result.deferred += 1;
+            continue;
+        }
+        match crate::data_export_escrow::forget_expired(client, &stored, now).await {
+            Ok(true) => result.completed += 1,
+            Ok(false) | Err(_) => result.deferred += 1,
         }
     }
     Ok(result)

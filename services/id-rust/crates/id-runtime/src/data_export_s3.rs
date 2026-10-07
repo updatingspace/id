@@ -69,7 +69,7 @@ struct ListedObject {
     key: String,
 }
 
-pub struct OwnerObjectPage {
+pub struct ExportObjectPage {
     pub keys: Vec<String>,
     pub truncated: bool,
 }
@@ -424,9 +424,25 @@ impl S3Export {
 
     /// Reads only the first bounded page. Repeated cleanup passes start at
     /// the beginning, so deleted keys cannot be skipped by pagination races.
-    pub async fn list_owner_objects(&self, account_id: i32) -> Result<OwnerObjectPage> {
+    pub async fn list_owner_objects(&self, account_id: i32) -> Result<ExportObjectPage> {
         ensure!(account_id > 0, "invalid export owner");
         let prefix = format!("exports/user_{account_id}/");
+        self.list_objects_with_prefix(&prefix).await
+    }
+
+    /// List only one expired delayed request's objects. An earlier upload
+    /// attempt may have committed without an acknowledgement, so the key
+    /// stored in YDB is not necessarily the only private object to remove.
+    pub async fn list_escrow_objects(&self, id: &str) -> Result<ExportObjectPage> {
+        ensure!(
+            id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit()),
+            "invalid export escrow ID"
+        );
+        self.list_objects_with_prefix(&format!("exports/escrow/{id}/"))
+            .await
+    }
+
+    async fn list_objects_with_prefix(&self, prefix: &str) -> Result<ExportObjectPage> {
         let query = format!(
             "list-type=2&max-keys=25&prefix={}",
             uri_encode(prefix.as_bytes())
@@ -459,12 +475,12 @@ impl S3Export {
         for object in listed.objects {
             validate_key(&object.key)?;
             ensure!(
-                object.key.starts_with(&prefix),
-                "S3 listed another owner's export"
+                object.key.starts_with(prefix),
+                "S3 listed an object outside the requested export prefix"
             );
             keys.push(object.key);
         }
-        Ok(OwnerObjectPage {
+        Ok(ExportObjectPage {
             keys,
             truncated: listed.truncated,
         })

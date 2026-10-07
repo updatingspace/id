@@ -221,6 +221,13 @@ jobs:
           cargo run --locked -p id-runtime --bin idctl -- security-mail-schema
           cargo test --locked -p id-runtime --test email_change_ydb -- --ignored
 
+      - name: Verify delayed export escrow, cancellation and expired object cleanup
+        env:
+          YDB_CREDENTIALS_MODE: anonymous
+          CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: cargo test --locked -p id-runtime --test data_export_escrow_ydb -- --ignored
+
       - name: Verify isolated cutover, delayed export and deletion finalization
         env:
           YDB_ENDPOINT: grpc://127.0.0.1:2137

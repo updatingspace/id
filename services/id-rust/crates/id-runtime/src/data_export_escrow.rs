@@ -487,7 +487,9 @@ pub async fn forget_expired(
     validate_id(&expired.id)?;
     ensure!(
         expired.object_key.is_empty()
-            || (expired.object_key.starts_with("exports/escrow/")
+            || (expired
+                .object_key
+                .starts_with(&format!("exports/escrow/{}/", expired.id))
                 && expired.object_key.len() <= 512),
         "invalid expired escrow key"
     );

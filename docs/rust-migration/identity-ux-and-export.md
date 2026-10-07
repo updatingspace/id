@@ -141,7 +141,15 @@ key rotation/configuration and browser checks remain. A local S3 HTTP
 regression now covers lost single-PUT and multipart-completion acknowledgements:
 the unpublished attempt key is deleted best-effort instead of being left until
 bucket lifecycle. A lost delete acknowledgement or a commit that completes
-after that deletion still needs an orphan-sweep rehearsal. Delayed
+after that deletion can leave an orphan until request expiry. The expiry job
+now lists only that request's escrow prefix in bounded 25-object pages, deletes
+all attempts, and confirms an empty prefix on a later pass before scrubbing the
+encrypted delivery address. A local YDB/loopback S3 test covered 27 orphan
+objects over three passes; production ListBucket permission and the timer's
+expiry path still need rehearsal. The branch's CI workflow includes the escrow
+YDB suite, covering
+owner/operator cancellation, cooldown, failure notice and the bounded orphan
+cleanup. Delayed
 export is not enabled in production.
 
 The isolated cutover/finalization regression now confirms that newly written

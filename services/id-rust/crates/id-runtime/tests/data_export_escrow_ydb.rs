@@ -4,8 +4,9 @@ use anyhow::{Result, ensure};
 use axum::{
     Router,
     body::{Body, to_bytes},
+    extract::State,
     http::{Method, Request, StatusCode},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::any,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -22,10 +23,12 @@ use id_runtime::{
 };
 use lettre::{AsyncSmtpTransport, Tokio1Executor, message::Mailbox};
 use std::{
+    collections::BTreeSet,
     sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::Mutex;
 use tower::ServiceExt;
 use uuid::Uuid;
 use ydb::{Transaction, TxMode, closure};
@@ -220,7 +223,12 @@ async fn encrypted_request_has_cooldown_and_repeatable_schema() -> Result<()> {
     ensure!(sealed_state == "sealed" && sealed_key == object_key && manifest == "{}");
     let mail_config = data_export_mail::MailConfig::new(key.clone(), "http://localhost:8080/")?;
     let notice = send_one_mail(&client, &format!("{id}:notice"), &mail_config).await?;
-    ensure!(notice.contains("UpdSpace ID") && !notice.contains("data/export"));
+    ensure!(
+        notice.contains("UpdSpace ID")
+            && notice.contains("/data/export/cancel")
+            && !notice.contains("/data/export?id="),
+        "notice must allow cancellation without granting archive access"
+    );
     let repeated = send_one_mail(&client, &format!("{id}:notice"), &mail_config).await;
     ensure!(repeated.is_err(), "sent notice was delivered twice");
 
@@ -729,4 +737,164 @@ async fn empty_owner_s3() -> Result<(
         "test-secret".into(),
     )?;
     Ok((storage, server))
+}
+
+#[tokio::test]
+#[ignore = "requires disposable local /local YDB"]
+async fn expired_escrow_removes_unrecorded_upload_attempts_before_forgetting() -> Result<()> {
+    ensure!(
+        matches!(
+            std::env::var("YDB_ENDPOINT")?.as_str(),
+            "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
+        ) && std::env::var("YDB_DATABASE")? == "/local",
+        "test requires local YDB"
+    );
+    let client = id_runtime::connect_ydb().await?;
+    ensure_schema(&client).await?;
+    let id = Uuid::new_v4().simple().to_string();
+    let now = SystemTime::now();
+    let recipient = ExportEscrowKey::from_base64(&STANDARD.encode([0x73; 32]))?
+        .seal_recipient(&id, "escrow-cleanup@example.invalid")?;
+    let tx_id = id.clone();
+    client
+        .query_client()
+        .retry_tx(closure!(
+            [tx_id, recipient],
+            async |tx: &mut Transaction| { insert_request_tx(tx, tx_id, 42, recipient, now).await }
+        ))
+        .with_mode(TxMode::SerializableReadWrite)
+        .idempotent(false)
+        .await?;
+    let expired_at = now - Duration::from_secs(1);
+    client.query_client().exec("UPDATE id_data_export_escrow SET state = 'failed', expires_at = CAST($expired AS Datetime) WHERE id = $id")
+        .param("$expired", expired_at).param("$id", id.clone()).await?;
+
+    struct EscrowS3 {
+        id: String,
+        keys: BTreeSet<String>,
+    }
+    async fn s3(State(state): State<Arc<Mutex<EscrowS3>>>, request: Request<Body>) -> Response {
+        let mut state = state.lock().await;
+        let prefix = format!("exports/escrow/{}/", state.id);
+        if request.method() == Method::GET && request.uri().path() == "/private-exports" {
+            let expected = format!("prefix=exports%2Fescrow%2F{}%2F", state.id);
+            assert!(request.uri().query().unwrap_or("").contains(&expected));
+            let contents = state
+                .keys
+                .iter()
+                .take(25)
+                .map(|key| format!("<Contents><Key>{key}</Key></Contents>"))
+                .collect::<String>();
+            let truncated = state.keys.len() > 25;
+            let continuation = if truncated {
+                "<NextContinuationToken>next-page</NextContinuationToken>"
+            } else {
+                ""
+            };
+            return Response::new(Body::from(format!(
+                "<ListBucketResult><Name>private-exports</Name><Prefix>{prefix}</Prefix><IsTruncated>{truncated}</IsTruncated>{contents}{continuation}</ListBucketResult>"
+            )));
+        }
+        if request.method() == Method::DELETE {
+            let key = request
+                .uri()
+                .path()
+                .strip_prefix("/private-exports/")
+                .unwrap_or("");
+            assert!(key.starts_with(&prefix), "cleanup crossed escrow prefix");
+            state.keys.remove(key);
+            return StatusCode::NO_CONTENT.into_response();
+        }
+        StatusCode::BAD_REQUEST.into_response()
+    }
+    let keys = (0..27)
+        .map(|attempt| format!("exports/escrow/{id}/attempt-{attempt:02}.ndjson"))
+        .collect();
+    let state = Arc::new(Mutex::new(EscrowS3 {
+        id: id.clone(),
+        keys,
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+    let server = tokio::spawn({
+        let state = state.clone();
+        async move {
+            let _ = axum::serve(listener, Router::new().fallback(any(s3)).with_state(state)).await;
+        }
+    });
+    let storage = id_runtime::data_export_s3::S3Export::new(
+        &format!("http://127.0.0.1:{port}/"),
+        "private-exports",
+        "ru-central1",
+        "test-access".into(),
+        "test-secret".into(),
+    )?;
+    let wrong_key = format!("exports/escrow/{}/foreign.ndjson", "0".repeat(32));
+    client
+        .query_client()
+        .exec("UPDATE id_data_export_escrow SET object_key = $key WHERE id = $id")
+        .param("$key", wrong_key)
+        .param("$id", id.clone())
+        .await?;
+    let crossed =
+        id_runtime::data_export_job::clean_expired_escrow(&client, &storage, 100, now).await?;
+    ensure!(
+        crossed.deferred >= 1 && state.lock().await.keys.len() == 27,
+        "cleanup followed an object key outside its request"
+    );
+    client
+        .query_client()
+        .exec("UPDATE id_data_export_escrow SET object_key = '' WHERE id = $id")
+        .param("$id", id.clone())
+        .await?;
+    let first =
+        id_runtime::data_export_job::clean_expired_escrow(&client, &storage, 100, now).await?;
+    ensure!(
+        first.deferred >= 1 && state.lock().await.keys.len() == 2,
+        "first cleanup pass did not respect bounded listing"
+    );
+    let mut row = client
+        .query_client()
+        .query_row("SELECT state FROM id_data_export_escrow WHERE id = $id")
+        .param("$id", id.clone())
+        .await?;
+    let status: String = row.remove_field_by_name("state")?.try_into()?;
+    ensure!(
+        status == "failed",
+        "escrow was forgotten before empty-prefix confirmation"
+    );
+
+    let second =
+        id_runtime::data_export_job::clean_expired_escrow(&client, &storage, 100, now).await?;
+    ensure!(
+        second.deferred >= 1 && state.lock().await.keys.is_empty(),
+        "remaining orphan objects were not removed"
+    );
+    let third =
+        id_runtime::data_export_job::clean_expired_escrow(&client, &storage, 100, now).await?;
+    ensure!(
+        third.completed >= 1,
+        "empty escrow prefix did not complete cleanup"
+    );
+    let mut row = client
+        .query_client()
+        .query_row(
+            "SELECT state, encrypted_email, object_key FROM id_data_export_escrow WHERE id = $id",
+        )
+        .param("$id", id.clone())
+        .await?;
+    let status: String = row.remove_field_by_name("state")?.try_into()?;
+    let email: String = row.remove_field_by_name("encrypted_email")?.try_into()?;
+    let object_key: String = row.remove_field_by_name("object_key")?.try_into()?;
+    ensure!(
+        status == "expired" && email.is_empty() && object_key.is_empty(),
+        "expired escrow retained private data"
+    );
+    client
+        .query_client()
+        .exec("DELETE FROM id_data_export_escrow WHERE id = $id")
+        .param("$id", id)
+        .await?;
+    server.abort();
+    Ok(())
 }
