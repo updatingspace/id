@@ -103,6 +103,14 @@ button:disabled { cursor: not-allowed; }
 [role="status"]:not([hidden]) { padding: .75rem 1rem; border-radius: .5rem; background: #eef3fc; }
 .session-row { min-height: 4.5rem; }
 .session-row button { flex: none; }
+.passkey-row { flex-wrap: wrap; }
+.session-row .passkey-editor { display: block; flex-basis: 100%; width: 100%; padding: 1rem; border: 1px solid var(--line); border-radius: .6rem; background: var(--canvas); }
+.passkey-editor label { margin-top: 0; }
+.passkey-editor input { width: min(100%, 28rem); }
+.session-row .passkey-actions { display: flex; flex-flow: row wrap; gap: .6rem; margin-top: .8rem; }
+.passkey-editor p { margin: 0; }
+.passkey-editor [data-passkey-delete-confirm] { border-color: #a22838; background: #a22838; color: #fff; }
+.passkey-editor [data-passkey-delete-confirm]:not(:disabled):hover { background: #821d2b; }
 .review-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
 .review-actions button { min-height: 3rem; }
 .export-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; padding: 0; margin: 1.4rem 0; list-style: none; counter-reset: export-step; }
@@ -128,4 +136,5 @@ button:disabled { cursor: not-allowed; }
   input, select { border-color: #586780; }
   [role="alert"]:not([hidden]) { background: #3b2028; border-color: #8e4958; color: #ffe1e5; }
   [role="status"]:not([hidden]) { background: #263b59; }
+  .passkey-editor [data-passkey-delete-confirm] { border-color: #e27380; background: #a22838; color: #fff; }
 }

@@ -4,11 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Безопасность — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-1" />
+  <link rel="stylesheet" href="/_id/account.css?v=ux-20261007-3" />
   {% if show_totp_setup %}<script src="/_id/totp.js" defer></script>{% endif %}
   {% if show_totp_disable %}<script src="/_id/totp-disable.js" defer></script>{% endif %}
   {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js" defer></script>{% endif %}
-  {% if show_passkey_script %}<script src="/_id/passkeys.js" defer></script>{% endif %}
+  {% if show_passkey_script %}<script src="/_id/passkeys.js?v=20261007-2" defer></script>{% endif %}
   {% if password_change_enabled %}<script src="/_id/password-change.js" defer></script>{% endif %}
   {% if logout_enabled %}<script src="/_id/account.js" defer></script>{% endif %}
 </head>
@@ -86,13 +86,28 @@
       {% if passkeys.is_empty() %}<p>Ключей доступа нет.</p>{% endif %}
       <ul class="session-list">
         {% for key in passkeys %}
-        <li class="session-row"><div>
+        <li class="session-row passkey-row"><div>
           <strong>{{ key.name }}</strong>
           {% if key.is_passwordless %}<small>Подходит для входа без пароля</small>{% endif %}
         </div>
         {% if key.can_manage %}<div>
           <button type="button" data-passkey-rename="{{ key.id }}">Переименовать</button>
           <button type="button" data-passkey-delete="{{ key.id }}">Удалить</button>
+        </div>
+        <div class="passkey-editor" data-passkey-editor hidden>
+          <label for="passkey-name-{{ key.id }}">Новое название ключа</label>
+          <input id="passkey-name-{{ key.id }}" value="{{ key.name }}" maxlength="80" autocomplete="off" />
+          <div class="passkey-actions">
+            <button type="button" data-passkey-rename-save="{{ key.id }}">Сохранить название</button>
+            <button type="button" data-passkey-cancel>Отмена</button>
+          </div>
+        </div>
+        <div class="passkey-editor" data-passkey-delete-review hidden>
+          <p>Удалить ключ «{{ key.name }}»? Вы больше не сможете использовать его для входа. Если это последний способ MFA, резервные коды также будут удалены.</p>
+          <div class="passkey-actions">
+            <button type="button" data-passkey-delete-confirm="{{ key.id }}">Да, удалить ключ</button>
+            <button type="button" data-passkey-cancel>Оставить ключ</button>
+          </div>
         </div>{% endif %}
         </li>
         {% endfor %}

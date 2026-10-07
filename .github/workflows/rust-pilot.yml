@@ -197,6 +197,9 @@ jobs:
       - name: Browser → Topcoat passkey registration and recovery-code presentation
         working-directory: services/id-rust
         run: node scripts/check-web-passkey-registration-browser.cjs
+      - name: Browser → Topcoat inline passkey management
+        working-directory: services/id-rust
+        run: node scripts/check-web-passkey-management-browser.cjs
       - name: Browser → Topcoat public export-link security and expiry
         working-directory: services/id-rust
         run: node scripts/check-web-export-redeem-browser.cjs

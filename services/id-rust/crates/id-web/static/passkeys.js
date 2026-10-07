@@ -178,17 +178,52 @@
   }
 
   document.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-passkey-rename],button[data-passkey-delete]");
+    const button = event.target.closest("button[data-passkey-rename],button[data-passkey-delete],button[data-passkey-rename-save],button[data-passkey-delete-confirm],button[data-passkey-cancel]");
     if (!button || button.disabled) return;
+    const row = button.closest(".passkey-row");
+    if (!row) return;
+    const editor = row.querySelector("[data-passkey-editor]");
+    const deletion = row.querySelector("[data-passkey-delete-review]");
     if (button.hasAttribute("data-passkey-rename")) {
-      const id = button.dataset.passkeyRename;
-      const name = window.prompt("Новое название ключа доступа", button.closest(".session-row")?.querySelector("strong")?.textContent || "");
-      if (name === null || !name.trim()) return;
-      void submit(button, "/api/v1/auth/passkeys/rename", { authenticator_id: id, new_name: name.trim() });
-    } else {
-      const id = button.dataset.passkeyDelete;
-      if (!window.confirm("Удалить этот ключ доступа? Если это последний способ MFA, резервные коды также будут удалены.")) return;
-      void submit(button, "/api/v1/auth/passkeys/delete", { ids: [id] });
+      error.hidden = true;
+      deletion.hidden = true;
+      editor.hidden = false;
+      const input = editor.querySelector("input");
+      input.value = row.querySelector("strong").textContent;
+      input.focus();
+    } else if (button.hasAttribute("data-passkey-delete")) {
+      error.hidden = true;
+      editor.hidden = true;
+      deletion.hidden = false;
+      deletion.querySelector("[data-passkey-cancel]").focus();
+    } else if (button.hasAttribute("data-passkey-cancel")) {
+      const wasDeletion = !deletion.hidden;
+      editor.hidden = true;
+      deletion.hidden = true;
+      row.querySelector(wasDeletion ? "[data-passkey-delete]" : "[data-passkey-rename]").focus();
+    } else if (button.hasAttribute("data-passkey-rename-save")) {
+      const name = editor.querySelector("input").value.trim();
+      if (!name || [...name].length > 80) {
+        error.textContent = "Введите название ключа длиной до 80 символов.";
+        error.hidden = false;
+        editor.querySelector("input").focus();
+        return;
+      }
+      void submit(button, "/api/v1/auth/passkeys/rename", { authenticator_id: button.dataset.passkeyRenameSave, new_name: name });
+    } else if (button.hasAttribute("data-passkey-delete-confirm")) {
+      void submit(button, "/api/v1/auth/passkeys/delete", { ids: [button.dataset.passkeyDeleteConfirm] });
     }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const row = event.target.closest(".passkey-row");
+    if (!row) return;
+    const editor = row.querySelector("[data-passkey-editor]");
+    const deletion = row.querySelector("[data-passkey-delete-review]");
+    if (editor.hidden && deletion.hidden) return;
+    const wasDeletion = !deletion.hidden;
+    editor.hidden = true;
+    deletion.hidden = true;
+    row.querySelector(wasDeletion ? "[data-passkey-delete]" : "[data-passkey-rename]").focus();
   });
 })();
