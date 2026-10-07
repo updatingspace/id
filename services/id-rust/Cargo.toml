@@ -14,7 +14,7 @@ anyhow = "1.0"
 aes-gcm = "=0.10.3"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["multipart"] }
-base64 = "0.22"
+base64 = "0.23"
 bcrypt = "0.17"
 clap = { version = "4.5", features = ["derive", "env"] }
 cookie = "=0.18.2"
