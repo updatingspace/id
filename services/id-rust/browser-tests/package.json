@@ -4,6 +4,6 @@
   "version": "1.0.0",
   "description": "Browser test runner for the Rust API and Topcoat UI",
   "devDependencies": {
-    "@playwright/test": "1.61.1"
+    "@playwright/test": "1.63.0"
   }
 }
