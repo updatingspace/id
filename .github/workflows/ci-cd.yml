@@ -51,6 +51,9 @@ jobs:
       - name: Verify delayed-export deploy gate
         working-directory: .
         run: node scripts/ci/test-check-yc-delayed-export.mjs
+      - name: Verify production CI event gate
+        working-directory: .
+        run: node scripts/ci/test-verify-yc-workflow-event.mjs
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Install WebAuthn build dependencies
