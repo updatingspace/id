@@ -43,4 +43,6 @@ must pass on the tested Rust revision before Gateway routes are exposed.
 
 The private backend configuration and runtime variables are not checked in.
 The 2026-10-07 checkout had neither, so no state mutation or OpenTofu apply
-was performed during this inspection.
+was performed during this inspection. A `tofu state rm -dry-run` against a
+private temporary copy of serial 104 matched exactly the six retired
+addresses above and was discarded without writing to the production state.
