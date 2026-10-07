@@ -39,10 +39,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
+          set -o pipefail
           rustup toolchain install 1.98.1 --profile minimal
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
-          cargo run --locked -p id-runtime --bin idctl -- verify-tested-revision
+          if cargo run --locked -p id-runtime --bin idctl -- verify-tested-revision 2>&1 | tee "$RUNNER_TEMP/id-verify-revision.log"; then
+            exit 0
+          fi
+          node -e '
+            const fs = require("node:fs");
+            const output = fs.readFileSync(process.argv[1], "utf8").replace(/\x1b\[[0-9;]*m/g, "");
+            const lines = output.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+            const errors = lines.filter(line => /^(Error:|Caused by:|error(?:\[|:))/i.test(line));
+            const message = (errors.slice(0, 8).join(" | ") || lines.slice(-12).join(" | ") || "revision verification failed").slice(0, 1500);
+            console.log(`::error title=Revision verification::${message.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A")}`);
+          ' "$RUNNER_TEMP/id-verify-revision.log"
+          exit 1
 
   build:
     name: Build and push Rust images
