@@ -197,6 +197,9 @@ jobs:
       - name: Browser → Topcoat passkey registration and recovery-code presentation
         working-directory: services/id-rust
         run: node scripts/check-web-passkey-registration-browser.cjs
+      - name: Browser → Topcoat public export-link security and expiry
+        working-directory: services/id-rust
+        run: node scripts/check-web-export-redeem-browser.cjs
       - name: Browser → Topcoat → Rust passkey login on local YDB
         run: bash services/id-rust/scripts/smoke-web-passkey-live.sh
       - name: Native browser WebAuthn → Topcoat → Rust passkey registration on local YDB

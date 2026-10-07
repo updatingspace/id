@@ -265,6 +265,9 @@ jobs:
           cargo build --locked -p id-runtime --bins -p id-web
           bash scripts/smoke-web-recovery-live.sh
 
+      - name: Verify public export link fragment, download and expiry in Chromium
+        run: node scripts/check-web-export-redeem-browser.cjs
+
       - name: Verify Chromium to Topcoat to Rust signup on local YDB
         env:
           CARGO_INCREMENTAL: "0"
