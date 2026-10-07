@@ -215,6 +215,6 @@ jobs:
             EXPECTED_BUILD_ID="$DEPLOY_SHA" node scripts/ci/check-yc-delayed-export.mjs
             node scripts/ci/smoke-yc-rust-http.mjs delayed-export
           fi
-      - name: Restore previous Rust images after failed deployment
+      - name: Restore previous Rust revisions after failed deployment
         if: failure() && steps.capture.outcome == 'success'
         run: node scripts/ci/rollback-yc-rust-revisions.mjs rollback "$RUNNER_TEMP/id-rust-revisions.json"

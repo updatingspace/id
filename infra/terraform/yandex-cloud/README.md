@@ -8,6 +8,9 @@ builds tested Rust images and updates the **existing** API, web and jobs
 containers. The API image is deployed to the main, sessions-read and
 mutations containers because the live Gateway sends requests to all three;
 all five active Rust containers are included in revision capture and rollback.
+Rollback restores the captured image, environment, secret bindings and runtime
+limits from each prior revision. It refuses to overwrite a revision changed
+outside the deployment. The local CI double exercises both outcomes.
 The workflow does not apply OpenTofu or publish a React bundle.
 
 The checked-in [`production.performance.tfvars`](production.performance.tfvars)

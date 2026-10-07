@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Capture non-secret revision identities; restore only images deployed by this run.
+// Capture revision identities and restore the complete previous configuration.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 
@@ -15,6 +15,9 @@ if (!['capture', 'rollback'].includes(mode) || !manifestPath ||
     services.some(([, id, digest]) => !/^bba[a-z0-9]{17}$/.test(id ?? '') || !/^sha256:[0-9a-f]{64}$/.test(digest ?? ''))) {
   throw new Error('usage: rollback-yc-rust-revisions.mjs capture|rollback MANIFEST with container IDs and image digests in environment');
 }
+if (mode === 'rollback' && !/^[0-9a-f]{40}$/.test(process.env.DEPLOY_SHA ?? '')) {
+  throw new Error('rollback requires the tested DEPLOY_SHA');
+}
 
 function yc(args) {
   return JSON.parse(execFileSync('yc', args, {
@@ -25,10 +28,9 @@ function yc(args) {
 }
 function active(containerId) {
   const revisions = yc(['serverless', 'container', 'revision', 'list', '--container-id', containerId, '--format', 'json']);
-  const latest = revisions.filter((revision) => revision.status === 'ACTIVE')
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-  if (!latest) throw new Error(`no active revision for ${containerId}`);
-  return yc(['serverless', 'container', 'revision', 'get', latest.id, '--format', 'json']);
+  const activeRevisions = revisions.filter((revision) => revision.status === 'ACTIVE');
+  if (activeRevisions.length !== 1) throw new Error(`expected one active revision for ${containerId}`);
+  return yc(['serverless', 'container', 'revision', 'get', activeRevisions[0].id, '--format', 'json']);
 }
 
 if (mode === 'capture') {
@@ -40,32 +42,42 @@ if (mode === 'capture') {
         !/^sha256:[0-9a-f]{64}$/.test(imageDigest ?? '')) {
       throw new Error(`cannot capture active ${name} revision`);
     }
-    return { name, id, imageUrl, imageDigest, buildId: revision.image.environment?.BUILD_ID ?? '', deployedDigest };
+    return { name, id, revisionId: revision.id, imageUrl, imageDigest, deployedDigest };
   });
   writeFileSync(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
   chmodSync(manifestPath, 0o600);
   console.log('Captured previous Rust revision identities.');
 } else {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  for (const previous of manifest.reverse()) {
+  const planned = manifest.reverse().map((previous) => {
     const current = active(previous.id);
-    if (current.image.image_digest === previous.imageDigest) continue;
-    if (current.image.image_digest !== previous.deployedDigest) {
-      throw new Error(`refusing rollback of ${previous.name}: image changed outside this deployment`);
+    if (!/^bba[a-z0-9]{17}$/.test(previous.revisionId ?? '')) {
+      throw new Error(`missing captured revision for ${previous.name}`);
+    }
+    if (current.id === previous.revisionId) return null;
+    if (current.image.image_digest !== previous.deployedDigest ||
+        current.image.environment?.BUILD_ID !== process.env.DEPLOY_SHA ||
+        current.description !== `Rust revision from ${previous.revisionId}; ${previous.deployedDigest}`) {
+      throw new Error(`refusing rollback of ${previous.name}: active revision differs from this deployment`);
     }
     const repository = previous.imageUrl.match(/^(.+?)(?::[^:@]+|@sha256:[0-9a-f]{64})$/u)?.[1];
     if (!repository) throw new Error(`invalid previous ${previous.name} image URL`);
     const image = `${repository}@${previous.imageDigest}`;
+    return { previous, current, image };
+  });
+  for (const item of planned) {
+    if (!item) continue;
+    const { previous, current, image } = item;
     const args = [
       'scripts/ci/deploy-yc-rust-revision.mjs',
       previous.id,
-      current.id,
+      previous.revisionId,
       image,
-      '--set-env',
-      `BUILD_ID=${previous.buildId}`,
+      '--expect-active-revision',
+      current.id,
       '--apply',
     ];
     execFileSync('node', args, { stdio: 'inherit' });
-    console.log(`Restored previous ${previous.name} image digest.`);
+    console.log(`Restored previous ${previous.name} image and configuration.`);
   }
 }
