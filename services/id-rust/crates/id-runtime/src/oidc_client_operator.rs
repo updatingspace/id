@@ -43,6 +43,16 @@ pub struct ClientSpec {
 }
 
 impl ClientSpec {
+    /// Hash the validated typed configuration, not the input JSON formatting.
+    /// Field order and expanded defaults are stable; array order remains exact.
+    fn review_digest(&self) -> Result<String> {
+        self.validate()?;
+        let mut hash = Sha256::new();
+        hash.update(b"id-oidc-client-spec-v1\0");
+        hash.update(serde_json::to_vec(self)?);
+        Ok(hex::encode(hash.finalize()))
+    }
+
     pub fn validate(&self) -> Result<()> {
         validate_id(&self.client_id)?;
         ensure!(
@@ -106,9 +116,27 @@ pub struct Report {
     pub status: &'static str,
     pub client_id: String,
     pub revision: Option<String>,
+    pub review_digest: Option<String>,
     pub is_public: bool,
     pub secret_generated: bool,
     pub configuration: ClientSpec,
+}
+
+#[derive(Serialize)]
+pub struct Inspection {
+    pub status: &'static str,
+    pub client_id: String,
+    pub revision: String,
+    pub is_public: bool,
+    pub configuration: InspectedConfiguration,
+}
+
+#[derive(Serialize)]
+pub struct InspectedConfiguration {
+    #[serde(flatten)]
+    pub spec: ClientSpec,
+    pub logo_url: String,
+    pub response_types: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -351,17 +379,67 @@ fn persist_secret(path: &Path, client_id: &str, secret: &str, revision: &str) ->
     Ok(())
 }
 
+/// Read only: uses the same password/MFA/role proof and snapshot recheck as mutations.
+pub async fn show(
+    client: &Client,
+    codec: Arc<SessionCodec>,
+    session: String,
+    password: String,
+    client_id: String,
+) -> Result<Inspection> {
+    validate_id(&client_id)?;
+    let actor = operator(client, codec.clone(), session, password).await?;
+    let record = review(client, codec, actor, client_id)
+        .await?
+        .ok_or_else(|| anyhow!("client_id not found"))?;
+    Ok(Inspection {
+        status: "found",
+        revision: record.revision()?,
+        client_id: record.client_id.clone(),
+        is_public: record.is_public,
+        configuration: InspectedConfiguration {
+            spec: record
+                .spec()
+                .map_err(|_| anyhow!("invalid stored client configuration"))?,
+            logo_url: record.logo_url,
+            response_types: serde_json::from_str(&record.responses)
+                .map_err(|_| anyhow!("invalid stored client configuration"))?,
+        },
+    })
+}
+
+pub struct Creation<'a> {
+    pub spec: ClientSpec,
+    pub expected_config_digest: Option<String>,
+    pub apply: bool,
+    pub secret_output: Option<&'a Path>,
+}
+
 /// Validate and review without any writes unless apply is true.
 pub async fn create(
     client: &Client,
     codec: Arc<SessionCodec>,
     session: String,
     password: String,
-    spec: ClientSpec,
-    apply: bool,
-    secret_output: Option<&Path>,
+    input: Creation<'_>,
 ) -> Result<Report> {
-    spec.validate()?;
+    let Creation {
+        spec,
+        expected_config_digest,
+        apply,
+        secret_output,
+    } = input;
+    let review_digest = spec.review_digest()?;
+    ensure!(
+        !apply || expected_config_digest.is_some(),
+        "create apply requires --expected-config-digest from dry-run"
+    );
+    if let Some(expected) = expected_config_digest {
+        ensure!(
+            expected == review_digest,
+            "reviewed client configuration changed"
+        );
+    }
     ensure!(
         !spec.is_public || secret_output.is_none(),
         "public clients must not have a secret output"
@@ -381,6 +459,7 @@ pub async fn create(
         status: "dry_run",
         client_id: spec.client_id.clone(),
         revision: None,
+        review_digest: Some(review_digest),
         is_public: spec.is_public,
         secret_generated: false,
         configuration: spec.clone(),
@@ -461,6 +540,7 @@ pub async fn rotate_secret(
         status: "dry_run",
         client_id: record.client_id.clone(),
         revision: Some(previous.clone()),
+        review_digest: None,
         is_public: false,
         secret_generated: false,
         configuration: record
@@ -526,7 +606,7 @@ async fn commit(
                 Ok(())
             })).with_mode(TxMode::SerializableReadWrite).idempotent(false).timeout(Duration::from_secs(30)).await
         }
-    }).await.map_err(|_| anyhow!("client mutation rejected or commit result uncertain; for a confidential client, retain the secret file and run oidc-client-rotate-secret with the same --client-id and operator files, without --apply or --expected-revision, to compare revisions; for a public client, inspect its read-only configuration; do not repeat apply blindly"))
+    }).await.map_err(|_| anyhow!("client mutation rejected or commit result uncertain; retain any secret file and run oidc-client-show with the same --client-id and operator files to inspect current configuration and revision; do not repeat apply blindly"))
 }
 
 #[cfg(test)]
@@ -580,6 +660,32 @@ mod tests {
     }
 
     #[test]
+    fn review_digest_uses_validated_values_and_expanded_defaults() -> Result<()> {
+        let expected = spec().review_digest()?;
+        let mut json = serde_json::to_value(spec())?;
+        let fields = json
+            .as_object_mut()
+            .ok_or_else(|| anyhow!("config object"))?;
+        fields.remove("description");
+        fields.remove("is_first_party");
+        let reformatted: ClientSpec = serde_json::from_slice(&serde_json::to_vec_pretty(&json)?)?;
+        assert_eq!(reformatted.review_digest()?, expected);
+        let mut changed = spec();
+        changed.is_first_party = true;
+        assert_ne!(changed.review_digest()?, expected);
+        changed = spec();
+        changed
+            .redirect_uris
+            .push("https://second.example.invalid/callback".into());
+        let two_redirects = changed.review_digest()?;
+        changed.redirect_uris.reverse();
+        assert_ne!(changed.review_digest()?, two_redirects);
+        changed.redirect_uris = vec!["https://*.example.invalid/callback".into()];
+        assert!(changed.review_digest().is_err());
+        Ok(())
+    }
+
+    #[test]
     fn secret_file_is_private_exclusive_and_not_in_reports() -> Result<()> {
         let directory =
             std::env::temp_dir().join(format!("id-operator-file-{}", uuid::Uuid::new_v4()));
@@ -594,6 +700,7 @@ mod tests {
                 status: "created",
                 client_id: "test".into(),
                 revision: Some("revision".into()),
+                review_digest: None,
                 is_public: false,
                 secret_generated: true,
                 configuration: spec(),

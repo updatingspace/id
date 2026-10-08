@@ -26,12 +26,21 @@ enum Command {
     OidcClientCreate {
         #[arg(long)]
         config: PathBuf,
+        #[arg(long)]
+        expected_config_digest: Option<String>,
         #[command(flatten)]
         operator: oidc_clients::OperatorFiles,
         #[arg(long)]
         secret_output: Option<PathBuf>,
         #[arg(long)]
         apply: bool,
+    },
+    /// Read the redacted configuration and current revision of any OIDC client.
+    OidcClientShow {
+        #[arg(long)]
+        client_id: String,
+        #[command(flatten)]
+        operator: oidc_clients::OperatorFiles,
     },
     /// Review or rotate a confidential client's secret, with stale-review protection.
     OidcClientRotateSecret {
@@ -228,11 +237,25 @@ async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::OidcClientCreate {
             config,
+            expected_config_digest,
             operator,
             secret_output,
             apply,
         } => {
-            oidc_clients::create(config, operator, secret_output, apply).await?;
+            oidc_clients::create(
+                config,
+                expected_config_digest,
+                operator,
+                secret_output,
+                apply,
+            )
+            .await?;
+        }
+        Command::OidcClientShow {
+            client_id,
+            operator,
+        } => {
+            oidc_clients::show(client_id, operator).await?;
         }
         Command::OidcClientRotateSecret {
             client_id,

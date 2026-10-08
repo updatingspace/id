@@ -2,7 +2,7 @@
 
 use anyhow::{Result, anyhow, ensure};
 use clap::Args;
-use id_runtime::oidc_client_operator::{self, ClientSpec, Rotation};
+use id_runtime::oidc_client_operator::{self, ClientSpec, Creation, Rotation};
 use std::{fs::File, io::Read, path::PathBuf};
 
 #[derive(Args)]
@@ -26,6 +26,7 @@ impl OperatorFiles {
 
 pub async fn create(
     config: PathBuf,
+    expected_config_digest: Option<String>,
     operator: OperatorFiles,
     output: Option<PathBuf>,
     apply: bool,
@@ -54,11 +55,26 @@ pub async fn create(
         codec,
         session,
         password,
-        spec,
-        apply,
-        output.as_deref(),
+        Creation {
+            spec,
+            expected_config_digest,
+            apply,
+            secret_output: output.as_deref(),
+        },
     )
     .await?;
+    println!("{}", serde_json::to_string(&report)?);
+    Ok(())
+}
+
+pub async fn show(client_id: String, operator: OperatorFiles) -> Result<()> {
+    let (session, password) = operator.read()?;
+    let codec = id_runtime::session_store::session_codec_from_env()
+        .map_err(|_| anyhow!("operator session verification configuration unavailable"))?;
+    let client = id_runtime::connect_ydb()
+        .await
+        .map_err(|_| anyhow!("YDB connection unavailable"))?;
+    let report = oidc_client_operator::show(&client, codec, session, password, client_id).await?;
     println!("{}", serde_json::to_string(&report)?);
     Ok(())
 }
