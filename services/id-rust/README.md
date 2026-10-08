@@ -15,10 +15,11 @@
 аккаунта через новый публичный API пока выключено. Открытые условия описаны в
 [контракте интерфейса и экспорта](../../docs/rust-migration/identity-ux-and-export.md).
 
-Ниже сохранены результаты переходных проверок с Python до удаления его
-исходников 7 октября 2026 года. Они описывают совместимость данных, а не
-требование запускать Django: текущие локальные сценарии используют Rust `idctl`
-для подготовки YDB. Форматы credentials, имена таблиц и действующие ключи
+Ниже сохранены краткие исторические результаты локальных и production-проверок;
+они не подтверждают текущую приёмку. Межверсионные проверки с Python выполнены
+до удаления его исходников 7 октября 2026 года и описывают совместимость данных.
+Текущие локальные сценарии используют Rust `idctl` для подготовки YDB, без
+запуска Django. Форматы credentials, имена таблиц и действующие ключи
 сохраняются независимо от удаления прежнего runtime.
 
 ## Состав
@@ -387,8 +388,7 @@ WebAuthn и других интерактивных действий. Веб-с�
   отозвать выбранный грант. Отзыв объединяет consent, токены, ожидающие codes и
   requests в одной YDB-транзакции; реальная локальная YDB и Chromium прошли
   проверку. Production-включение запрещено до переноса OIDC выдачи и проверки
-  гонок выдачи против отзыва. Детали —
-  [в отчёте](../../docs/rust-migration/verification-2026-10-04-oauth-apps.md).
+  гонок выдачи против отзыва.
   `POST /oauth/token` с `grant_type=authorization_code`, `POST /oauth/revoke`,
   `GET/POST /oauth/userinfo`, discovery по
   `/.well-known/openid-configuration` и JWKS по
@@ -422,12 +422,7 @@ WebAuthn и других интерактивных действий. Веб-с�
   Отзыв старого refresh после ротации закрывает всю family. Неизвестный токен
   не раскрывает своё существование. Для действующих refresh нужно сохранять
   соль, использовавшуюся Python-версией. Межверсионная ротация на общей
-  локальной YDB прошла; Gateway и внешний RP ещё не проверены. Детали — [обмен](../../docs/rust-migration/verification-2026-10-04-oidc-code.md),
-  [refresh](../../docs/rust-migration/verification-2026-10-04-oidc-refresh.md),
-  [отзыв](../../docs/rust-migration/verification-2026-10-04-oidc-revoke.md),
-  [discovery](../../docs/rust-migration/verification-2026-10-04-oidc-discovery.md),
-  [JWKS](../../docs/rust-migration/verification-2026-10-04-oidc-jwks.md) и
-  [UserInfo](../../docs/rust-migration/verification-2026-10-04-oidc-userinfo.md).
+  локальной YDB прошла; Gateway и внешний RP ещё не проверены.
   Отдельный `ID_OIDC_AUTHORIZE_PILOT_ENABLED=true` открывает локальные
   `/oauth/authorize`, `/prepare`, `/approve` и `/deny`: повторный SSO выдаёт
   code напрямую, первый consent проходит через Topcoat
@@ -436,8 +431,7 @@ WebAuthn и других интерактивных действий. Веб-с�
   `scripts/smoke-web-consent-live.sh` после сборки бинарников и подготовки схемы
   командами `idctl legacy-schema --apply` и `idctl cache-schema`;
   он проверяет реальный SSR, CSRF, PKCE, replay и отказ. Оба флага ограничены
-  пилотом; подробности —
-  [в проверке](../../docs/rust-migration/verification-2026-10-04-oidc-authorize.md).
+  пилотом.
   `ID_AUTH_SECURITY_READ_PILOT_ENABLED=true` открывает чтение
   `/mfa/status`, `/passkeys`, `/email` и единый `/security` в авторизованном
   снимке YDB. При `ID_WEB_SECURITY_PILOT_ENABLED=true` Topcoat показывает
@@ -473,14 +467,11 @@ WebAuthn и других интерактивных действий. Веб-с�
   требуется отдельный `ID_AUTH_PASSKEY_REGISTRATION_ENABLED=true`, общий
   `ID_MFA_SEAL_KEY_B64`, готовый passkey-index и точные Gateway-маршруты
   `/passkeys/begin` и `/passkeys/complete`; одного флага UI недостаточно.
-  Детали прежней проверки чтения —
-  [в отчёте](../../docs/rust-migration/verification-2026-10-04-security-read.md).
   В production TOTP и регенерация резервных кодов доступны через отдельные
   `ID_AUTH_TOTP_ENABLED=true` и `ID_WEB_TOTP_ENABLED=true` с точным Gateway
   переключателем `gateway_rust_totp_management=true`. Нужны общий MFA seal key,
-  HTTPS trusted origin, secure cookies и ранний Rust rollout. Текущее
-  состояние и ограничение по authenticated E2E записаны в
-  [production-отчёте](../../docs/rust-migration/production-totp-management-2026-10-06.md).
+  HTTPS trusted origin, secure cookies и ранний Rust rollout.
+  Аутентифицированный E2E требует отдельной приёмки.
   Для нового TOTP локальный пилот включается отдельно:
   `ID_AUTH_TOTP_PILOT_ENABLED=true` включает `/mfa/totp/begin`,
   `/mfa/totp/confirm`, `/mfa/totp/disable` и `/mfa/recovery/regenerate`,
@@ -569,8 +560,7 @@ WebAuthn и других интерактивных действий. Веб-с�
   same-origin proxy, Rust API и локальную YDB. Это ещё не допуск в production:
   нужны тест через настоящий Gateway, Firefox/WebKit,
   rollback-проверка на общем YDB и проверка хранения
-  ключа в Lockbox. Результаты записаны
-  [в проверке](../../docs/rust-migration/verification-2026-10-04-totp-enrollment.md).
+  ключа в Lockbox.
 - `id-jobs`: отдельный Rust worker для уведомлений о новом устройстве.
   Забирает ограниченную партию из YDB по lease, отправляет через SMTP и
   фиксирует результат. Повторяется только подтверждённый `ABORTED`; неизвестный
@@ -598,8 +588,7 @@ WebAuthn и других интерактивных действий. Веб-с�
 только согласившиеся профили, проверяет адрес и состояние перед атомарной
 публикацией, ограничивает размер/формат изображения и записывает JPEG в
 Object Storage. Маршрут не запускает восстановление почты или удалений.
-Production-таймер теперь вызывает его на Rust jobs; см.
-[отчёт о переключении](../../docs/rust-migration/production-rust-stack-2026-10-05.md).
+При переключении 5 октября 2026 года production-таймер перевели на Rust jobs.
 
 Для локального запуска `id-jobs` нужны общие `YDB_*` и `EMAIL_HOST`,
 `EMAIL_PORT`, `DEFAULT_FROM_EMAIL`, при необходимости `EMAIL_HOST_USER` и
@@ -665,9 +654,9 @@ images и селективный timer активны в production. Аутен�
 `ID_WEB_PASSWORD_CHANGE_PILOT_ENABLED=true` Topcoat показывает форму на
 `/account?section=security`. `scripts/smoke-web-security.sh` проверяет SSR и
 выдачу отдельного JS-файла; реальный YDB-тест маршрута запускается в CI.
-Изолированный jobs-маршрут для уведомлений о смене пароля уже развернут в
-production; его таймер и публичный Rust API пока выключены. Ревизия и проверки
-описаны в [отчёте](../../docs/rust-migration/production-password-change-jobs-2026-10-06.md).
+По состоянию на 6 октября 2026 года изолированный jobs-маршрут для уведомлений
+о смене пароля был развернут в production; его таймер и публичный Rust API
+оставались выключены.
 
 `ID_WEB_RECOVERY_PILOT_ENABLED=true` включает Topcoat-страницы
 `/forgot-password` и `/reset-password` и ссылку из формы входа. Ссылка сброса
@@ -685,8 +674,7 @@ production; его таймер и публичный Rust API пока выкл
 ключ HMAC не хранится в YDB. Подтверждение атомарно меняет пароль, закрывает
 старые sessions/tokens и добавляет уведомление в outbox. После успеха intent
 очищает email и password version; истёкшие intents удаляет timer job.
-Локальная проверка HTTP→YDB→SMTP и конкурентного потребления описана в
-[отчёте](../../docs/rust-migration/verification-2026-10-05-password-reset.md).
+Локальная проверка покрыла HTTP→YDB→SMTP и конкурентное потребление.
 Terraform включает API, UI и jobs вместе через `enable_rust_password_reset`,
 по умолчанию `false`; это требует приватного mail worker, YMQ и
 `ID_PASSWORD_RESET_HMAC_KEY` в runtime Lockbox. Django-ссылки, уже отправленные
@@ -706,7 +694,7 @@ Terraform включает API, UI и jobs вместе через `enable_rust_
 `ID_WEB_EMAIL_VERIFY_PILOT_ENABLED=true` включает Topcoat `/verify-email`:
 ключ читается из URL fragment и удаляется из адреса до POST; есть повторный
 запрос письма. Локальный HTTP→YDB→SMTP тест проверяет одноразовость и
-конкурентность. [Отчёт](../../docs/rust-migration/verification-2026-10-05-email-verify.md).
+конкурентность.
 Terraform-флаг `enable_rust_email_verify` выключен по умолчанию; для него нужны
 Rust API/UI, приватный mail worker, очередь и ключ в Lockbox.
 
@@ -742,7 +730,6 @@ Topcoat, Axum и YDB для взрослых и несовершеннолетн
 работает в production через отдельный флаг `gateway_rust_signup_page`; API
 регистрации там пока остаётся прежним. Terraform-флаг `enable_rust_signup` по умолчанию выключен
 и требует включённого mail job через `enable_rust_email_verify`.
-[Отчёт](../../docs/rust-migration/verification-2026-10-05-signup.md).
 
 Rust 1.98.1 закреплён в `rust-toolchain.toml`, зависимости — в `Cargo.lock`.
 Обязательный CI job `Rust dependency audit` проверяет lockfile через
