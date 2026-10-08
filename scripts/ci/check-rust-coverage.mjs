@@ -110,6 +110,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const result = checkCoverage(JSON.parse(readFileSync(reportPath, 'utf8')),
       JSON.parse(readFileSync(profilePath, 'utf8')), resolve(sourceRoot));
     result.children = checkChildProfiles(receipts);
+    result.scenario_completed = process.env.ID_COVERAGE_TESTS_SUCCEEDED === 'true';
+    if (!result.scenario_completed) {
+      result.passed = false;
+      result.failures.push('integration scenario did not complete successfully; measurement is partial');
+    }
     writeFileSync(outputPath, `${JSON.stringify(result, null, 2)}\n`);
     for (const kind of ['lines', 'branches']) {
       console.log(`${kind}: ${result.totals[kind].covered}/${result.totals[kind].count}`);

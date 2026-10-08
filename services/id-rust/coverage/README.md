@@ -4,9 +4,86 @@ This iteration measures the existing `rust-pilot.yml` integration scenario;
 it does not duplicate its test list. The default required run still uses Rust
 1.98.1. The optional `coverage=true` run uses a separately pinned nightly to
 measure real branches. **The migration's coverage acceptance is not complete:**
-the first full baseline, any missing tests, and promotion to a required job in
+the first baseline below fails the thresholds; completing the measured scenarios,
+covering remaining paths and promotion to a required job in
 `idctl/tested_revision.rs` remain outstanding. A failed baseline must not be
 made green by lowering thresholds or deleting production files/branches.
+
+## First baseline: 2026-10-08
+
+[Run 37709030505, job 113090266247](https://github.com/updatingspace/id/actions/runs/37709030505/job/113090266247)
+measured immutable commit `6b8e96c618ac6772ce97a7bf34a666db90fb9510`.
+All integration steps in that job completed successfully, with
+`ID_COVERAGE_TESTS_SUCCEEDED: true`; only the strict coverage gate failed.
+This is a baseline for that revision and scenario list, not production acceptance
+or evidence about later provider/operator changes.
+
+| Profile metric | Covered / total | Measured | Required |
+|---|---:|---:|---:|
+| Lines | 14,378 / 22,338 | 64.37% | 85% |
+| LLVM branches | 2,272 / 4,920 | 46.18% | 80% |
+| Critical files meeting both 100% gates | 1 / 69 | `id-compat/src/csrf.rs` only | 69 / 69 |
+
+The raw JSON contains all 92 manifest files (146 files in total). Recomputing
+the strict gate from that JSON after an in-memory source-root remap reproduced
+every file count, total and failure in `result.json`. `mfa_secret.rs`,
+`legacy_passkey.rs` and `bin/idctl/oidc_clients.rs` have zero measured branch
+counts; they remain FAIL pending an explicit instrumentation review, not 100%.
+
+The five largest critical deficits by uncovered lines are below. Paths are
+relative to `crates/id-runtime/src/`.
+
+| File | Lines | Branches | Next existing scenario to include in measurement |
+|---|---:|---:|---|
+| `admin_http.rs` | 27/629 (4.29%) | 7/186 (3.76%) | `admin_http_ydb` and the live operator journey, currently in the separate schema job |
+| `internal_identity_http.rs` | 61/541 (11.28%) | 8/92 (8.70%) | Existing ignored `signed_lookup_rejects_unknown_banned_and_inactive_accounts` and `portal_me_checks_membership_and_legacy_cookie`; neither workflow currently invokes them |
+| `email_change.rs` | 98/553 (17.72%) | 9/130 (6.92%) | Existing `email_change_ydb` from the separate schema job |
+| `password_reset.rs` | 311/659 (47.19%) | 44/162 (27.16%) | Existing `password_reset_http_ydb` and ignored mail-claim/expiry test from the schema job |
+| `data_export_escrow.rs` | 295/601 (49.08%) | 34/134 (25.37%) | Existing `data_export_escrow_ydb` and isolated export/delete scenario from the schema job |
+
+These are gaps in the measured scenario set. Several tests already run in
+`ci-cd.yml` outside this instrumented job; low coverage here does not mean that
+those tests do not exist. Reuse those scenarios or merge compatible instrumented
+profiles before deciding which additional tests are needed. Do not copy the long
+test list or relax the profile to improve the number.
+
+A bounded inventory at the same immutable revision distinguishes missing CI
+execution from missing instrumentation. The email-change, admin, password-reset
+and escrow tests above **already run in required CI**, but only outside this
+coverage job. In contrast, neither workflow nor any CI-invoked script references
+the following ignored tests:
+
+| Existing ignored test | Source | Scope / prerequisite |
+|---|---|---|
+| `cancellation_cleans_confirmations_without_touching_primary_or_verified_email` | `crates/id-runtime/tests/email_cancel_http_ydb.rs:47` | Security profile; local YDB and email-cancel gate |
+| `deletes_inactive_unbound_account_without_cutover_seal` | `crates/id-runtime/tests/legacy_unbound_deletion_ydb.rs:10` | Deletion cleanup; requires its own disposable DB, not an indiscriminate shared-table run |
+| `empty_socialapp_table_returns_empty_inventory` | `crates/id-runtime/src/oauth_providers_http.rs:128` | Inventory in the profile; empty local legacy SocialApp fixture, not provider-login acceptance |
+| `selects_only_due_opted_in_profiles`, `refreshes_profile_through_mock_gravatar_and_s3` | `crates/id-runtime/src/gravatar_job.rs:318,369` | Privacy opt-in and media refresh; outside this security profile |
+
+The two `internal_identity_http` ignored tests named above are also absent from
+all current CI entrypoints. Plain `cargo test --workspace` compiles these tests
+but skips them. This inventory does not claim that adding the invocations alone
+reaches the thresholds. `oidc_cross_version_ydb` is also uninvoked, but its
+retired Python roundtrip is not a new blocker under the agreed Rust-only scope.
+
+The [229-entry artifact, ID 11520878133](https://github.com/updatingspace/id/actions/runs/37709030505/artifacts/11520878133)
+is 3,468,016 bytes with verified SHA-256
+`43de4434f42c3a525690aedc3183378ea0bda5c55458b48b03a2ae19c9b9c3ca`.
+Provenance matches pinned rustc commit `8d1a76430406c877b35d0b627e7f796dcf0dfeca`,
+LLVM 23.1.3, cargo-llvm-cov 0.9.1, manifest hash
+`2dbf7530faf647bfdca1a0725d326bcf071d34a1a3b9fc36ffec0a80759be787`
+and Cargo.lock hash `b20abe2b5c8463ad647dbc59c4306b7f0007938a43c938801545978d15d2ba49`.
+The runner validated 38 completed wrapper child profiles: 5 API, 19 web and 14
+CLI; the archive contains their 38 start and 38 completion receipts. No jobs
+server wrapper ran. The native smoke also proved actual branch counters,
+graceful server shutdown and a direct `CARGO_BIN_EXE` child profile.
+
+Evidence limit: the archive includes LLVM JSON and absolute-path receipts, but
+not `.profraw`, `.profdata` or instrumented objects. It therefore supports an
+independent counter/gate recalculation, but not repeating the LLVM export or
+revalidating each child profile outside the runner. Direct integration children
+have no individual wrapper receipts. The on-runner checks are evidence for
+their documented scope; the artifact does not prove complete child accounting.
 
 ## Run the measurement
 
@@ -39,8 +116,9 @@ needed. Existing scenario failures remain failures.
 Artifacts `rust-coverage-<SHA>` contain raw LLVM JSON, per-file gate results,
 HTML, compiler/SHA/profile/Cargo.lock provenance and server profile receipts.
 Results from a failed or incomplete test scenario are partial evidence, even
-if the available profile happens to meet a percentage. The report step also
-fails explicitly when preceding checks failed. Missing instrumented files or
+if the available profile happens to meet a percentage. The result records
+`scenario_completed`; incomplete runs set `passed: false` in the artifact and
+fail the report step even when available counters meet the thresholds. Missing instrumented files or
 metrics abort the gate rather than treating absent code as covered.
 
 ## Explicit review proposal
