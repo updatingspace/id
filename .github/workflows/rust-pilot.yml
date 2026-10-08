@@ -275,6 +275,9 @@ jobs:
         run: cargo test --locked -p id-runtime --test login_preflight_ydb -- --ignored --nocapture
       - name: Rust sessions, account JWT and deletion acceptance on local YDB
         working-directory: services/id-rust
+        env:
+          ID_AUTH_LOGOUT_PILOT_ENABLED: "true"
+          DJANGO_SECRET_KEY: "synthetic-local-secret-min-32-characters"
         run: cargo test --locked -p id-runtime --test session_issuer_ydb -- --ignored --nocapture
       - name: Private account export, owner access and expiry on local YDB
         working-directory: services/id-rust

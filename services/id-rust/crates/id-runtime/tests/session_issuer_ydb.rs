@@ -36,6 +36,10 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         "session issuer test requires local YDB on port 2136"
     );
     let client = Arc::new(id_runtime::connect_ydb().await?);
+    let logout_app = id_runtime::logout_http::router(
+        id_runtime::logout_http::LogoutHttpConfig::from_env(client.clone())?
+            .context("session issuer acceptance requires ID_AUTH_LOGOUT_PILOT_ENABLED=true")?,
+    );
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
     let account_id = i32::try_from(stamp % 1_000_000_000 + 1)?;
     let identity_id = Uuid::from_u128((stamp << 32) | u128::from(std::process::id()));
@@ -531,6 +535,56 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             .param("$key", race_session.session.token.clone()).await?;
         let active: u64 = active.remove_field_by_name("count")?.try_into()?;
         ensure!(active == 0, "refresh race replay left descendants active");
+
+        // Exercise the HTTP boundary with two independently issued sessions.
+        // Read-only state checks must not rotate refresh tokens between denials.
+        let logout_cookie = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
+            &request, SystemTime::now(), lifetime).await?
+            .context("cookie logout session was not issued")?;
+        tokens_to_clean.push((logout_cookie.session.token.clone(), logout_cookie.refresh.clone()));
+        let logout_header = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
+            &request, SystemTime::now(), lifetime).await?
+            .context("header logout session was not issued")?;
+        tokens_to_clean.push((logout_header.session.token.clone(), logout_header.refresh.clone()));
+        for login in [&logout_cookie, &logout_header] {
+            assert_logout_state(&client, codec.clone(), &jwt_codec, login, false).await?;
+        }
+        for (header_token, csrf, expected_status, expected_code) in [
+            (None, None, StatusCode::FORBIDDEN, "CSRF_FAILED"),
+            (Some("invalid-explicit-session"), Some("abcdefghijklmnopqrstuvwxyzABCDEF"),
+                StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN"),
+        ] {
+            let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+                Some(&logout_cookie.session.token), header_token, csrf, None).await?;
+            ensure!(status == expected_status && body["code"] == expected_code,
+                "logout authorization did not reject the request: {status} {body}");
+            for login in [&logout_cookie, &logout_header] {
+                assert_logout_state(&client, codec.clone(), &jwt_codec, login, false).await?;
+            }
+        }
+        let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+            Some(&logout_cookie.session.token), None, Some("abcdefghijklmnopqrstuvwxyzABCDEF"), None).await?;
+        ensure!(status == StatusCode::OK && body["ok"] == true,
+            "CSRF-protected cookie logout failed: {status} {body}");
+        assert_logout_state(&client, codec.clone(), &jwt_codec, &logout_cookie, true).await?;
+        assert_logout_state(&client, codec.clone(), &jwt_codec, &logout_header, false).await?;
+        let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+            Some(&logout_cookie.session.token), None, Some("abcdefghijklmnopqrstuvwxyzABCDEF"), None).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED && body["code"] == "INVALID_OR_EXPIRED_TOKEN",
+            "revoked cookie session logged out again: {status} {body}");
+        assert_logout_state(&client, codec.clone(), &jwt_codec, &logout_header, false).await?;
+        let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+            Some(&logout_cookie.session.token), Some(&logout_header.session.token), None, None).await?;
+        ensure!(status == StatusCode::OK && body["ok"] == true,
+            "valid explicit logout did not take priority over a revoked cookie: {status} {body}");
+        for login in [&logout_cookie, &logout_header] {
+            assert_logout_state(&client, codec.clone(), &jwt_codec, login, true).await?;
+        }
+        let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+            None, Some(&logout_header.session.token), None, None).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED && body["code"] == "INVALID_OR_EXPIRED_TOKEN",
+            "revoked explicit session logged out again: {status} {body}");
+
         client.query_client().exec("UPSERT INTO mfa_authenticator (id, user_id, type, data, created_at) VALUES ($id, $user_id, 'recovery_codes', Unwrap(CAST($data AS Json)), CurrentUtcDatetime())")
             .param("$id", i64::from(account_id)).param("$user_id", account_id)
             .param("$data", serde_json::json!({"migrated_codes":["87654321","12345678"]}).to_string()).await?;
@@ -991,6 +1045,63 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         .param("$id", account_id)
         .await?;
     result
+}
+
+async fn assert_logout_state(
+    client: &ydb::Client,
+    codec: Arc<SessionCodec>,
+    jwt_codec: &AccountJwtCodec,
+    login: &id_runtime::session_issuer::IssuedPasswordLogin,
+    revoked: bool,
+) -> Result<()> {
+    let now = SystemTime::now();
+    let refresh = jwt_codec.verify_refresh(
+        &login.refresh,
+        i64::try_from(now.duration_since(UNIX_EPOCH)?.as_secs())?,
+    )?;
+    ensure!(refresh.session_key == login.session.token);
+    let restored = id_runtime::session_store::restore_django_principal(
+        client,
+        codec,
+        &login.session.token,
+        LEGACY_BACKENDS,
+        now,
+    )
+    .await?;
+    ensure!(
+        restored.is_some() != revoked,
+        "unexpected logout session state"
+    );
+    let mut mapping = client.query_client().query_row(
+        "SELECT revoked_at FROM core_usersessiontoken WHERE user_id = $owner AND session_key = $key AND refresh_jti = $jti")
+        .param("$owner", refresh.account_id).param("$key", login.session.token.clone())
+        .param("$jti", refresh.jti.clone()).await?;
+    let revoked_at: Option<SystemTime> = mapping.remove_field_by_name("revoked_at")?.try_into()?;
+    ensure!(
+        revoked_at.is_some() == revoked,
+        "unexpected logout refresh mapping state"
+    );
+    let mut outstanding = client.query_client().query_row(
+        "SELECT id, token FROM token_blacklist_outstandingtoken VIEW token_blacklist_outstandingtoken_user_id_83bc629a WHERE user_id = $owner AND jti = $jti")
+        .param("$owner", refresh.account_id).param("$jti", refresh.jti).await?;
+    let outstanding_id: i64 = outstanding.remove_field_by_name("id")?.try_into()?;
+    let saved: String = outstanding.remove_field_by_name("token")?.try_into()?;
+    ensure!(
+        saved == login.refresh,
+        "logout changed the saved refresh credential"
+    );
+    let blacklisted = client
+        .query_client()
+        .query_row("SELECT id FROM token_blacklist_blacklistedtoken WHERE token_id = $id LIMIT 1")
+        .param("$id", outstanding_id)
+        .optional()
+        .await?
+        .is_some();
+    ensure!(
+        blacklisted == revoked,
+        "unexpected logout refresh blacklist state"
+    );
+    Ok(())
 }
 
 async fn sessions_http_call(
