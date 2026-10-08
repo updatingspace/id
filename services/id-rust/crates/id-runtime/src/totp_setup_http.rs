@@ -42,6 +42,7 @@ pub struct TotpSetupHttpConfig {
     issuer: String,
     totp_enabled: bool,
     passkey_management_enabled: bool,
+    login_providers: Vec<Arc<crate::provider_login::ProviderLoginConfig>>,
     #[cfg(feature = "passkeys")]
     registration: Option<Arc<Webauthn>>,
 }
@@ -140,6 +141,9 @@ impl TotpSetupHttpConfig {
             None
         };
         Ok(Some(Arc::new(Self {
+            login_providers: crate::provider_login::ProviderLoginConfig::available_from_env(
+                client.clone(),
+            ),
             client,
             codec: session_codec_from_env()?,
             session_cookie_name: env::var("SESSION_COOKIE_NAME")
@@ -540,6 +544,7 @@ async fn passkey_inner(config: &TotpSetupHttpConfig, request: Request, deleting:
             &token,
             &ids,
             SystemTime::now(),
+            &config.login_providers,
         )
         .await
     } else {
@@ -597,6 +602,11 @@ async fn passkey_inner(config: &TotpSetupHttpConfig, request: Request, deleting:
             StatusCode::UNAUTHORIZED,
             "REAUTH_REQUIRED",
             "Подтвердите вход заново",
+        ),
+        Ok(PasskeyOutcome::LastLoginMethod) => error(
+            StatusCode::CONFLICT,
+            "LAST_LOGIN_METHOD",
+            "Добавьте другой способ входа, прежде чем удалять последний ключ доступа",
         ),
         Ok(PasskeyOutcome::NotFound) => {
             error(StatusCode::NOT_FOUND, "NOT_FOUND", "Ключ доступа не найден")

@@ -173,6 +173,39 @@ pub(crate) async fn verified_credential_owner(
     let Some(candidate) = read_candidate(client, &normalized).await? else {
         return Ok(None);
     };
+    credential_owner(candidate, account_id, normalized)
+}
+
+/// The same login policy, read in a caller's credential-mutation transaction.
+pub(crate) async fn verified_credential_owner_tx(
+    tx: &mut Transaction,
+    account_id: i32,
+) -> ydb::YdbResultWithCustomerErr<Option<VerifiedAccount>> {
+    let Some(mut row) = tx
+        .query_row("SELECT email FROM auth_user WHERE id = $id")
+        .param("$id", account_id)
+        .optional()
+        .await?
+    else {
+        return Ok(None);
+    };
+    let email: String = row.remove_field_by_name("email")?.try_into()?;
+    let normalized = email.trim().to_lowercase();
+    if normalized.is_empty() || normalized.len() > 320 {
+        return Ok(None);
+    }
+    let Some(candidate) = read_candidate_tx(tx, &normalized).await? else {
+        return Ok(None);
+    };
+    credential_owner(candidate, account_id, normalized)
+        .map_err(|error| ydb::YdbOrCustomerError::from_err(std::io::Error::other(error)))
+}
+
+fn credential_owner(
+    candidate: Candidate,
+    account_id: i32,
+    normalized: String,
+) -> Result<Option<VerifiedAccount>> {
     if candidate.account_id != account_id
         || !candidate.is_active
         || candidate.deleting

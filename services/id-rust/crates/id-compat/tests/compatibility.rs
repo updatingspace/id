@@ -16,6 +16,43 @@ use std::time::{Duration, UNIX_EPOCH};
 fn fixture() -> Value {
     serde_json::from_str(include_str!("fixtures/django.json")).unwrap()
 }
+
+#[test]
+fn usable_passwords_share_supported_legacy_formats_and_reject_broken_backups() {
+    let golden = fixture();
+    for hash in golden["password_hashes"].as_array().unwrap() {
+        assert!(password::is_usable(text(hash)));
+    }
+    for hash in [
+        "",
+        "!unusable",
+        "pbkdf2_sha256$1000000$synthetic$synthetic",
+        "pbkdf2_sha256$0$salt$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "pbkdf2_sha256$10000001$salt$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "bcrypt_sha256$$2b$04$broken",
+        "argon2$argon2id$v=99$m=102400,t=2,p=8$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "argon2$argon2id$v=19$m=102400,t=2,p=8$c2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "argon2$argon2id$v=19$m=102400,t=2,p=8$...........$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "argon2$argon2id$v=19$m=102400,t=2,p=8$-----------$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "argon2$argon2id$v=19$m=262145,t=2,p=8$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    ] {
+        assert!(!password::is_usable(hash), "unusable backup accepted");
+        if !hash.starts_with('!') {
+            assert!(
+                password::verify("synthetic", hash).is_err(),
+                "verifier disagrees with unusable format"
+            );
+        }
+    }
+    assert_eq!(
+        password::verify(
+            "synthetic",
+            "argon2$argon2id$v=99$m=262145,t=2,p=8$...........$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        ),
+        Err(Error::Limit),
+        "existing work-limit error must precede malformed salt/version"
+    );
+}
 fn text(v: &Value) -> &str {
     v.as_str().unwrap()
 }

@@ -181,14 +181,7 @@ fn assemble(rows: Vec<AuthenticatorRow>) -> Result<SecuritySnapshot> {
                     kind: "webauthn",
                     created_at: epoch_seconds(row.created_at)?,
                     last_used_at: row.last_used_at.map(epoch_seconds).transpose()?,
-                    is_passwordless: data
-                        .get("passwordless")
-                        .and_then(Value::as_bool)
-                        .unwrap_or_else(|| {
-                            data.pointer("/credential/clientExtensionResults/credProps/rk")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false)
-                        }),
+                    is_passwordless: passwordless_passkey(&data),
                 });
             }
             _ => anyhow::bail!("unknown MFA authenticator type"),
@@ -200,6 +193,16 @@ fn assemble(rows: Vec<AuthenticatorRow>) -> Result<SecuritySnapshot> {
             .then_with(|| b.id.cmp(&a.id))
     });
     Ok(SecuritySnapshot { status, passkeys })
+}
+
+pub(crate) fn passwordless_passkey(data: &Value) -> bool {
+    data.get("passwordless")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| {
+            data.pointer("/credential/clientExtensionResults/credProps/rk")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
 }
 
 #[cfg(test)]
