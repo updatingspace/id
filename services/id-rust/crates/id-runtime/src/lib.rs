@@ -71,6 +71,7 @@ pub mod oauth_providers_http;
 pub mod oidc_authorize;
 pub mod oidc_authorize_http;
 mod oidc_client;
+pub mod oidc_client_operator;
 pub mod oidc_code_exchange;
 pub mod oidc_consent;
 pub mod oidc_discovery;

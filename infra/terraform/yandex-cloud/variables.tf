@@ -370,7 +370,7 @@ variable "gateway_rust_portal_me" {
 }
 
 variable "gateway_rust_sessions_read" {
-  description = "Route only GET/OPTIONS /api/v1/auth/sessions to Rust while session mutations remain on Python."
+  description = "Route GET/OPTIONS /api/v1/auth/sessions to Rust; mutation routes are configured separately."
   type        = bool
   default     = false
 

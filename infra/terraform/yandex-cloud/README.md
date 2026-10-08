@@ -26,10 +26,11 @@ snapshot of the current cloud environment. On 2026-10-07 the delayed export
 routes and flags were enabled on the existing production Gateway, mutations
 API, Topcoat web and jobs revisions. The live readiness gate passed and the
 public pages, scripts and unauthenticated API denial passed smoke checks.
-The 24-hour notification, delivery, cancellation and post-deletion journey
-still needs an end-to-end production rehearsal with a disposable account;
+The real 24-hour notification, delivery, cancellation, post-deletion redemption
+and freeze/resume journey still needs an end-to-end production rehearsal with
+a disposable account;
 these smoke checks do not establish user acceptance. The deletion API and
-its recovery timer remain a separately gated rollout.
+its recovery timer remain disabled and require a separate rollout.
 
 ## Validation and production changes
 
@@ -108,11 +109,10 @@ routes for request, status, owner and email-link cancellation, download,
 redemption, delivery and cancellation pages without printing
 secrets. The deploy workflow then opens both public pages and sends invalid
 download/cancellation tokens through the Gateway as a side-effect-free smoke.
-A passing configuration and smoke check still requires the full mail, storage,
-deletion and redemption rehearsal.
-Do not set the delayed flag until the corresponding jobs, SMTP, Object Storage,
-key retention, cancellation and delete-after-export scenarios have passed on
-the target environment. A live session cannot bypass the cooldown.
+A passing configuration and smoke check does not complete acceptance of the
+enabled feature. The real 24-hour mail, storage, key retention, cancellation,
+delete-after-export, redemption and freeze/resume scenarios still require a
+production rehearsal. A live session cannot bypass the cooldown.
 
 The account-deletion API and private recovery timer are a separate rollout.
 Before enabling either flag or adding the Gateway route, run

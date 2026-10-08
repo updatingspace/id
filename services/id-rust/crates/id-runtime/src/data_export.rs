@@ -10,7 +10,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use ydb::{Client, Row};
+use ydb::{Client, RetrySettings, Row, Transaction, TxMode, closure};
 
 const PAGE: usize = 128;
 
@@ -175,13 +175,17 @@ pub struct ExportManifest {
     pub format: &'static str,
     pub account_id: i32,
     pub generated_at: String,
+    /// Wall-clock bounds of this worker attempt, not a request-time cutoff.
+    pub snapshot_started_at: String,
+    pub snapshot_completed_at: String,
+    pub snapshot_scope: &'static str,
     pub categories: Vec<CategoryCount>,
     pub excluded: &'static [&'static str],
     pub consistency: &'static str,
 }
 
 /// The writer applies backpressure; no full category is collected in memory.
-pub async fn write_ndjson<W: AsyncWrite + Unpin>(
+pub async fn write_ndjson<W: AsyncWrite + Unpin + Send>(
     client: &Client,
     account_id: i32,
     writer: &mut W,
@@ -189,7 +193,7 @@ pub async fn write_ndjson<W: AsyncWrite + Unpin>(
     write_ndjson_with_avatar(client, account_id, writer, None).await
 }
 
-pub async fn write_ndjson_with_avatar<W: AsyncWrite + Unpin>(
+pub async fn write_ndjson_with_avatar<W: AsyncWrite + Unpin + Send>(
     client: &Client,
     account_id: i32,
     writer: &mut W,
@@ -201,7 +205,7 @@ pub async fn write_ndjson_with_avatar<W: AsyncWrite + Unpin>(
 /// Only an export request accepted while the account was active may use this
 /// path. The deletion transaction revokes login immediately, but its profile
 /// stage waits until the already accepted snapshot has been sealed.
-pub(crate) async fn write_ndjson_with_avatar_for_escrow<W: AsyncWrite + Unpin>(
+pub(crate) async fn write_ndjson_with_avatar_for_escrow<W: AsyncWrite + Unpin + Send>(
     client: &Client,
     account_id: i32,
     writer: &mut W,
@@ -210,7 +214,7 @@ pub(crate) async fn write_ndjson_with_avatar_for_escrow<W: AsyncWrite + Unpin>(
     write_ndjson_inner(client, account_id, writer, avatar_source, true).await
 }
 
-async fn write_ndjson_inner<W: AsyncWrite + Unpin>(
+async fn write_ndjson_inner<W: AsyncWrite + Unpin + Send>(
     client: &Client,
     account_id: i32,
     writer: &mut W,
@@ -218,26 +222,38 @@ async fn write_ndjson_inner<W: AsyncWrite + Unpin>(
     accepted_escrow: bool,
 ) -> Result<ExportManifest> {
     ensure!(account_id > 0, "invalid account ID for export");
-    let account = read_account(client, account_id, accepted_escrow).await?;
-    write_line(writer, "account", account).await?;
-    let mut counts = vec![CategoryCount {
-        category: "account",
-        records: 1,
-    }];
-    for category in CATEGORIES {
-        counts.push(CategoryCount {
-            category: category.name,
-            records: write_category(client, account_id, category, writer).await?,
-        });
-    }
-    counts.push(CategoryCount {
-        category: "avatar_bytes",
-        records: write_avatar(client, account_id, writer, avatar_source).await?,
-    });
+    let snapshot_started_at = timestamp(SystemTime::now());
+    // Retrying even a known abort would append a second snapshot to this stream.
+    // A failed attempt is discarded by the caller; only a new claim may retry it.
+    let snapshot_client = client.clone_with_retry_settings(RetrySettings::dont_retry());
+    let counts = snapshot_client
+        .query_client()
+        .retry_tx(closure!(
+            [
+                &mut output = &mut *writer,
+                account_id,
+                avatar_source,
+                accepted_escrow
+            ],
+            async |tx: &mut Transaction| {
+                write_snapshot(tx, *account_id, output, *avatar_source, *accepted_escrow)
+                    .await
+                    .map_err(|error| {
+                        ydb::YdbOrCustomerError::from_err(std::io::Error::other(error))
+                    })
+            }
+        ))
+        .isolation(TxMode::SnapshotReadOnly)
+        .timeout(Duration::from_secs(10 * 60))
+        .await?;
+    let snapshot_completed_at = timestamp(SystemTime::now());
     let manifest = ExportManifest {
         format: "updspace-id-ndjson-v1",
         account_id,
-        generated_at: timestamp(SystemTime::now()),
+        generated_at: snapshot_completed_at.clone(),
+        snapshot_started_at,
+        snapshot_completed_at,
+        snapshot_scope: "worker-attempt",
         categories: counts,
         excluded: &[
             "password hashes and salts",
@@ -247,21 +263,46 @@ async fn write_ndjson_inner<W: AsyncWrite + Unpin>(
             "social provider tokens",
             "unclassified free-form metadata",
         ],
-        consistency: "paged-live-read",
+        consistency: "snapshot",
     };
     write_line(writer, "manifest", serde_json::to_value(&manifest)?).await?;
     writer.flush().await?;
     Ok(manifest)
 }
 
+async fn write_snapshot<W: AsyncWrite + Unpin>(
+    tx: &mut Transaction,
+    account_id: i32,
+    writer: &mut W,
+    avatar_source: Option<&MediaUrl>,
+    accepted_escrow: bool,
+) -> Result<Vec<CategoryCount>> {
+    let account = read_account(tx, account_id, accepted_escrow).await?;
+    write_line(writer, "account", account).await?;
+    let mut counts = vec![CategoryCount {
+        category: "account",
+        records: 1,
+    }];
+    for category in CATEGORIES {
+        counts.push(CategoryCount {
+            category: category.name,
+            records: write_category(tx, account_id, category, writer).await?,
+        });
+    }
+    counts.push(CategoryCount {
+        category: "avatar_bytes",
+        records: write_avatar(tx, account_id, writer, avatar_source).await?,
+    });
+    Ok(counts)
+}
+
 async fn write_avatar<W: AsyncWrite + Unpin>(
-    client: &Client,
+    tx: &mut Transaction,
     account_id: i32,
     writer: &mut W,
     source: Option<&MediaUrl>,
 ) -> Result<u64> {
-    let mut query_client = client.query_client();
-    let mut query = query_client
+    let mut query = tx
         .query("SELECT CAST(avatar AS Utf8) AS avatar_key FROM accounts_userprofile VIEW acct_profile_user_idx WHERE user_id = $id LIMIT 2")
         .param("$id", account_id)
         .await?;
@@ -327,13 +368,16 @@ async fn write_avatar<W: AsyncWrite + Unpin>(
     Ok(chunks)
 }
 
-async fn read_account(client: &Client, account_id: i32, accepted_escrow: bool) -> Result<Value> {
-    let Some(mut account) = client.query_client()
+async fn read_account(
+    tx: &mut Transaction,
+    account_id: i32,
+    accepted_escrow: bool,
+) -> Result<Value> {
+    let Some(mut account) = tx
         .query_row("SELECT username, email, first_name, last_name, is_active, date_joined FROM auth_user WHERE id = $id")
         .param("$id", account_id).optional().await? else { bail!("export account missing"); };
     let active = bool::try_from(account.remove_field_by_name("is_active")?)?;
-    let Some(mut binding) = client
-        .query_client()
+    let Some(mut binding) = tx
         .query_row(
             "SELECT identity_id, public_subject FROM accounts_accountidentity WHERE user_id = $id",
         )
@@ -347,12 +391,11 @@ async fn read_account(client: &Client, account_id: i32, accepted_escrow: bool) -
         binding.remove_field_by_name("identity_id")?.try_into()?;
     let identity_id = identity_id.context("export identity ID missing")?;
     let public_subject: String = binding.remove_field_by_name("public_subject")?.try_into()?;
-    let Some(mut identity) = client.query_client()
+    let Some(mut identity) = tx
         .query_row("SELECT username, display_name, email, email_verified, status, created_at FROM usid_user WHERE user_id = $id")
         .param("$id", identity_id).optional().await? else { bail!("export master identity missing"); };
     let identity_status: String = identity.remove_field_by_name("status")?.try_into()?;
-    let mut query_client = client.query_client();
-    let mut pending = query_client.query(
+    let mut pending = tx.query(
         "SELECT id FROM accounts_accountdeletionrequest VIEW accounts_accountdeletionrequest_user_id_6a166c52 WHERE user_id = $id AND status IN ('pending', 'running') LIMIT 1")
         .param("$id", account_id).await?;
     let mut deleting = false;
@@ -386,7 +429,7 @@ async fn read_account(client: &Client, account_id: i32, accepted_escrow: bool) -
 }
 
 async fn write_category<W: AsyncWrite + Unpin>(
-    client: &Client,
+    tx: &mut Transaction,
     account_id: i32,
     category: &Category,
     writer: &mut W,
@@ -409,17 +452,14 @@ async fn write_category<W: AsyncWrite + Unpin>(
     let mut after = -1_i64;
     let mut count = 0_u64;
     loop {
-        let mut query_client = client.query_client();
         let mut query = if category.serial_id {
-            query_client
-                .query(sql.clone())
+            tx.query(sql.clone())
                 .param("$user_id", account_id)
                 .param("$after", i32::try_from(after)?)
                 .timeout(Duration::from_secs(20))
                 .await?
         } else {
-            query_client
-                .query(sql.clone())
+            tx.query(sql.clone())
                 .param("$user_id", account_id)
                 .param("$after", after)
                 .timeout(Duration::from_secs(20))

@@ -344,6 +344,8 @@ pub async fn cleanup_expired(client: &Client, now: SystemTime, limit: u64) -> Re
 
 struct ChangeState {
     old_email: String,
+    account_email: String,
+    identity_email: String,
     address_id: i32,
     primary_id: i32,
     identity_id: Uuid,
@@ -460,6 +462,8 @@ async fn state_tx(
     let count: u64 = deletion.remove_field_by_name("count")?.try_into()?;
     Ok((count == 0).then_some(ChangeState {
         old_email,
+        account_email,
+        identity_email,
         address_id,
         primary_id: primaries[0].0,
         identity_id,
@@ -510,14 +514,16 @@ pub(crate) async fn confirm_tx(
     )
     .param("$email", recipient.to_owned())
     .param("$id", user_id)
-    .param("$old", state.old_email.clone())
+    // Ownership uses normalized addresses; compare-and-set must use each raw
+    // stored value so mixed-case legacy rows are updated in this transaction.
+    .param("$old", state.account_email.clone())
     .await?;
     tx.exec("UPDATE accounts_accountemaillookup SET email_key = $email WHERE user_id = $id")
         .param("$email", recipient.to_owned())
         .param("$id", user_id)
         .await?;
     tx.exec("UPDATE usid_user SET email = $email, email_verified = true WHERE user_id = $id AND email = $old")
-        .param("$email", recipient.to_owned()).param("$id", state.identity_id).param("$old", state.old_email.clone()).await?;
+        .param("$email", recipient.to_owned()).param("$id", state.identity_id).param("$old", state.identity_email.clone()).await?;
     tx.exec("UPDATE account_emailaddress SET verified = true, primary = true WHERE id = $id AND user_id = $user_id AND verified = false AND primary = false")
         .param("$id", state.address_id).param("$user_id", user_id).await?;
     tx.exec("DELETE FROM account_emailconfirmation WHERE email_address_id = $id")
