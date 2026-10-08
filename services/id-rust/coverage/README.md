@@ -12,23 +12,26 @@ made green by lowering thresholds or deleting production files/branches.
 
 ## Completed required scenarios: 2026-10-08
 
-[Run 37722383642, job 113132781075](https://github.com/updatingspace/id/actions/runs/37722383642/job/113132781075)
-measured exact revision `61402e7773d09bf0cce2bbf5641549acb3021217`.
+[Run 37725602166, job 113142930454](https://github.com/updatingspace/id/actions/runs/37725602166/job/113142930454)
+measured exact revision `fa7ee7f562a3625b8e27fa156f610103d8482c95`.
 Every required scenario completed; only the coverage threshold step failed.
-Independent recount of artifact `11526269665` matched all exported counters:
-20,053/23,779 lines (**84.33%**) and 3,239/5,208 represented LLVM branches
-(**62.19%**). All 94 profile files, including 70 critical files, were present.
-All 76 child start/completion receipts matched: API 9, jobs 4, UI 28 and idctl 35.
+Independent recount of artifact `11527974109` matched all exported counters:
+20,582/24,223 lines (**84.968831%**) and 3,328/5,306 represented LLVM branches
+(**62.721447%**). The line result is below 85%; rounding must not turn it into
+a pass. All 95 profile files, including 71 critical files, were present; only
+the CSRF file met both critical thresholds. All 77 child start/completion
+receipts matched: API 9, jobs 4, UI 29 and idctl 35.
 The archive SHA-256 is
-`a199b0e84433023a76c7c83c4060438eb5f8d52895a8cfe4349ec49f5bbf6731`.
+`8cf249b029d6d3d9d8a4af0a4a65dee441862a5ad7358977943a2a163b351f99`.
 `scenario_completed=true` and `passed=false` are both intentional. Raw profiles
 are absent from the artifact; this checks exported counters and receipts,
 not a fresh LLVM export.
 
-Later changes add HTTP logout authorization/revocation checks to the existing
-session scenario and include Steam's OpenID verifier in the critical profile.
-The current profile has 95 files, 71 critical; it has not yet been remeasured.
-The older baseline above cannot prove coverage for those changes.
+That measurement includes the HTTP logout checks and Steam's OpenID verifier.
+Later changes add stale account/identity refusal without recovery-code
+consumption, OAuth Basic refusals without code/refresh consumption, and the
+YDB profile batching from main `d49b9db`. These changes require a new complete
+measurement; the baseline above does not prove their coverage improvement.
 
 ## First baseline: 2026-10-08
 
