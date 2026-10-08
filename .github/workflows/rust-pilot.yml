@@ -239,6 +239,9 @@ jobs:
         env:
           ID_MFA_SEAL_KEY_B64: QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=
         run: cargo test --locked -p id-runtime --test login_http_ydb -- --ignored --nocapture
+      - name: Jobs process drains HTTP requests on SIGTERM and SIGINT
+        working-directory: services/id-rust
+        run: node scripts/check-jobs-shutdown.cjs
       - name: Private YMQ publish, queue and recovery jobs with local YDB and SMTP
         working-directory: services/id-rust
         run: |
