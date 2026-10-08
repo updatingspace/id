@@ -446,6 +446,7 @@ mod tests {
     use std::{
         io::Write,
         process::{Command, Stdio},
+        time::Duration,
     };
     use tower::ServiceExt;
 
@@ -633,7 +634,7 @@ mod tests {
             response.status() == StatusCode::UNAUTHORIZED,
             "revoke accepted unknown client"
         );
-        let response = router(config)
+        let response = router(config.clone())
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -655,6 +656,253 @@ mod tests {
                 .is_some_and(|value| value == "no-store"),
             "refresh error lost no-store"
         );
+        basic_failures_preserve_codes_and_refresh(config).await?;
         Ok(())
+    }
+
+    async fn token_request(
+        app: &Router,
+        authorization: &str,
+        body: &str,
+        status: StatusCode,
+        error: Option<&str>,
+    ) -> Result<Value> {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/oauth/token")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body.to_owned()))?,
+            )
+            .await?;
+        ensure!(
+            response.status() == status,
+            "unexpected OAuth HTTP status: {}",
+            response.status()
+        );
+        ensure!(
+            response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .is_some_and(|v| v == "no-store")
+                && response
+                    .headers()
+                    .get(header::PRAGMA)
+                    .is_some_and(|v| v == "no-cache"),
+            "token response lost cache protection"
+        );
+        if status == StatusCode::UNAUTHORIZED {
+            ensure!(
+                response
+                    .headers()
+                    .get(header::WWW_AUTHENTICATE)
+                    .is_some_and(|v| v == "Basic realm=\"oauth\""),
+                "Basic failure lost challenge"
+            );
+        } else {
+            ensure!(
+                !response.headers().contains_key(header::WWW_AUTHENTICATE),
+                "non-authentication error unexpectedly challenged Basic credentials"
+            );
+        }
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), MAX_REQUEST_BYTES).await?)?;
+        if let Some(error) = error {
+            ensure!(
+                body["error"] == error && body.as_object().is_some_and(|v| v.len() == 2),
+                "OAuth error shape changed or returned extra credential fields"
+            );
+            ensure!(
+                body["error_description"]
+                    == if error == "invalid_client" {
+                        "Client authentication failed"
+                    } else if error == "invalid_request" {
+                        "Invalid OAuth request"
+                    } else {
+                        "Invalid authorization grant"
+                    },
+                "OAuth error disclosed request-specific data"
+            );
+        }
+        Ok(body)
+    }
+
+    #[derive(PartialEq, Eq)]
+    struct TokenState {
+        id: i64,
+        rotated: Option<SystemTime>,
+        revoked: Option<SystemTime>,
+        family: Option<String>,
+        refresh_hash: String,
+    }
+
+    async fn token_state(client: &Client, user: i32, client_pk: i64) -> Result<Vec<TokenState>> {
+        let mut query = client.query_client();
+        let mut stream = query.query("SELECT id, rotated_at, revoked_at, refresh_family_id, refresh_token_hash FROM idp_oidctoken VIEW oidc_token_user_client_idx WHERE user_id = $user AND client_id = $client")
+            .param("$user", user).param("$client", client_pk).await?;
+        let mut states = Vec::new();
+        while let Some(rows) = stream.next_result_set().await? {
+            for mut row in rows {
+                states.push(TokenState {
+                    id: row.remove_field_by_name("id")?.try_into()?,
+                    rotated: row.remove_field_by_name("rotated_at")?.try_into()?,
+                    revoked: row.remove_field_by_name("revoked_at")?.try_into()?,
+                    family: row.remove_field_by_name("refresh_family_id")?.try_into()?,
+                    refresh_hash: row.remove_field_by_name("refresh_token_hash")?.try_into()?,
+                });
+            }
+        }
+        stream.close().await?;
+        states.sort_by_key(|state| state.id);
+        Ok(states)
+    }
+
+    // Runs inside the existing required HTTP/YDB scenario and reuses its router,
+    // database client and ephemeral keyset; each failure gets its own code/family.
+    async fn basic_failures_preserve_codes_and_refresh(
+        config: Arc<OidcTokenHttpConfig>,
+    ) -> Result<()> {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use sha2::{Digest, Sha256};
+
+        let client = &config.client;
+        let app = router(config.clone());
+        let identity = uuid::Uuid::from_u128(rand::random());
+        let user = -i32::try_from(rand::random::<u32>() & 0x3fff_ffff)? - 1;
+        let client_pk = -i64::try_from(rand::random::<u64>() & 0x3fff_ffff_ffff_ffff)? - 1;
+        let client_id = format!("basic-{}", identity.simple());
+        let subject = format!("basic-subject-{identity}");
+        let secret = "synthetic-basic:secret+value";
+        let secret_hash =
+            tokio::task::spawn_blocking(move || id_compat::password::hash_new(secret)).await??;
+        let encoded_secret: String =
+            url::form_urlencoded::byte_serialize(secret.as_bytes()).collect();
+        let authorization = format!(
+            "Basic {}",
+            STANDARD.encode(format!("{client_id}:{encoded_secret}"))
+        );
+        let verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+        let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier));
+        let failures = [
+            (
+                "invalid-base64",
+                "Basic %%%".to_owned(),
+                "",
+                StatusCode::UNAUTHORIZED,
+                "invalid_client",
+            ),
+            (
+                "missing-colon",
+                format!("Basic {}", STANDARD.encode(&client_id)),
+                "",
+                StatusCode::UNAUTHORIZED,
+                "invalid_client",
+            ),
+            (
+                "invalid-form-utf8",
+                format!("Basic {}", STANDARD.encode(format!("{client_id}:%FF"))),
+                "",
+                StatusCode::UNAUTHORIZED,
+                "invalid_client",
+            ),
+            (
+                "mixed-secret",
+                authorization.clone(),
+                "&client_secret=synthetic-body-secret",
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+            ),
+            (
+                "wrong-secret",
+                format!(
+                    "Basic {}",
+                    STANDARD.encode(format!("{client_id}:synthetic-wrong-secret"))
+                ),
+                "",
+                StatusCode::UNAUTHORIZED,
+                "invalid_client",
+            ),
+        ];
+        // Establish ownership before enabling cleanup; INSERT fails on an ID collision.
+        client.query_client().exec("INSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, '!', true, $name, '', '', $email, false, false, CurrentUtcDatetime())")
+            .param("$id", user).param("$name", client_id.clone()).param("$email", format!("{client_id}@example.invalid")).await?;
+        let result: Result<()> = async {
+            client.query_client().exec("INSERT INTO usid_user (user_id, username, display_name, email, email_verified, status, system_admin, created_at) VALUES ($id, $name, '', $email, true, 'active', false, CurrentUtcDatetime())")
+                .param("$id", identity).param("$name", client_id.clone()).param("$email", format!("{client_id}@example.invalid")).await?;
+            client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($user, $identity, $subject, CurrentUtcDatetime())")
+                .param("$user", user).param("$identity", identity).param("$subject", subject).await?;
+            client.query_client().exec("INSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client, 'Basic HTTP fixture', '', '', $hash, Unwrap(CAST('[\"https://rp.example.invalid/callback\"]' AS Json)), Unwrap(CAST('[\"openid\",\"offline_access\"]' AS Json)), Unwrap(CAST('[\"authorization_code\",\"refresh_token\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), false, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
+                .param("$id", client_pk).param("$client", client_id.clone()).param("$hash", secret_hash).await?;
+            for (name, invalid_auth, extra, status, error) in &failures {
+                let code = format!("{client_id}-{name}");
+                client.query_client().exec("INSERT INTO idp_oidcauthorizationcode (code, client_id, user_id, redirect_uri, scope, nonce, code_challenge, code_challenge_method, created_at, expires_at) VALUES ($code, $client, $user, 'https://rp.example.invalid/callback', 'openid offline_access', '', $challenge, 'S256', CurrentUtcDatetime(), CAST($expires AS Datetime))")
+                    .param("$code", code.clone()).param("$client", client_pk).param("$user", user)
+                    .param("$challenge", challenge.clone()).param("$expires", SystemTime::now() + Duration::from_secs(300)).await?;
+                let form = url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("grant_type", "authorization_code").append_pair("code", &code)
+                    .append_pair("redirect_uri", "https://rp.example.invalid/callback")
+                    .append_pair("code_verifier", verifier).finish();
+                let before = token_state(client, user, client_pk).await?;
+                token_request(&app, invalid_auth, &format!("{form}{extra}"), *status, Some(error)).await.context(*name)?;
+                let mut row = client.query_client().query_row("SELECT used_at FROM idp_oidcauthorizationcode WHERE code = $code")
+                    .param("$code", code.clone()).await?;
+                let used: Option<SystemTime> = row.remove_field_by_name("used_at")?.try_into()?;
+                ensure!(used.is_none() && before == token_state(client, user, client_pk).await?,
+                    "{name}: authentication failure consumed code or mutated a token family");
+                let issued = token_request(&app, &authorization, &form, StatusCode::OK, None).await.context(*name)?;
+                let refresh = issued["refresh_token"].as_str().context("missing refresh after valid Basic exchange")?;
+                token_request(&app, &authorization, &form, StatusCode::BAD_REQUEST, Some("invalid_grant")).await?;
+                let refresh_form = url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("grant_type", "refresh_token").append_pair("refresh_token", refresh).finish();
+                let before = token_state(client, user, client_pk).await?;
+                token_request(&app, invalid_auth, &format!("{refresh_form}{extra}"), *status, Some(error)).await.context(*name)?;
+                ensure!(before == token_state(client, user, client_pk).await?,
+                    "{name}: authentication failure rotated or revoked a token family");
+                let rotated = token_request(&app, &authorization, &refresh_form, StatusCode::OK, None).await.context(*name)?;
+                ensure!(rotated["refresh_token"].as_str().is_some_and(|next| !next.is_empty() && next != refresh),
+                    "refresh did not rotate after rejected Basic credentials");
+                token_request(&app, &authorization, &refresh_form, StatusCode::BAD_REQUEST, Some("invalid_grant")).await?;
+            }
+            Ok(())
+        }.await;
+        for state in token_state(client, user, client_pk).await? {
+            client
+                .query_client()
+                .exec("DELETE FROM idp_oidctoken WHERE id = $id")
+                .param("$id", state.id)
+                .await?;
+        }
+        for (name, ..) in &failures {
+            client
+                .query_client()
+                .exec("DELETE FROM idp_oidcauthorizationcode WHERE code = $code")
+                .param("$code", format!("{client_id}-{name}"))
+                .await?;
+        }
+        client
+            .query_client()
+            .exec("DELETE FROM idp_oidcclient WHERE id = $id AND client_id = $client")
+            .param("$id", client_pk)
+            .param("$client", client_id)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
+            .param("$id", user)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM usid_user WHERE user_id = $id")
+            .param("$id", identity)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM auth_user WHERE id = $id")
+            .param("$id", user)
+            .await?;
+        result
     }
 }
