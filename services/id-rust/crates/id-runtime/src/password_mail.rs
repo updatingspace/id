@@ -340,6 +340,7 @@ mod tests {
     async fn sends_once_from_durable_intent() -> Result<()> {
         let client = local_client().await?;
         let id = Uuid::new_v4().to_string();
+        let unrelated_event_id = (rand::random::<u64>() & ((1u64 << 62) - 1)) as i64;
         let account_id = -i32::try_from(rand::random::<u32>() % 1_000_000_000 + 1)?;
         let recipient = "password-mail@example.invalid";
         let now = SystemTime::now();
@@ -350,6 +351,10 @@ mod tests {
             client.query_client().exec(format!("INSERT INTO `{TABLE}` (id, user_id, recipient, status, attempts, next_attempt_at, claim_token, created_at) VALUES ($id, $user, $recipient, 'pending', 0, CAST($now AS Datetime), '', CAST($now AS Datetime))"))
                 .param("$id", id.clone()).param("$user", account_id).param("$recipient", recipient)
                 .param("$now", now).await?;
+            // Other journeys can leave due alerts. A password timer must not claim
+            // this owned new-device fixture, whose login event is deliberately absent.
+            client.query_client().exec("INSERT INTO accounts_newdevicemailoutbox (event_id, status, attempts, next_attempt_at, claim_token, created_at) VALUES ($id, 'pending', 0, CAST($now AS Datetime), '', CAST($now AS Datetime))")
+                .param("$id", unrelated_event_id).param("$now", now).await?;
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
             let port = listener.local_addr()?.port();
             let server = tokio::spawn(async move {
@@ -385,11 +390,12 @@ mod tests {
             let request = || Request::builder().method("POST").uri("/internal/jobs/mail")
                 .body(Body::from(queue_body.to_string()));
             let timer_body = serde_json::json!({"messages":[{"event_metadata":{"event_type":"yandex.cloud.events.serverless.triggers.TimerMessage"},"details":{"payload":""}}]});
-            let timer_request = Request::builder().method("POST").uri("/internal/jobs/recover-mail")
+            let timer_request = Request::builder().method("POST").uri("/internal/jobs/recover-password-mail")
                 .body(Body::from(timer_body.to_string()))?;
             let response = app.clone().oneshot(timer_request).await?;
-            ensure!(response.status() == StatusCode::OK, "password mail timer dispatch failed");
+            let status = response.status();
             let first: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+            ensure!(status == StatusCode::OK, "password mail timer dispatch failed: {status}, result={first}");
             ensure!(first["claimed"] == 1 && first["sent"] == 1, "password alert not sent");
             let body = tokio::time::timeout(Duration::from_secs(5), server).await???;
             ensure!(body.contains("UpdSpace ID") && !body.contains("password="));
@@ -406,8 +412,26 @@ mod tests {
             let recipient_after: String = row.remove_field_by_name("recipient")?.try_into()?;
             let user_after: i32 = row.remove_field_by_name("user_id")?.try_into()?;
             ensure!(status == "sent" && attempts == 1 && sent_at.is_some() && recipient_after.is_empty() && user_after == 0);
+            let mut unrelated = client.query_client().query_row("SELECT status, attempts, claim_token, lease_until, sent_at, next_attempt_at FROM accounts_newdevicemailoutbox WHERE event_id = $id")
+                .param("$id", unrelated_event_id).await?;
+            let status: String = unrelated.remove_field_by_name("status")?.try_into()?;
+            let attempts: i32 = unrelated.remove_field_by_name("attempts")?.try_into()?;
+            let claim_token: String = unrelated.remove_field_by_name("claim_token")?.try_into()?;
+            let lease_until: Option<SystemTime> = unrelated.remove_field_by_name("lease_until")?.try_into()?;
+            let sent_at: Option<SystemTime> = unrelated.remove_field_by_name("sent_at")?.try_into()?;
+            let next_attempt_at: SystemTime = unrelated.remove_field_by_name("next_attempt_at")?.try_into()?;
+            ensure!(status == "pending" && attempts == 0 && claim_token.is_empty()
+                && lease_until.is_none() && sent_at.is_none()
+                && next_attempt_at.duration_since(SystemTime::UNIX_EPOCH)?.as_secs()
+                    == now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs(),
+                "password timer changed an unrelated new-device intent");
             Ok(())
         }.await;
+        client
+            .query_client()
+            .exec("DELETE FROM accounts_newdevicemailoutbox WHERE event_id = $id")
+            .param("$id", unrelated_event_id)
+            .await?;
         client
             .query_client()
             .exec(format!("DELETE FROM `{TABLE}` WHERE id = $id"))
