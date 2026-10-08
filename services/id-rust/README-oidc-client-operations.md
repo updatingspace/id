@@ -1,6 +1,6 @@
 # OIDC clients: operator CLI
 
-These commands create clients and rotate confidential-client secrets. They do
+These commands inspect or create clients and rotate confidential-client secrets. They do
 not change existing redirect allowlists, scopes, issuer, subjects or issued
 tokens. They do not enable the public administration routes. The CLI currently
 targets Unix operator hosts, matching the deployment tooling.
@@ -52,14 +52,24 @@ idctl oidc-client-create --config client.json \
 
 Without `--apply`, this validates the configuration, verifies the operator and
 checks that the client ID is unused. It writes neither YDB rows nor secret files.
-Review the JSON report, then apply the same file:
+Review the JSON report and copy its `review_digest`, then apply:
 
 ```sh
 idctl oidc-client-create --config client.json \
+  --expected-config-digest REVIEWED_64_HEX_CONFIG_DIGEST \
   --operator-session-file operator.session \
   --operator-password-file operator.password \
   --secret-output example-rp.secret.json --apply
 ```
+
+`--expected-config-digest` is required for `--apply`, including public clients.
+It hashes the validated configuration with expanded defaults and a versioned
+SHA-256 prefix. JSON key order and whitespace do not matter; array order and
+every configuration value remain exact. A changed configuration is rejected
+before generating a secret, opening its output file or writing YDB. After an
+intentional change, run and review a new dry-run; do not reuse its predecessor's
+digest. This digest covers the requested configuration, while `revision` below
+covers an existing stored client and its credential generation.
 
 A confidential client gets a random 256-bit secret, hashed with the same
 Argon2id implementation used by the existing client verifier. The raw secret
@@ -72,6 +82,23 @@ commit response does not also lose the candidate credential. The file contains
 Public clients store an empty secret hash and reject `--secret-output`.
 Creation checks absence and inserts the client plus its audit record in one
 serializable transaction; duplicate/concurrent creation cannot replace a client.
+
+## Show
+
+Read either a public or confidential client without generating a secret or
+writing database/audit state:
+
+```sh
+idctl oidc-client-show --client-id example-rp \
+  --operator-session-file operator.session \
+  --operator-password-file operator.password
+```
+
+The command requires the same operator password, role and verified MFA session.
+Its read-only snapshot rechecks those proofs and returns `status: "found"`, the
+exact stored configuration (including logo and response types) and current
+`revision`. It never exposes a secret or secret hash. Missing or ambiguous IDs
+fail; `--apply` and `--secret-output` are not accepted by this command.
 
 ## Rotate
 
@@ -113,14 +140,17 @@ Do not assume rollback after a timeout or other unknown commit result. The CLI
 only retries YDB's definite `ABORTED` outcome, using the same prepared secret;
 it does not blindly retry an unknown commit or generate a second replacement.
 
-Keep any protected secret file created by the command. For a confidential
-client, run the rotation command **without** `--apply` to obtain its current
-revision and compare it with the file's proposed revision. Equality confirms
+Keep any protected secret file created by the command. Run `oidc-client-show`
+with the same `--client-id` and operator input files to obtain its current
+configuration and revision. For a confidential client, compare the returned
+revision with the file's proposed revision. Equality confirms
 that this candidate is currently stored; a different revision means that the
 candidate must not be deployed to the relying party. An unavailable review
 remains unresolved. A new `--apply` always requires a fresh review and new file.
-For uncertain public-client creation, inspect the existing client configuration
-through the read-only operator lookup before retrying creation. An existing ID
+For uncertain public-client creation, compare the `oidc-client-show`
+configuration with the reviewed create report; existence alone does not prove
+that this attempt created the row. A missing client can be reviewed again with
+create dry-run, while an unavailable lookup remains unresolved. An existing ID
 is never overwritten by the create command.
 
 Remove operator input files when the operation is finished and transfer a
@@ -145,6 +175,9 @@ the same local YDB environment. This test changes the operator's role, session
 and client revision after review, then checks the committing transaction
 rejects each stale proof without changing the client or audit. It also checks
 two creations whose reviews both observed the client ID as unused.
+The process test also rejects missing/stale create digests before secret or
+database writes, accepts formatting-only changes, and checks read-only public
+and confidential lookups, authorization and absence of credential leakage.
 
 The local legacy schema must already exist. This test is not production
 acceptance and never authorizes running these mutations against production.

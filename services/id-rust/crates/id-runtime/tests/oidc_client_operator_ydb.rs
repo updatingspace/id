@@ -178,6 +178,17 @@ fn revision(body: &Value) -> Result<&str> {
     Ok(value)
 }
 
+fn review_digest(body: &Value) -> Result<&str> {
+    let value = body["review_digest"]
+        .as_str()
+        .context("missing config review digest")?;
+    ensure!(
+        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "config review digest must be 64-digit hex"
+    );
+    Ok(value)
+}
+
 fn read_secret(path: &Path, client_id: &str, expected_revision: &str) -> Result<String> {
     ensure!(
         fs::symlink_metadata(path)?.file_type().is_file(),
@@ -341,8 +352,28 @@ async fn oidc_client_operator_creates_and_rotates_without_leaking_credentials() 
         ensure!(body["revision"].is_null() && body["secret_generated"] == false);
         ensure!(!output_path.exists() && stored_clients(&client, private_id).await?.is_empty());
         ensure!(audit_rows(&client, fixture.identity_id).await?.is_empty(), "dry run wrote audit state");
+        let private_digest = review_digest(&body)?.to_owned();
 
-        let apply = ["oidc-client-create", "--config", config_arg, "--secret-output", output_arg, "--apply"];
+        let missing_digest = fixture.run(&["oidc-client-create", "--config", config_arg,
+            "--secret-output", output_arg, "--apply"]).await?;
+        ensure!(!missing_digest.status.success()
+            && String::from_utf8_lossy(&missing_digest.stderr).contains("--expected-config-digest"),
+            "create skipped configuration review digest");
+        let mut changed = config(private_id, false);
+        changed["redirect_uris"] = json!(["https://another-rp.example.invalid/callback"]);
+        fs::write(&config_path, serde_json::to_vec(&changed)?)?;
+        let stale_digest = fixture.run(&["oidc-client-create", "--config", config_arg,
+            "--expected-config-digest", &private_digest, "--secret-output", output_arg, "--apply"]).await?;
+        ensure!(!stale_digest.status.success()
+            && String::from_utf8_lossy(&stale_digest.stderr).contains("configuration changed"),
+            "create accepted configuration changed since review");
+        ensure!(!output_path.exists() && stored_clients(&client, private_id).await?.is_empty()
+            && audit_rows(&client, fixture.identity_id).await?.is_empty(),
+            "missing/stale digest generated a secret or wrote database state");
+        fs::write(&config_path, serde_json::to_vec_pretty(&config(private_id, false))?)?;
+
+        let apply = ["oidc-client-create", "--config", config_arg,
+            "--expected-config-digest", &private_digest, "--secret-output", output_arg, "--apply"];
         fs::write(fixture.dir.join("password"), WRONG_PASSWORD)?;
         ensure!(!fixture.run(&apply).await?.status.success(), "wrong operator password was accepted");
         fs::write(fixture.dir.join("password"), PASSWORD)?;
@@ -398,12 +429,26 @@ async fn oidc_client_operator_creates_and_rotates_without_leaking_credentials() 
             "grants": ["authorization_code", "refresh_token"], "responses": ["code"],
         }), "created client configuration differs from reviewed input");
         let original_hash = stored[0].0.clone();
+        let audit_before_show = audit_rows(&client, fixture.identity_id).await?;
+        let shown = fixture.run(&["oidc-client-show", "--client-id", private_id]).await?;
+        let shown_body = report(&shown, "found", private_id, false)?;
+        fixture.no_leaks(&shown, &[&original_secret, &original_hash, &password_hash])?;
+        ensure!(revision(&shown_body)? == original_revision
+            && shown_body["configuration"]["redirect_uris"] == body["configuration"]["redirect_uris"]
+            && shown_body["configuration"]["response_types"] == json!(["code"])
+            && shown_body["configuration"]["logo_url"] == "",
+            "show omitted or changed stored configuration/revision");
+        ensure!(stored_clients(&client, private_id).await? == stored
+            && audit_rows(&client, fixture.identity_id).await? == audit_before_show,
+            "read-only confidential lookup changed client or audit state");
         let duplicate = fixture.run(&["oidc-client-create", "--config", config_arg,
-            "--secret-output", refused_arg, "--apply"]).await?;
+            "--expected-config-digest", &private_digest, "--secret-output", refused_arg, "--apply"]).await?;
         ensure!(!duplicate.status.success() && !refused_path.exists(), "duplicate create succeeded");
         ensure!(stored_clients(&client, private_id).await?[0].0 == original_hash);
 
         fs::write(fixture.dir.join("password"), WRONG_PASSWORD)?;
+        ensure!(!fixture.run(&["oidc-client-show", "--client-id", private_id]).await?.status.success(),
+            "show accepted incorrect operator password");
         let denied_rotation = fixture.run(&["oidc-client-rotate-secret", "--client-id", private_id,
             "--expected-revision", &original_revision, "--secret-output", rotate_arg, "--apply"]).await?;
         fs::write(fixture.dir.join("password"), PASSWORD)?;
@@ -448,24 +493,40 @@ async fn oidc_client_operator_creates_and_rotates_without_leaking_credentials() 
         ensure!(stored_clients(&client, private_id).await?[0].0 == rotated_hash);
 
         fs::write(&config_path, serde_json::to_vec(&config(public_id, true))?)?;
+        let public_dry = fixture.run(&["oidc-client-create", "--config", config_arg]).await?;
+        let public_digest = review_digest(&report(&public_dry, "dry_run", public_id, true)?)?.to_owned();
         let public_secret = fixture.run(&["oidc-client-create", "--config", config_arg,
-            "--secret-output", refused_arg, "--apply"]).await?;
+            "--expected-config-digest", &public_digest, "--secret-output", refused_arg, "--apply"]).await?;
         ensure!(!public_secret.status.success() && !refused_path.exists()
             && stored_clients(&client, public_id).await?.is_empty(), "public create accepted secret output");
-        let public_output = fixture.run(&["oidc-client-create", "--config", config_arg, "--apply"]).await?;
+        let public_output = fixture.run(&["oidc-client-create", "--config", config_arg,
+            "--expected-config-digest", &public_digest, "--apply"]).await?;
         let public_report = report(&public_output, "created", public_id, true)?;
         ensure!(public_report["secret_generated"] == false);
         let stored = stored_clients(&client, public_id).await?;
         ensure!(stored.len() == 1 && stored[0].1 && stored[0].0.is_empty(), "public client has a secret");
+        let audit_before_show = audit_rows(&client, fixture.identity_id).await?;
+        let shown = fixture.run(&["oidc-client-show", "--client-id", public_id]).await?;
+        let shown_body = report(&shown, "found", public_id, true)?;
+        fixture.no_leaks(&shown, &[&original_secret, &current_secret, &original_hash, &rotated_hash, &password_hash])?;
+        ensure!(revision(&shown_body)? == revision(&public_report)?
+            && shown_body["configuration"]["is_public"] == true
+            && shown_body["configuration"]["allowed_scopes"] == public_report["configuration"]["allowed_scopes"]);
+        ensure!(stored_clients(&client, public_id).await? == stored
+            && audit_rows(&client, fixture.identity_id).await? == audit_before_show
+            && !refused_path.exists(), "read-only public lookup changed client/audit or wrote a secret file");
         let public_rotate = fixture.run(&["oidc-client-rotate-secret", "--client-id", public_id,
             "--expected-revision", revision(&public_report)?, "--secret-output", refused_arg, "--apply"]).await?;
         ensure!(!public_rotate.status.success() && !refused_path.exists(), "public client received a secret");
 
         fs::write(&config_path, serde_json::to_vec(&config(race_id, true))?)?;
+        let race_dry = fixture.run(&["oidc-client-create", "--config", config_arg]).await?;
+        let race_digest = review_digest(&report(&race_dry, "dry_run", race_id, true)?)?.to_owned();
         let barrier = Arc::new(Barrier::new(2));
         let mut contenders = Vec::new();
         for _ in 0..2 {
-            let mut command = fixture.command(&["oidc-client-create", "--config", config_arg, "--apply"]);
+            let mut command = fixture.command(&["oidc-client-create", "--config", config_arg,
+                "--expected-config-digest", &race_digest, "--apply"]);
             let barrier = barrier.clone();
             contenders.push(tokio::task::spawn_blocking(move || {
                 barrier.wait();
