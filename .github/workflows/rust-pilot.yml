@@ -131,6 +131,9 @@ jobs:
       - name: Verify OIDC code exchange, refresh replay, UserInfo and revocation on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test oidc_code_exchange_ydb -- --ignored --nocapture
+      - name: Create and rotate OIDC clients through the operator CLI on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test oidc_client_operator_ydb -- --ignored --nocapture
       - name: Verify remembered-consent authorization through code exchange on local YDB
         working-directory: services/id-rust
         env:
@@ -226,6 +229,9 @@ jobs:
       - name: Private account export, owner access and expiry on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test data_export_operation_ydb -- --ignored --nocapture
+      - name: Keep export pages and avatar references in one YDB snapshot
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --test data_export_ydb -- --ignored --nocapture
       - name: Rust HTTP password and MFA login on local YDB
         working-directory: services/id-rust
         env:

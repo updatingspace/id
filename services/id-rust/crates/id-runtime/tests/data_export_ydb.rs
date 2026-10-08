@@ -19,12 +19,66 @@ use id_runtime::{
     media_url::MediaUrl,
 };
 use std::{
+    future::Future,
+    io,
+    pin::Pin,
     sync::Arc,
+    task::{Context as TaskContext, Poll},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::io::AsyncReadExt;
+use tokio::{
+    io::{AsyncReadExt, AsyncWrite},
+    sync::oneshot,
+};
 use uuid::Uuid;
 use ydb::{Transaction, TxMode, closure};
+
+/// Stop before the first consent page finishes, so the next query cannot race
+/// ahead of the second client's committed changes.
+struct PausedExportWriter {
+    bytes: Vec<u8>,
+    consents: usize,
+    paused: Option<oneshot::Sender<()>>,
+    resume: Option<oneshot::Receiver<()>>,
+}
+
+impl AsyncWrite for PausedExportWriter {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        if self.consents == 128 {
+            if let Some(paused) = self.paused.take() {
+                let _ = paused.send(());
+            }
+            if let Some(resume) = self.resume.as_mut() {
+                match Pin::new(resume).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(_)) => {
+                        return Poll::Ready(Err(io::Error::other("export mutation was cancelled")));
+                    }
+                    Poll::Ready(Ok(())) => self.resume = None,
+                }
+            }
+        }
+        if serde_json::from_slice::<serde_json::Value>(bytes)
+            .is_ok_and(|line| line["category"] == "consents")
+        {
+            self.consents += 1;
+        }
+        self.bytes.extend_from_slice(bytes);
+        Poll::Ready(Ok(bytes.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
 
 #[tokio::test]
 #[ignore = "requires disposable local /local YDB with frozen legacy schema"]
@@ -139,8 +193,14 @@ async fn exports_all_owner_rows_without_credentials_or_other_account_data() -> R
     ensure!(
         lines
             .last()
-            .is_some_and(|line| line["record"]["consistency"] == "paged-live-read"),
+            .is_some_and(|line| line["record"]["consistency"] == "snapshot"
+                && line["record"]["snapshot_scope"] == "worker-attempt"),
         "export did not append its manifest"
+    );
+    ensure!(
+        chrono::DateTime::parse_from_rfc3339(&manifest.snapshot_started_at)?
+            <= chrono::DateTime::parse_from_rfc3339(&manifest.snapshot_completed_at)?,
+        "invalid worker snapshot time bounds"
     );
     let avatar_key = format!("avatars/user_{owner}/synthetic.jpg");
     client.query_client()
@@ -148,21 +208,35 @@ async fn exports_all_owner_rows_without_credentials_or_other_account_data() -> R
         .param("$avatar", avatar_key.clone())
         .param("$owner", owner)
         .await?;
-    let (mut rejected_writer, _) = tokio::io::duplex(2 * 1024 * 1024);
+    let (mut rejected_writer, mut rejected_reader) = tokio::io::duplex(2 * 1024 * 1024);
     ensure!(
         write_ndjson(&client, owner, &mut rejected_writer)
             .await
             .is_err(),
         "avatar bytes were silently excluded without media access"
     );
+    drop(rejected_writer);
+    let mut rejected_archive = String::new();
+    rejected_reader
+        .read_to_string(&mut rejected_archive)
+        .await?;
+    ensure!(
+        !rejected_archive.contains("\"category\":\"manifest\""),
+        "failed avatar export published a manifest"
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let expected_path = format!("/id-media/{avatar_key}");
+    let replacement_key = format!("avatars/user_{owner}/replacement.jpg");
+    let replacement_path = format!("/id-media/{replacement_key}");
     let avatar_server = Router::new().fallback(any(move |request: Request<Body>| {
         let expected_path = expected_path.clone();
+        let replacement_path = replacement_path.clone();
         async move {
             if request.uri().path() == expected_path {
                 (StatusCode::OK, b"synthetic-avatar".to_vec())
+            } else if request.uri().path() == replacement_path {
+                (StatusCode::OK, b"replacement-avatar".to_vec())
             } else {
                 (StatusCode::NOT_FOUND, Vec::new())
             }
@@ -214,6 +288,101 @@ async fn exports_all_owner_rows_without_credentials_or_other_account_data() -> R
             .categories
             .iter()
             .any(|item| item.category == "avatar_bytes" && item.records > 0)
+    );
+
+    let mutator = id_runtime::connect_ydb().await?;
+    let (paused, wait_for_page) = oneshot::channel();
+    let (resume, wait_for_commit) = oneshot::channel();
+    let mut concurrent_writer = PausedExportWriter {
+        bytes: Vec::new(),
+        consents: 0,
+        paused: Some(paused),
+        resume: Some(wait_for_commit),
+    };
+    let mutate = async {
+        wait_for_page.await?;
+        mutator.query_client().retry_tx(closure!([replacement_key], async |tx: &mut Transaction| {
+            tx.exec("DELETE FROM accounts_userconsent WHERE id = $id")
+                .param("$id", base + 180).await?;
+            tx.exec("UPDATE accounts_userconsent SET version = 'v2' WHERE id = $id")
+                .param("$id", base + 190).await?;
+            tx.exec("INSERT INTO accounts_userconsent (id, user_id, kind, version, granted_at, source, meta) VALUES ($id, $owner, 'new-after-snapshot', 'v2', CurrentUtcDatetime(), 'test', Unwrap(CAST('{}' AS Json)))")
+                .param("$id", base + 300).param("$owner", owner).await?;
+            tx.exec("UPDATE accounts_userprofile SET avatar = CAST($key AS String) WHERE id = $id")
+                .param("$key", replacement_key.clone()).param("$id", base + 20_000).await?;
+            tx.exec("UPDATE idp_oidcconsent SET scopes = Unwrap(CAST('[\"openid\",\"email\"]' AS Json)) WHERE id = $id")
+                .param("$id", base + 20_004).await?;
+            Ok(())
+        })).isolation(TxMode::SerializableReadWrite).idempotent(false).await?;
+        resume
+            .send(())
+            .map_err(|_| anyhow::anyhow!("export stopped before mutation committed"))?;
+        Ok::<_, anyhow::Error>(())
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        tokio::try_join!(
+            write_ndjson_with_avatar(&client, owner, &mut concurrent_writer, Some(&source)),
+            mutate,
+        )
+    })
+    .await??;
+    let concurrent_rows = String::from_utf8(concurrent_writer.bytes)?
+        .lines()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let exported_consents = concurrent_rows
+        .iter()
+        .filter(|row| row["category"] == "consents")
+        .map(|row| &row["record"])
+        .collect::<Vec<_>>();
+    ensure!(
+        exported_consents.len() == 205
+            && exported_consents.iter().enumerate().all(|(offset, row)| {
+                row["id"] == base + offset as i64 && row["version"] == "v1"
+            }),
+        "export drifted across pages after concurrent delete, update and insert"
+    );
+    ensure!(
+        concurrent_rows
+            .iter()
+            .any(|row| row["category"] == "oidc_consents"
+                && row["record"]["scopes"] == serde_json::json!(["openid"])),
+        "export drifted between categories"
+    );
+    ensure!(
+        concurrent_rows
+            .iter()
+            .filter(|row| row["category"] == "avatar_bytes")
+            .all(|row| row["record"]["key"] == avatar_key),
+        "export avatar differs from the profile snapshot"
+    );
+    ensure!(
+        concurrent_rows
+            .iter()
+            .any(|row| row["category"] == "avatar_digest"
+                && row["record"]["sha256"] == {
+                    use sha2::Digest;
+                    hex::encode(sha2::Sha256::digest(b"synthetic-avatar"))
+                }),
+        "export did not preserve snapshot avatar bytes"
+    );
+    client.query_client()
+        .exec("UPDATE accounts_userprofile SET avatar = CAST($avatar AS String) WHERE user_id = $owner")
+        .param("$avatar", format!("avatars/user_{owner}/missing.jpg"))
+        .param("$owner", owner).await?;
+    let (mut missing_writer, mut missing_reader) = tokio::io::duplex(2 * 1024 * 1024);
+    ensure!(
+        write_ndjson_with_avatar(&client, owner, &mut missing_writer, Some(&source))
+            .await
+            .is_err(),
+        "missing avatar was silently excluded from the snapshot"
+    );
+    drop(missing_writer);
+    let mut missing_archive = String::new();
+    missing_reader.read_to_string(&mut missing_archive).await?;
+    ensure!(
+        !missing_archive.contains("\"category\":\"manifest\""),
+        "missing avatar export published a manifest"
     );
     server.abort();
     client

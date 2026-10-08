@@ -57,9 +57,11 @@ rechecks permissions and the reviewed subject in the committing transaction,
 blocks self/other-operator suspension, revokes credentials and writes an audit
 record. Ambiguous identity ownership or an unknown commit result fails closed.
 Production admin and suspension remain disabled until a complete operator
-rehearsal passes. This is **not** parity with the old admin: client creation and secret rotation, consent,
-export retry, audit and bootstrap tasks still need dedicated screens or
-documented `idctl` procedures.
+rehearsal passes. Client creation and secret rotation have dedicated
+[operator CLI procedures](../../services/id-rust/README-oidc-client-operations.md),
+with local-YDB verification; production operator acceptance remains separate.
+This is **not** parity with the old admin: consent, export retry, audit and
+bootstrap tasks still need dedicated screens or documented `idctl` procedures.
 
 UI acceptance for each flow is a browser test at 320, 390 and desktop widths,
 without horizontal overflow, with keyboard-only operation and visible focus;
@@ -122,6 +124,14 @@ operation-bound address encryption and deterministic download capability
 primitives. The delayed pilot creates the escrow request atomically with the
 owner operation and stores a private snapshot under an account-independent
 object key. Deletion waits for a pending snapshot and detaches a sealed one.
+Each archive attempt now reads its account, categories and avatar reference in
+one YDB `SnapshotReadOnly` transaction. It cannot retry into the same stream;
+an error discards the attempt, and a missing avatar cannot produce a successful
+manifest. The manifest labels this `snapshot_scope: worker-attempt` and records
+wall-clock start/completion bounds. This fixes drift during preparation, but
+does **not** implement the target request-time cutoff below: changes before
+the worker starts can still enter the archive, and prior avatar objects are
+not retained specifically for accepted exports. Those guarantees remain open.
 The local pilot now creates two durable mail intents, sends the request notice
 and timed delivery mail through jobs, renders a fragment-only bearer link in
 Topcoat, and redeems it without an account session. The existing deletion

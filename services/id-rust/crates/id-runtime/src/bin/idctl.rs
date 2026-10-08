@@ -1,4 +1,6 @@
 #![recursion_limit = "256"]
+#[path = "idctl/oidc_clients.rs"]
+mod oidc_clients;
 #[path = "idctl/smoke_auth.rs"]
 mod smoke_auth;
 #[path = "idctl/smoke_exchange.rs"]
@@ -20,6 +22,30 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Review or create an exact OIDC client; writes require --apply.
+    OidcClientCreate {
+        #[arg(long)]
+        config: PathBuf,
+        #[command(flatten)]
+        operator: oidc_clients::OperatorFiles,
+        #[arg(long)]
+        secret_output: Option<PathBuf>,
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Review or rotate a confidential client's secret, with stale-review protection.
+    OidcClientRotateSecret {
+        #[arg(long)]
+        client_id: String,
+        #[arg(long)]
+        expected_revision: Option<String>,
+        #[command(flatten)]
+        operator: oidc_clients::OperatorFiles,
+        #[arg(long)]
+        secret_output: Option<PathBuf>,
+        #[arg(long)]
+        apply: bool,
+    },
     /// Reject a deployment unless the exact SHA passed every required CI job.
     VerifyTestedRevision,
     /// Exercise public auth forms without creating accounts or sending mail.
@@ -200,6 +226,24 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::OidcClientCreate {
+            config,
+            operator,
+            secret_output,
+            apply,
+        } => {
+            oidc_clients::create(config, operator, secret_output, apply).await?;
+        }
+        Command::OidcClientRotateSecret {
+            client_id,
+            expected_revision,
+            operator,
+            secret_output,
+            apply,
+        } => {
+            oidc_clients::rotate(client_id, expected_revision, operator, secret_output, apply)
+                .await?;
+        }
         Command::VerifyTestedRevision => {
             tested_revision::run().await?;
         }
