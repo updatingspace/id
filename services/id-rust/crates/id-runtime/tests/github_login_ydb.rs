@@ -1595,16 +1595,22 @@ async fn browser_link_requires_fresh_owner_and_reserves_subject(kind: Kind) -> R
             device_fingerprint_salt: "synthetic-device-salt".into(),
         },
     )?);
-    let app = provider_login::router(Arc::new(
-        kind.config(login)?.with_loopback_provider(&origin)?,
-    ))
-    .merge(form_token_http::router(Arc::new(FormTokenConfig::new(
-        cache,
-        "csrftoken".into(),
-        true,
-        SameSite::Lax,
-        None,
-    )?)));
+    let provider_config = Arc::new(
+        kind.config(login.clone())?
+            .with_loopback_provider(&origin)?,
+    );
+    let app = provider_login::router(provider_config.clone())
+        .merge(provider_login::unlink_router(
+            login.clone(),
+            vec![provider_config.clone()],
+        ))
+        .merge(form_token_http::router(Arc::new(FormTokenConfig::new(
+            cache,
+            "csrftoken".into(),
+            true,
+            SameSite::Lax,
+            None,
+        )?)));
     client.query_client().exec(format!("CREATE TABLE `{table}` (cache_key Utf8 NOT NULL,value String,expires_at Uint64,PRIMARY KEY(cache_key))")).await?;
     let mut claimed = Vec::new();
     let name = kind.name();
@@ -1766,6 +1772,41 @@ async fn browser_link_requires_fresh_owner_and_reserves_subject(kind: Kind) -> R
             .param("$left",identities[0]).param("$right",identities[1]).await?;
         let audit:u64=count.remove_field_by_name("total")?.try_into()?;
         ensure!(audit==11,"link did not atomically audit each winner exactly once: {audit}");
+        let unlink_path = "/api/v1/auth/oauth/unlink";
+        let unlink_body = json!({"provider":name});
+        ensure!(anonymous.call(&app,"POST",unlink_path,unlink_body.clone()).await?.status==StatusCode::UNAUTHORIZED);
+        ensure!(owner.call(&app,"POST",unlink_path,json!({"provider":name,"account_id":accounts[1]})).await?.status==StatusCode::BAD_REQUEST);
+        let csrf=owner.cookies.get("csrftoken").context("unlink csrf")?;
+        let missing_csrf=app.clone().oneshot(Request::builder().method("POST").uri(unlink_path)
+            .header(header::ORIGIN,ORIGIN).header(header::CONTENT_TYPE,"application/json")
+            .header(header::COOKIE,format!("sessionid={}",tokens[0])).body(Body::from(unlink_body.to_string()))?).await?;
+        ensure!(missing_csrf.status()==StatusCode::FORBIDDEN,"unlink accepted missing CSRF");
+        let mismatch=app.clone().oneshot(Request::builder().method("POST").uri(unlink_path)
+            .header(header::ORIGIN,ORIGIN).header(header::CONTENT_TYPE,"application/json").header("x-csrftoken",csrf)
+            .header("x-session-token","invalid").header(header::COOKIE,format!("sessionid={}; csrftoken={csrf}",tokens[0]))
+            .body(Body::from(unlink_body.to_string()))?).await?;
+        ensure!(mismatch.status()==StatusCode::UNAUTHORIZED,"unlink fell back from invalid header to cookie");
+        let mut stranger=browser(1);
+        stranger.call(&app,"GET","/api/v1/auth/form_token?purpose=login",Value::Null).await?;
+        ensure!(stranger.call(&app,"POST",unlink_path,unlink_body.clone()).await?.status==StatusCode::NOT_FOUND,"unlink selected another owner's binding");
+        for condition in ["disabled","deleting"] {
+            if condition=="disabled" {
+                client.query_client().exec("UPDATE auth_user SET is_active=false WHERE id=$id").param("$id",first).await?;
+            } else {
+                client.query_client().exec("INSERT INTO accounts_accountdeletionrequest (id,user_id,status,requested_at,reason) VALUES ($row,$id,'pending',CurrentUtcDatetime(),'')")
+                    .param("$row",i64::from(first)).param("$id",first).await?;
+            }
+            ensure!(owner.call(&app,"POST",unlink_path,unlink_body.clone()).await?.status==StatusCode::UNAUTHORIZED,"inactive owner could unlink");
+            client.query_client().exec("UPDATE auth_user SET is_active=true WHERE id=$id").param("$id",first).await?;
+            client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE user_id=$id").param("$id",first).await?;
+        }
+        let denied=owner.call(&app,"POST",unlink_path,unlink_body.clone()).await?;
+        ensure!(denied.status==StatusCode::CONFLICT && denied.body["code"]=="LAST_LOGIN_METHOD", "unlink removed final credential: {} {}",denied.status,denied.body);
+        write_link_session(&client,&codec,first,&tokens[0],Some(400),0).await?;
+        let stale=owner.call(&app,"POST",unlink_path,unlink_body.clone()).await?;
+        ensure!(stale.status==StatusCode::FORBIDDEN && stale.body["code"]=="REAUTH_REQUIRED");
+        write_link_session(&client,&codec,first,&tokens[0],Some(0),0).await?;
+        ensure!(ids(&client,"SELECT uid AS value FROM socialaccount_socialaccount WHERE user_id=$id".into(),first).await?==[subject.to_string()]);
         // Prove that the newly stored binding actually participates in the
         // existing credential path, including its mandatory MFA barrier.
         let mut returning=Browser::default();
@@ -1782,12 +1823,136 @@ async fn browser_link_requires_fresh_owner_and_reserves_subject(kind: Kind) -> R
         ensure!(principal.account_id.get()==i64::from(first) && principal.identity_id.get()==identities[0]);
         ensure!(ids(&client,"SELECT CAST(id AS Utf8) AS value FROM usersessions_usersession WHERE user_id=$id".into(),first).await?.len()==1
             && ids(&client,"SELECT CAST(id AS Utf8) AS value FROM token_blacklist_outstandingtoken WHERE user_id=$id".into(),first).await?.len()==1);
+        // A usable password permits removal, including both legacy representations.
+        const HASH: &str = "argon2$argon2id$v=19$m=102400,t=2,p=8$U3ludGhldGljR29sZGVuU2FsdDEyMw$Q/uhIlhHnraeVEMP4b/SvQx5Gjb04zC0bEmIq6OPnUo";
+        client.query_client().exec("UPDATE auth_user SET password=$hash WHERE id=$id")
+            .param("$hash",HASH).param("$id",first).await?;
+        let now=SystemTime::now();
+        let seconds=now.duration_since(UNIX_EPOCH)?.as_secs();
+        let data=json!({"_auth_user_id":first.to_string(),"_auth_user_backend":id_runtime::session_store::LEGACY_BACKENDS[0],
+            "_auth_user_hash":codec.auth_hash(HASH)?,"id_mfa_verified_user_id":first.to_string(),
+            "account_authentication_methods":[{"method":"password","at":seconds},{"method":"mfa","type":"recovery_codes","at":seconds}]});
+        client.query_client().exec("UPDATE django_session SET session_data=$data WHERE session_key=$key")
+            .param("$key",tokens[0].clone()).param("$data",codec.encode(data.as_object().context("session object")?,i64::try_from(seconds)?,true)?).await?;
+        let mut row=client.query_client().query_row("SELECT id FROM socialaccount_socialaccount WHERE user_id=$id AND provider=$provider")
+            .param("$id",first).param("$provider",name).await?;
+        let social_id:i32=row.remove_field_by_name("id")?.try_into()?;
+        client.query_client().exec("INSERT INTO socialaccount_socialtoken (id,account_id,token,token_secret) VALUES ($id,$account,'synthetic-token','synthetic-secret')")
+            .param("$id",first).param("$account",social_id).await?;
+        client.query_client().exec("INSERT INTO usid_external_identity (id,user_id,provider,subject,created_at) VALUES ($id,$owner,$provider,$subject,CurrentUtcDatetime())")
+            .param("$id",i64::from(first)).param("$owner",identities[1]).param("$provider",name).param("$subject",subject.to_string()).await?;
+        let conflict=owner.call(&app,"POST",unlink_path,unlink_body.clone()).await?;
+        ensure!(conflict.status==StatusCode::CONFLICT && conflict.body["code"]=="IDENTITY_CONFLICT","unlink modified ambiguous binding");
+        client.query_client().exec("UPDATE usid_external_identity SET user_id=$owner WHERE id=$id")
+            .param("$owner",identities[0]).param("$id",i64::from(first)).await?;
+        client.query_client().exec("UPDATE mfa_authenticator SET data=Unwrap(CAST($data AS Json)) WHERE id=$id")
+            .param("$data",json!({"migrated_codes":["87654321"]}).to_string()).param("$id",i64::from(first)).await?;
+        let mut pending_owner=Browser::default();
+        let path=pending_owner.start(&app,&provider,subject).await?;
+        redirected(&pending_owner.call(&app,"GET",&path,Value::Null).await?,&format!("/login?provider_mfa={name}"))?;
+        let mut contender=owner.clone();
+        let (a,b)=tokio::join!(owner.call(&app,"POST",unlink_path,unlink_body.clone()),contender.call(&app,"POST",unlink_path,unlink_body.clone()));
+        let replies=[a?,b?];
+        ensure!(replies.iter().filter(|r|r.status==StatusCode::OK && r.body["ok"]==true).count()==1,"concurrent unlink lacks one winner");
+        ensure!(replies.iter().filter(|r|r.status==StatusCode::NOT_FOUND).count()==1,"concurrent unlink has unexpected loser");
+        ensure!(ids(&client,"SELECT uid AS value FROM socialaccount_socialaccount WHERE user_id=$id".into(),first).await?.is_empty());
+        let mut row=client.query_client().query_row("SELECT COUNT(*) AS total FROM usid_external_identity WHERE user_id=$owner AND provider=$provider")
+            .param("$owner",identities[0]).param("$provider",name).await?;
+        let total:u64=row.remove_field_by_name("total")?.try_into()?; ensure!(total==0,"legacy external binding remains");
+        let mut row=client.query_client().query_row("SELECT COUNT(*) AS total FROM socialaccount_socialtoken WHERE account_id=$id").param("$id",social_id).await?;
+        let total:u64=row.remove_field_by_name("total")?.try_into()?; ensure!(total==0,"provider token remains");
+        let mut row=client.query_client().query_row("SELECT COUNT(*) AS total FROM accounts_accountevent WHERE user_id=$id AND action='provider.unlinked'").param("$id",first).await?;
+        let total:u64=row.remove_field_by_name("total")?.try_into()?; ensure!(total==1,"unlink audit is not atomic");
+        let replay=pending_owner.call(&app,"POST",&format!("/api/v1/auth/oauth/login/{name}/complete"),json!({"recovery_code":"87654321"})).await?;
+        ensure!(replay.status!=StatusCode::OK && !pending_owner.cookies.contains_key("sessionid"),"pending provider proof survived unlink");
+        let mut row=client.query_client().query_row("SELECT CAST(data AS Utf8) AS data FROM mfa_authenticator WHERE id=$id").param("$id",i64::from(first)).await?;
+        let data:String=row.remove_field_by_name("data")?.try_into()?;
+        ensure!(serde_json::from_str::<Value>(&data)?==json!({"migrated_codes":["87654321"]}),"rejected pending proof consumed recovery code");
+        ensure!(id_runtime::session_store::restore_django_principal(&client,codec.clone(),&tokens[0],id_runtime::session_store::LEGACY_BACKENDS,SystemTime::now()).await?.is_some(),"unlink revoked unrelated session");
+        #[cfg(feature="passkeys")]
+        {
+            use id_runtime::passkey_management::{delete,Outcome};
+            let second_client=id_runtime::connect_ydb().await?;
+            let credential_id=Uuid::new_v4();
+            let key_id=i64::from(first)-3_000_000_000;
+            let fixture:Value=serde_json::from_str(include_str!("fixtures/legacy_passkey.json"))?;
+            let key=id_runtime::legacy_passkey::import_registration(&fixture["registration"],"id.example.invalid","https://id.example.invalid")?;
+            let mut key=serde_json::to_value(key)?;
+            let raw=base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD,credential_id.as_bytes());
+            *key.pointer_mut("/cred/cred_id").context("credential ID")?=json!(raw);
+            let key:webauthn_rs::prelude::Passkey=serde_json::from_value(key)?;
+            let record=json!({"name":"Unlink race key","passwordless":true,"credential":{"rawId":raw},"rust_passkey":key});
+            let digest=id_runtime::passkey_index::digest_of_record(&record)?;
+            client.query_client().exec("UPDATE auth_user SET password='!synthetic-unusable-password' WHERE id=$id").param("$id",first).await?;
+            for round in 0..100 {
+                write_link_session(&client,&codec,first,&tokens[0],Some(0),0).await?;
+                client.query_client().exec("UPSERT INTO socialaccount_socialaccount (id,user_id,provider,uid,last_login,date_joined,extra_data) VALUES ($id,$id,$provider,$subject,CurrentUtcDatetime(),CurrentUtcDatetime(),Unwrap(CAST('{}' AS Json)))")
+                    .param("$id",first).param("$provider",name).param("$subject",subject.to_string()).await?;
+                client.query_client().exec("UPSERT INTO mfa_authenticator (id,user_id,type,data,created_at) VALUES ($key,$owner,'webauthn',Unwrap(CAST($data AS Json)),CurrentUtcDatetime())")
+                    .param("$key",key_id).param("$owner",first).param("$data",record.to_string()).await?;
+                client.query_client().exec("UPSERT INTO id_passkey_credential (digest,authenticator_id,account_id) VALUES ($digest,$key,$owner)")
+                    .param("$digest",digest.clone()).param("$key",key_id).param("$owner",first).await?;
+                let key_ids=[key_id];
+                let providers=[provider_config.clone()];
+                let (unlinked,deleted)=tokio::join!(
+                    owner.call(&app,"POST",unlink_path,unlink_body.clone()),
+                    delete(&second_client,codec.clone(),&tokens[0],&key_ids,SystemTime::now(),&providers)
+                );
+                let unlinked=unlinked?;let deleted=deleted?;
+                ensure!((unlinked.status==StatusCode::OK && deleted==Outcome::LastLoginMethod)
+                    || (unlinked.status==StatusCode::CONFLICT && unlinked.body["code"]=="LAST_LOGIN_METHOD" && deleted==Outcome::Deleted(1)),
+                    "round {round}: unlink/passkey removal did not preserve exactly one login: {} {} {:?}",unlinked.status,unlinked.body,deleted);
+                let mut row=client.query_client().query_row("SELECT COUNT(*) AS total FROM mfa_authenticator WHERE id=$id").param("$id",key_id).await?;
+                let keys:u64=row.remove_field_by_name("total")?.try_into()?;
+                let links=ids(&client,"SELECT uid AS value FROM socialaccount_socialaccount WHERE user_id=$id".into(),first).await?.len();
+                ensure!(keys+u64::try_from(links)?==1,"race lost every sign-in method");
+            }
+        }
+        // A stored but disabled provider is not a usable backup. An enabled,
+        // unambiguously owned provider permits unlink, but cannot remove itself last.
+        client.query_client().exec("DELETE FROM mfa_authenticator WHERE user_id=$id").param("$id",first).await?;
+        client.query_client().exec("DELETE FROM id_passkey_credential WHERE account_id=$id").param("$id",first).await?;
+        client.query_client().exec("UPDATE auth_user SET password='!synthetic-unusable-password' WHERE id=$id").param("$id",first).await?;
+        write_link_session(&client,&codec,first,&tokens[0],None,0).await?;
+        client.query_client().exec("UPSERT INTO socialaccount_socialaccount (id,user_id,provider,uid,last_login,date_joined,extra_data) VALUES ($id,$id,$provider,$subject,CurrentUtcDatetime(),CurrentUtcDatetime(),Unwrap(CAST('{}' AS Json)))")
+            .param("$id",first).param("$provider",name).param("$subject",subject.to_string()).await?;
+        client.query_client().exec("INSERT INTO socialaccount_socialaccount (id,user_id,provider,uid,last_login,date_joined,extra_data) VALUES ($id,$owner,$provider,$subject,CurrentUtcDatetime(),CurrentUtcDatetime(),Unwrap(CAST('{}' AS Json)))")
+            .param("$id",first-2).param("$owner",first).param("$provider",kind.other().name()).param("$subject",subject.to_string()).await?;
+        let denied=owner.call(&app,"POST",unlink_path,unlink_body.clone()).await?;
+        ensure!(denied.status==StatusCode::CONFLICT && denied.body["code"]=="LAST_LOGIN_METHOD","disabled alternative allowed unlink");
+        let alternative=Arc::new(kind.other().config(login.clone())?);
+        let enabled_app=provider_login::unlink_router(login.clone(),vec![provider_config.clone(),alternative]);
+        let allowed=owner.call(&enabled_app,"POST",unlink_path,unlink_body.clone()).await?;
+        ensure!(allowed.status==StatusCode::OK && allowed.body["ok"]==true,"enabled provider failed to preserve login");
+        let last=owner.call(&enabled_app,"POST",unlink_path,json!({"provider":kind.other().name()})).await?;
+        ensure!(last.status==StatusCode::CONFLICT && last.body["code"]=="LAST_LOGIN_METHOD","last provider could be removed");
+        ensure!(ids(&client,"SELECT provider AS value FROM socialaccount_socialaccount WHERE user_id=$id".into(),first).await?==[kind.other().name().to_owned()]);
         Ok(())
     }.await;
     server.abort();
     // Only fixture-owned rows; cleanup also catches credentials from a failed assertion.
     for index in claimed {
         let account = accounts[index];
+        client
+            .query_client()
+            .exec("DELETE FROM id_passkey_credential WHERE account_id=$id")
+            .param("$id", account)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM id_security_mail WHERE user_id=$id")
+            .param("$id", account)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM socialaccount_socialtoken WHERE id=$id")
+            .param("$id", account)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM accounts_accountevent WHERE user_id=$id")
+            .param("$id", account)
+            .await?;
         for token in ids(
             &client,
             "SELECT session_key AS value FROM usersessions_usersession WHERE user_id=$id".into(),
