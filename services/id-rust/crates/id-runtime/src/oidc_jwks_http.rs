@@ -62,6 +62,7 @@ async fn jwks(State(config): State<Arc<JwksHttpConfig>>) -> impl IntoResponse {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use anyhow::{Context, ensure};

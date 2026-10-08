@@ -173,6 +173,7 @@ fn hash_matches(stored: &str, current: &str) -> bool {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

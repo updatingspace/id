@@ -437,6 +437,7 @@ fn oauth_error(status: StatusCode, code: &str, description: &str, basic: bool) -
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use anyhow::{Context, ensure};

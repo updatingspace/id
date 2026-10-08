@@ -330,6 +330,7 @@ pub(crate) fn cookie_domain(name: &str) -> Result<Option<String>> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

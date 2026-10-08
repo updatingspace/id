@@ -96,6 +96,7 @@ fn response(status: StatusCode, body: serde_json::Value) -> Response {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

@@ -58,6 +58,7 @@ pub fn acceptable(new: &str, current: &str, account: &AccountWords) -> bool {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::{AccountWords, acceptable};
 

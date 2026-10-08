@@ -813,6 +813,7 @@ fn json_response(status: StatusCode, body: Value) -> Response {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

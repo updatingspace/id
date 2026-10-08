@@ -79,6 +79,7 @@ fn nonempty(value: String) -> Option<String> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::profile_store::{AccountFields, PreferenceFields, ProfileFields};

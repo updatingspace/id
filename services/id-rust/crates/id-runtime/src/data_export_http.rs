@@ -186,6 +186,7 @@ fn accept_new_export_requests(local_ydb: bool, delayed_delivery_ready: bool) -> 
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod creation_policy_tests {
     use super::accept_new_export_requests;
 

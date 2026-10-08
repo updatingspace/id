@@ -2,7 +2,16 @@ name: Rust extended integration
 
 on:
   workflow_call:
+    inputs:
+      coverage:
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      coverage:
+        description: 'Preparatory strict coverage baseline; does not replace required stable checks'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -12,8 +21,9 @@ jobs:
     # The caller's deploy gate waits for these integration checks.
     name: Rust auth, YDB and Topcoat integration
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: ${{ inputs.coverage && 180 || 90 }}
     env:
+      ID_RUST_BIN_DIR: ${{ github.workspace }}/services/id-rust/target/debug
       CARGO_TERM_COLOR: always
       CARGO_BUILD_JOBS: "2"
       CARGO_INCREMENTAL: "0"
@@ -27,14 +37,41 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned Rust
+        if: ${{ !inputs.coverage }}
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Install WebAuthn build dependencies
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev pkg-config ripgrep
       - name: Format and lint
+        if: ${{ !inputs.coverage }}
         working-directory: services/id-rust
         run: |
           cargo fmt --all -- --check
           cargo clippy --locked --workspace --all-targets -- -D warnings
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.12.0"
+      - name: Verify strict coverage checker
+        run: node scripts/ci/test-check-rust-coverage.mjs
+      - name: Install pinned coverage-only compiler and LLVM tools
+        if: inputs.coverage
+        run: |
+          source services/id-rust/coverage/toolchain.env
+          rustup toolchain install "$ID_COVERAGE_TOOLCHAIN" --profile minimal --component llvm-tools-preview
+          mkdir "$RUNNER_TEMP/id-coverage-tools"
+          curl --location --fail --silent --show-error --max-time 120 \
+            "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v${ID_COVERAGE_CARGO_LLVM_COV_VERSION}/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz" \
+            -o "$RUNNER_TEMP/id-coverage-tools/tool.tar.gz"
+          printf '%s  %s\n' "$ID_COVERAGE_CARGO_LLVM_COV_SHA256" "$RUNNER_TEMP/id-coverage-tools/tool.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/id-coverage-tools/tool.tar.gz" -C "$RUNNER_TEMP/id-coverage-tools"
+          echo "$RUNNER_TEMP/id-coverage-tools" >> "$GITHUB_PATH"
+          echo "RUSTUP_TOOLCHAIN=$ID_COVERAGE_TOOLCHAIN" >> "$GITHUB_ENV"
+      - name: Prove branch instrumentation and child shutdown profiles
+        if: inputs.coverage
+        run: bash scripts/ci/smoke-rust-coverage.sh
+      - name: Prepare isolated instrumented binaries for the existing integration scenarios
+        id: coverage-prepare
+        if: inputs.coverage
+        run: bash scripts/ci/rust-coverage.sh prepare services/id-rust "$RUNNER_TEMP/id-coverage"
       - name: Unit and golden fixture tests
         working-directory: services/id-rust
         run: cargo test --locked --workspace
@@ -53,11 +90,11 @@ jobs:
       - name: Bootstrap and verify legacy YDB tables and indexes from Rust
         working-directory: services/id-rust
         run: |
-          target/debug/idctl legacy-schema --apply
-          test "$(target/debug/idctl legacy-schema --apply | jq -r .created_indexes)" = 0
-          target/debug/idctl legacy-schema
-          target/debug/idctl cache-schema
-          target/debug/idctl cache-schema
+          "${ID_RUST_BIN_DIR}/idctl" legacy-schema --apply
+          test "$("${ID_RUST_BIN_DIR}/idctl" legacy-schema --apply | jq -r .created_indexes)" = 0
+          "${ID_RUST_BIN_DIR}/idctl" legacy-schema
+          "${ID_RUST_BIN_DIR}/idctl" cache-schema
+          "${ID_RUST_BIN_DIR}/idctl" cache-schema
       - name: Real YDB transaction and nullable type checks
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test ydb_pilot -- --ignored --nocapture
@@ -97,8 +134,8 @@ jobs:
       - name: Durable magic-link issuance and one-time exchange on local YDB
         working-directory: services/id-rust
         run: |
-          target/debug/idctl magic-link-schema
-          target/debug/idctl magic-link-schema
+          "${ID_RUST_BIN_DIR}/idctl" magic-link-schema
+          "${ID_RUST_BIN_DIR}/idctl" magic-link-schema
           cargo test --locked -p id-runtime --test magic_link_request_ydb -- --ignored --nocapture
           cargo test --locked -p id-runtime --test magic_link_consume_ydb -- --ignored --nocapture
           cargo test --locked -p id-runtime --lib magic_link_request::tests::mail_claim_has_one_owner_and_retry_after_lease -- --ignored --nocapture
@@ -106,25 +143,25 @@ jobs:
         working-directory: services/id-rust
         run: |
           cargo test --locked -p id-runtime --test email_lookup_reconcile_ydb -- --ignored --nocapture
-          target/debug/idctl login-email-reconcile --apply
-          target/debug/idctl login-email-audit --require-unambiguous
+          "${ID_RUST_BIN_DIR}/idctl" login-email-reconcile --apply
+          "${ID_RUST_BIN_DIR}/idctl" login-email-audit --require-unambiguous
       - name: Reconcile safe account identity bindings from Rust
         working-directory: services/id-rust
         run: |
           cargo test --locked -p id-runtime --test identity_reconcile_ydb -- --ignored --nocapture
-          target/debug/idctl identity-reconcile --apply
-          test "$(target/debug/idctl identity-reconcile --apply | jq -r '.new_bindings + .new_masters_for_bindings + .needs_review')" = 0
+          "${ID_RUST_BIN_DIR}/idctl" identity-reconcile --apply
+          test "$("${ID_RUST_BIN_DIR}/idctl" identity-reconcile --apply | jq -r '.new_bindings + .new_masters_for_bindings + .needs_review')" = 0
       - name: Record verified transition migration ledger from Rust
         working-directory: services/id-rust
         run: |
           cargo test --locked -p id-runtime --test migration_ledger_ydb -- --ignored --nocapture
-          test "$(target/debug/idctl legacy-ledger --apply | jq -r .recorded_versions)" = 0
-          target/debug/idctl legacy-ledger
+          test "$("${ID_RUST_BIN_DIR}/idctl" legacy-ledger --apply | jq -r .recorded_versions)" = 0
+          "${ID_RUST_BIN_DIR}/idctl" legacy-ledger
       - name: Verify Rust cleanup of legacy one-time tokens on local YDB
         working-directory: services/id-rust
         run: |
           cargo test --locked -p id-runtime --test token_cleanup_ydb -- --ignored --nocapture
-          target/debug/idctl cleanup-tokens --batch 2
+          "${ID_RUST_BIN_DIR}/idctl" cleanup-tokens --batch 2
       - name: Read existing account sessions from Rust on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test session_store_ydb -- --ignored --nocapture
@@ -181,9 +218,6 @@ jobs:
       - name: Sign in with a passkey through two Rust instances on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test passkey_login_ydb -- --ignored --nocapture
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22.12.0"
       - name: Install frozen browser test dependencies
         working-directory: services/id-rust/browser-tests
         run: |
@@ -290,3 +324,21 @@ jobs:
       - name: Stop test YDB
         if: always()
         run: docker stop ydb-local || true
+      - name: Export measurement and enforce the proposed coverage profile
+        if: ${{ always() && inputs.coverage && steps.coverage-prepare.outcome == 'success' }}
+        env:
+          ID_COVERAGE_TESTS_SUCCEEDED: ${{ job.status == 'success' }}
+        run: bash scripts/ci/rust-coverage.sh report services/id-rust "$RUNNER_TEMP/id-coverage"
+      - name: Preserve baseline evidence even when a threshold fails
+        if: ${{ always() && inputs.coverage && steps.coverage-prepare.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rust-coverage-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/id-coverage/llvm.json
+            ${{ runner.temp }}/id-coverage/result.json
+            ${{ runner.temp }}/id-coverage/provenance.txt
+            ${{ runner.temp }}/id-coverage/html
+            ${{ runner.temp }}/id-coverage/children
+            services/id-rust/coverage/security-profile.json

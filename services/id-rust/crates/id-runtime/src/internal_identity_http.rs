@@ -674,6 +674,7 @@ fn error(status: StatusCode, code: &str, message: &str, request_id: &str) -> Res
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::profile_store::{AccountFields, ProfileFields};

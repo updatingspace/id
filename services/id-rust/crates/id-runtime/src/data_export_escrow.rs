@@ -648,6 +648,7 @@ pub async fn fail_snapshot_tx(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

@@ -1,3 +1,4 @@
+#![cfg_attr(all(coverage_nightly, test), feature(coverage_attribute))]
 #![recursion_limit = "256"]
 //! Infrastructure pilot with an opt-in `/auth/me` compatibility route.
 pub mod account_deletion;

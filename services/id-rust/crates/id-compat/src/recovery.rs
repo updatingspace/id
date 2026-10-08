@@ -57,6 +57,7 @@ pub fn migrated_index(codes: &[String], candidate: &str) -> Result<Option<usize>
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
