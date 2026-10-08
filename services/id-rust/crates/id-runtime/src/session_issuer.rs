@@ -2,8 +2,8 @@
 //! No token leaves this module until YDB confirms the entire write transaction.
 
 use crate::{
-    cache_store::CacheStore, github_login::GithubEvidence, login_activity,
-    login_preflight::VerifiedAccount, mfa_secret,
+    cache_store::CacheStore, login_activity, login_preflight::VerifiedAccount, mfa_secret,
+    provider_login::ProviderEvidence, tx_retry::retry_known_abort,
 };
 use anyhow::{Context, Result, bail};
 use id_compat::{
@@ -65,7 +65,7 @@ enum LoginEvidence<'a> {
     Password,
     Mfa(MfaProof<'a>),
     Passkey(&'a PasskeyProof),
-    Github(GithubEvidence<'a>),
+    Provider(ProviderEvidence<'a>),
 }
 
 pub struct IssuedSession {
@@ -202,14 +202,14 @@ pub async fn issue_passkey_login(
 
 /// The provider proof and any required MFA are checked in the same transaction
 /// as credentials; caller-provided provider subjects are never accepted here.
-pub(crate) async fn issue_github_login(
+pub(crate) async fn issue_provider_login(
     client: &Client,
     session_codec: Arc<SessionCodec>,
     jwt_codec: &AccountJwtCodec,
     verified: &VerifiedAccount,
     request: &SessionClient,
     timing: IssueTiming,
-    evidence: GithubEvidence<'_>,
+    evidence: ProviderEvidence<'_>,
 ) -> Result<Option<IssuedPasswordLogin>> {
     let (session, pair) = issue_password_session_inner(
         client,
@@ -218,7 +218,7 @@ pub(crate) async fn issue_github_login(
         verified,
         request,
         timing,
-        LoginEvidence::Github(evidence),
+        LoginEvidence::Provider(evidence),
     )
     .await?;
     match (session, pair) {
@@ -241,11 +241,11 @@ async fn issue_password_session_inner(
     timing: IssueTiming,
     evidence: LoginEvidence<'_>,
 ) -> Result<(Option<IssuedSession>, Option<AccountJwtPair>)> {
-    let (mfa, passkey, github) = match evidence {
+    let (mfa, passkey, provider) = match evidence {
         LoginEvidence::Password => (None, None, None),
         LoginEvidence::Mfa(proof) => (Some(proof), None, None),
         LoginEvidence::Passkey(proof) => (None, Some(proof), None),
-        LoginEvidence::Github(proof) => (
+        LoginEvidence::Provider(proof) => (
             proof.code.map(|code| MfaProof {
                 cache: proof.cache,
                 code,
@@ -304,8 +304,8 @@ async fn issue_password_session_inner(
     );
     payload.insert(
         "account_authentication_methods".into(),
-        if let Some((proof, _)) = &github {
-            json!([{"method":"socialaccount","provider":"github","at":proof.authenticated_at()}])
+        if let Some((proof, _)) = &provider {
+            json!([{"method":"socialaccount","provider":proof.provider_id(),"at":proof.authenticated_at()}])
         } else {
             json!([{"method":"password","at":now.duration_since(UNIX_EPOCH)?.as_secs_f64(),"email":email_key}])
         },
@@ -359,16 +359,20 @@ async fn issue_password_session_inner(
     let activity_client = request.clone();
     let user_agent_200: String = request.user_agent.chars().take(200).collect();
     let user_agent_512: String = request.user_agent.chars().take(512).collect();
-    let result = client
+    // A confirmed commit ABORTED has no effects and may be replayed. Keep the
+    // entire retry sequence within the existing wall budget; ambiguous commit
+    // and transport outcomes still return immediately without issuing credentials.
+    let result = tokio::time::timeout(Duration::from_secs(10), retry_known_abort(|| async {
+        client
         .query_client()
         .retry_tx(closure!(
-            [token_for_tx, encoded, encoded_mfa, encoded_passkey, mfa_code, mfa_cache, mfa_seal_key, passkey, github, password_hash, email_key, subject, ip, activity_client, user_agent_200, user_agent_512, refresh, refresh_jti, refresh_expiry],
+            [&token_for_tx, &encoded, &encoded_mfa, &encoded_passkey, &mfa_code, &mfa_cache, &mfa_seal_key, &passkey, &provider, &password_hash, &email_key, &subject, &ip, &activity_client, &user_agent_200, &user_agent_512, &refresh, &refresh_jti, &refresh_expiry],
             async |tx: &mut Transaction| {
                 if !still_eligible(tx, account_id, identity_id, password_hash.as_str(),
                     email_key.as_str(), subject.as_str()).await? {
                     return Ok(None);
                 }
-                if let Some((proof, cache)) = github.as_ref()
+                if let Some((proof, cache)) = provider.as_ref()
                     && !proof.valid_in_tx(tx, cache, account_id, identity_id, now).await? {
                     return Ok(None);
                 }
@@ -387,7 +391,7 @@ async fn issue_password_session_inner(
                     _ => return Ok(None),
                 };
                 if encoded_session.is_empty() { return Ok(None) }
-                if let Some((proof, cache)) = github.as_ref() {
+                if let Some((proof, cache)) = provider.as_ref() {
                     proof.consume_in_tx(tx, cache, now).await?;
                 }
                 tx.exec("INSERT INTO django_session (session_key, session_data, expire_date) VALUES ($key, $data, CAST($expiry AS Datetime))")
@@ -443,7 +447,10 @@ async fn issue_password_session_inner(
         .idempotent(false)
         .timeout(Duration::from_secs(10))
         .await
-        .context("issue legacy-compatible password session")?;
+    }))
+    .await
+    .context("session issuance deadline")?
+    .context("issue legacy-compatible password session")?;
     let Some(mail_event_id) = result else {
         return Ok((None, None));
     };

@@ -68,8 +68,15 @@ async fn main() -> Result<()> {
     {
         app = app.merge(id_runtime::oauth_providers_http::router(config));
     }
-    if let Some(config) = id_runtime::github_login::GithubLoginConfig::from_env(client.clone())? {
-        app = app.merge(id_runtime::github_login::router(config));
+    if let Some(config) =
+        id_runtime::provider_login::ProviderLoginConfig::github_from_env(client.clone())?
+    {
+        app = app.merge(id_runtime::provider_login::router(config));
+    }
+    if let Some(config) =
+        id_runtime::provider_login::ProviderLoginConfig::discord_from_env(client.clone())?
+    {
+        app = app.merge(id_runtime::provider_login::router(config));
     }
     let me_enabled =
         if let Some(config) = id_runtime::me_http::MeHttpConfig::from_env(client.clone())? {

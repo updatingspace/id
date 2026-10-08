@@ -493,7 +493,7 @@ async fn login(State(config): State<Arc<LoginHttpConfig>>, request: Request) -> 
     };
     let now = SystemTime::now();
     let lifetime = Duration::from_secs(config.options.session_cookie_age);
-    if crate::github_login::cancel_existing(&config.cache, &headers)
+    if crate::provider_login::cancel_existing(&config.cache, &headers)
         .await
         .is_err()
     {
@@ -842,7 +842,7 @@ async fn passkey_complete(
             .to_owned(),
         device_fingerprint_salt: config.options.device_fingerprint_salt.clone(),
     };
-    if crate::github_login::cancel_existing(&config.cache, &headers)
+    if crate::provider_login::cancel_existing(&config.cache, &headers)
         .await
         .is_err()
     {

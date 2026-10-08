@@ -866,7 +866,7 @@ BCrypt cost ≤16; PBKDF2 ≤10 млн итераций; пароль ≤1 MiB; 
 
 `ID_AUTH_GITHUB_LOGIN_ENABLED` по умолчанию выключен. Первый Rust-поток
 поддерживает только вход в уже связанный аккаунт; регистрации, автоматической
-привязки по email, link/unlink, Discord и Steam в нём нет. Нужны существующие
+привязки по email, link/unlink и Steam в нём нет. Нужны существующие
 Rust login/form-token gates, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `ID_GITHUB_CALLBACK_URL` и secure session/CSRF cookies. Callback — единственный
 точный HTTPS URL с путём `/api/v1/auth/oauth/callback/github`, без query/fragment;
@@ -898,8 +898,58 @@ PKCE S256 и проверка `/user.id` обязательны. Две исто
 сверяются через immutable account identity; дубликаты и разные владельцы
 закрывают вход. Выдающая serializable-транзакция повторяет проверку владельца,
 статуса, удаления, MFA, одноразового proof и отмены browser flow. Recovery/TOTP
-расходуются вместе с session/JWT; неизвестный результат commit не повторяется.
+расходуются вместе с session/JWT. Общий issuer для password, passkey и provider
+login повторяет только подтверждённый YDB `ABORTED`, заново проверяя всю политику
+в пределах общего 10-секундного бюджета и сохраняя заранее созданные credentials.
+Неизвестный результат commit и transport errors не повторяются.
 Политика подтверждённого локального email остаётся общей с password/passkey login.
 Запросы настоящему GitHub и browser/Gateway acceptance требуют отдельной приёмки;
 loopback integration constructor доступен только в debug-сборке, разрешает HTTP
 loopback и YDB `/local`; runtime environment override отсутствует.
+
+## Discord browser login
+
+`ID_AUTH_DISCORD_LOGIN_ENABLED` по умолчанию выключен. Вход использует тот же
+`provider_login` module и `session_issuer`, что GitHub: общий state/CSRF/MFA
+жизненный цикл имеет два конкретных варианта протокола. Нужны
+`DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `ID_DISCORD_CALLBACK_URL` с точным
+HTTPS путём `/api/v1/auth/oauth/callback/discord` и, при необходимости,
+`ID_DISCORD_LOGIN_NEXT_PATHS` (точный JSON allowlist, по умолчанию `["/account"]`).
+Все требования к Rust login/form-token gates, secure cookies и trusted origin
+остаются теми же. Capability `login_enabled:true` в инвентаре вычисляется
+отдельно для Discord и GitHub только при полной валидной включённой конфигурации.
+
+Discord использует те же HTTP interface, тела, статусы, fixed error codes и
+`Retry-After`, что таблица GitHub выше, с заменой `/github` на `/discord`.
+MFA callback возвращает 303 `/login?provider_mfa=discord`; pending, complete и
+cancel сохраняют прежний контракт. Cookies — `__Host-id_discord_flow` и
+`__Host-id_discord_mfa`. Провайдер явно записан в server flow и proof; callback и
+MFA continuation проверяют его вместе с cookies, исходной session и точным
+callback. Выдающая транзакция повторяет поиск по **provider + subject**, проверяет
+namespace одноразового proof и его владельца. Новый begin и password/passkey
+login отменяют предыдущие flow обоих провайдеров, чьи cookies прислал браузер.
+Это покрывает последовательное переключение способов входа; одновременно
+начатые запросы без cookies друг друга не дают гарантии взаимной отмены.
+Старые pending без явного provider после обновления требуют нового входа.
+
+Авторизация: `https://discord.com/oauth2/authorize`, `response_type=code`,
+только scope `identify`, state и PKCE S256. Сервер обменивает code через
+`https://discord.com/api/v10/oauth2/token`: Basic client authentication,
+form-urlencoded `grant_type=authorization_code`, code, тот же redirect URI и
+code_verifier. Затем bearer-запрос `/api/v10/users/@me` возвращает subject:
+положительную каноническую decimal uint64 строку `id`. Проверяется наличие
+`identify` в token scope. Email, username и avatar провайдера не используются
+для поиска владельца и не записываются; provider access/refresh tokens не
+сохраняются. Неизвестные и конфликтующие связи закрывают вход.
+
+Основание протокола: официальный [OAuth2 reference](https://docs.discord.com/developers/topics/oauth2),
+[web flow](https://docs.discord.com/developers/discord-social-sdk/development-guides/account-linking-on-web),
+[server-to-server exchange с code_verifier](https://docs.discord.com/developers/discord-social-sdk/development-guides/account-linking-with-discord#server-to-server-get-token-exchange)
+и [SHA256 challenge](https://discord.com/developers/docs/social-sdk/classdiscordpp_1_1AuthorizationCodeChallenge.html).
+Общий OAuth2 reference не описывает PKCE подробно; поддержка secret + verifier
+описана в Social SDK. Мы всегда требуем S256 и не повторяем неудачный exchange
+без PKCE. Исполнение и принудительная проверка PKCE обычным зарегистрированным
+Discord web application ещё требуют отдельной реальной приёмки: локальный
+loopback её не заменяет. Gates остаются выключенными до этой проверки.
+Topcoat UI в этом slice не меняется и пока поддерживает только GitHub.
+Link/unlink, signup и Steam этим изменением не реализованы.

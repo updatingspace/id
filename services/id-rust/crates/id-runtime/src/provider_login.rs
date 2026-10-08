@@ -1,4 +1,4 @@
-//! GitHub browser login for previously linked accounts. No signup or email linking.
+//! Provider browser login for previously linked accounts. No signup or email linking.
 use crate::{
     cache_store::CacheStore,
     form_token_consume::consume_login_form_token,
@@ -7,7 +7,7 @@ use crate::{
     login_rate_limit::login_attempt,
     logout_http::{cookie_value, csrf_allowed},
     me_http::{env_flag, make_cookie},
-    session_issuer::{IssueTiming, SessionClient, issue_github_login},
+    session_issuer::{IssueTiming, SessionClient, issue_provider_login},
     session_store::active_principal_tx,
 };
 use anyhow::{Context, Result, ensure};
@@ -35,17 +35,110 @@ use url::Url;
 use uuid::Uuid;
 use ydb::{Transaction, TxMode, closure};
 
-pub const START_PATH: &str = "/api/v1/auth/oauth/login/github";
-pub const CALLBACK_PATH: &str = "/api/v1/auth/oauth/callback/github";
-pub const PENDING_PATH: &str = "/api/v1/auth/oauth/login/github/pending";
-pub const CANCEL_PATH: &str = "/api/v1/auth/oauth/login/github/cancel";
-pub const COMPLETE_PATH: &str = "/api/v1/auth/oauth/login/github/complete";
-const FLOW_COOKIE: &str = "__Host-id_github_flow";
-const MFA_COOKIE: &str = "__Host-id_github_mfa";
 const TTL: Duration = Duration::from_secs(300);
 const MAX_BODY: usize = 16_384;
 
-pub struct GithubLoginConfig {
+// The only protocol variation lives here; browser/MFA/issuance policy is shared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Provider {
+    Github,
+    Discord,
+}
+
+impl Provider {
+    const ALL: [Self; 2] = [Self::Github, Self::Discord];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Github => "github",
+            Self::Discord => "discord",
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Github => "GitHub",
+            Self::Discord => "Discord",
+        }
+    }
+
+    fn callback_path(self) -> String {
+        format!("/api/v1/auth/oauth/callback/{}", self.id())
+    }
+
+    fn login_path(self) -> String {
+        format!("/api/v1/auth/oauth/login/{}", self.id())
+    }
+
+    fn flow_cookie(self) -> &'static str {
+        match self {
+            Self::Github => "__Host-id_github_flow",
+            Self::Discord => "__Host-id_discord_flow",
+        }
+    }
+
+    fn mfa_cookie(self) -> &'static str {
+        match self {
+            Self::Github => "__Host-id_github_mfa",
+            Self::Discord => "__Host-id_discord_mfa",
+        }
+    }
+
+    fn cache_key(self, purpose: &str, opaque: &str) -> String {
+        format!("{}-{purpose}:{opaque}", self.id())
+    }
+
+    fn endpoints(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Github => (
+                "https://github.com/login/oauth/authorize",
+                "https://github.com/login/oauth/access_token",
+                "https://api.github.com/user",
+            ),
+            Self::Discord => (
+                "https://discord.com/oauth2/authorize",
+                "https://discord.com/api/v10/oauth2/token",
+                "https://discord.com/api/v10/users/@me",
+            ),
+        }
+    }
+
+    fn scope(self) -> &'static str {
+        match self {
+            Self::Github => "read:user",
+            Self::Discord => "identify",
+        }
+    }
+
+    fn subject(self, user: &Value) -> Result<String> {
+        match self {
+            Self::Github => user
+                .get("id")
+                .and_then(Value::as_u64)
+                .filter(|id| *id > 0)
+                .map(|id| id.to_string())
+                .context("invalid GitHub user ID"),
+            Self::Discord => {
+                let id = user
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .context("invalid Discord user ID")?;
+                // Discord HTTP snowflakes are uint64 decimal strings. Reject
+                // alternative encodings instead of normalizing an identity key.
+                let parsed = id.parse::<u64>().context("invalid Discord snowflake")?;
+                ensure!(
+                    parsed > 0 && parsed.to_string() == id,
+                    "noncanonical Discord user ID"
+                );
+                Ok(id.to_owned())
+            }
+        }
+    }
+}
+
+pub struct ProviderLoginConfig {
+    provider: Provider,
     login: Arc<LoginHttpConfig>,
     http: reqwest::Client,
     client_id: String,
@@ -57,39 +150,88 @@ pub struct GithubLoginConfig {
     user_url: String,
 }
 
-impl GithubLoginConfig {
-    pub fn from_env(client: Arc<ydb::Client>) -> Result<Option<Arc<Self>>> {
-        if !env_flag("ID_AUTH_GITHUB_LOGIN_ENABLED", false)? {
+impl ProviderLoginConfig {
+    pub fn github_from_env(client: Arc<ydb::Client>) -> Result<Option<Arc<Self>>> {
+        Self::from_env(client, Provider::Github)
+    }
+
+    pub fn discord_from_env(client: Arc<ydb::Client>) -> Result<Option<Arc<Self>>> {
+        Self::from_env(client, Provider::Discord)
+    }
+
+    fn from_env(client: Arc<ydb::Client>, provider: Provider) -> Result<Option<Arc<Self>>> {
+        let env_prefix = provider.id().to_ascii_uppercase();
+        if !env_flag(&format!("ID_AUTH_{env_prefix}_LOGIN_ENABLED"), false)? {
             return Ok(None);
         }
         ensure!(
             env_flag("ID_AUTH_FORM_TOKEN_ENABLED", false)?,
-            "GitHub login requires form-token issuance"
+            "{} login requires form-token issuance",
+            provider.name()
         );
         let login =
-            LoginHttpConfig::from_env(client)?.context("GitHub login requires Rust login")?;
+            LoginHttpConfig::from_env(client)?.context("provider login requires Rust login")?;
         let config = Self::new(
+            provider,
             login,
-            env::var("GITHUB_CLIENT_ID")?,
-            env::var("GITHUB_CLIENT_SECRET")?,
-            env::var("ID_GITHUB_CALLBACK_URL")?,
+            env::var(format!("{env_prefix}_CLIENT_ID"))?,
+            env::var(format!("{env_prefix}_CLIENT_SECRET"))?,
+            env::var(format!("ID_{env_prefix}_CALLBACK_URL"))?,
             serde_json::from_str(
-                &env::var("ID_GITHUB_LOGIN_NEXT_PATHS").unwrap_or_else(|_| "[\"/account\"]".into()),
+                &env::var(format!("ID_{env_prefix}_LOGIN_NEXT_PATHS"))
+                    .unwrap_or_else(|_| "[\"/account\"]".into()),
             )?,
         )?;
         // The sole callback is configuration-owned, never supplied by the browser.
         ensure!(
             config.callback_url.starts_with("https://"),
-            "GitHub callback must use HTTPS"
+            "{} callback must use HTTPS",
+            provider.name()
         );
         ensure!(
             config.login.options.session_cookie_secure && config.login.options.csrf_cookie_secure,
-            "GitHub browser login requires secure cookies"
+            "{} browser login requires secure cookies",
+            provider.name()
         );
         Ok(Some(Arc::new(config)))
     }
 
-    pub fn new(
+    pub fn github(
+        login: Arc<LoginHttpConfig>,
+        client_id: String,
+        client_secret: String,
+        callback_url: String,
+        next_paths: Vec<String>,
+    ) -> Result<Self> {
+        Self::new(
+            Provider::Github,
+            login,
+            client_id,
+            client_secret,
+            callback_url,
+            next_paths,
+        )
+    }
+
+    pub fn discord(
+        login: Arc<LoginHttpConfig>,
+        client_id: String,
+        client_secret: String,
+        callback_url: String,
+        next_paths: Vec<String>,
+    ) -> Result<Self> {
+        Self::new(
+            Provider::Discord,
+            login,
+            client_id,
+            client_secret,
+            callback_url,
+            next_paths,
+        )
+    }
+
+    fn new(
+        provider: Provider,
         login: Arc<LoginHttpConfig>,
         client_id: String,
         client_secret: String,
@@ -101,48 +243,54 @@ impl GithubLoginConfig {
                 && client_id.len() <= 256
                 && !client_secret.is_empty()
                 && client_secret.len() <= 4096,
-            "missing or invalid GitHub credentials"
+            "missing or invalid {} credentials",
+            provider.name()
         );
         let url = Url::parse(&callback_url)?;
         let local = login.client.database() == "/local" && loopback(&url);
         ensure!(
             (url.scheme() == "https" || local)
                 && url.host_str().is_some()
-                && url.path() == CALLBACK_PATH
+                && url.path() == provider.callback_path()
                 && url.query().is_none()
                 && url.fragment().is_none()
                 && url.username().is_empty()
                 && url.password().is_none(),
-            "invalid GitHub callback URL"
+            "invalid {} callback URL",
+            provider.name()
         );
         ensure!(
             login
                 .options
                 .trusted_origins
                 .contains(&url.origin().ascii_serialization()),
-            "GitHub callback origin must be trusted"
+            "{} callback origin must be trusted",
+            provider.name()
         );
         ensure!(
             !next_paths.is_empty()
                 && next_paths.len() <= 32
                 && next_paths.iter().all(|path| safe_next(path)),
-            "invalid GitHub return path allowlist"
+            "invalid {} return path allowlist",
+            provider.name()
         );
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(10))
             .user_agent("UpdSpace-ID")
             .build()?;
+        let (authorize_url, token_url, user_url) = provider.endpoints();
         Ok(Self {
+            provider,
             login,
             http,
             client_id,
             client_secret,
             callback_url,
             next_paths,
-            authorize_url: "https://github.com/login/oauth/authorize".into(),
-            token_url: "https://github.com/login/oauth/access_token".into(),
-            user_url: "https://api.github.com/user".into(),
+            authorize_url: authorize_url.into(),
+            token_url: token_url.into(),
+            user_url: user_url.into(),
         })
     }
 
@@ -185,18 +333,23 @@ fn safe_next(path: &str) -> bool {
         && !path.contains('%')
 }
 
-pub fn router(config: Arc<GithubLoginConfig>) -> Router {
+pub fn router(config: Arc<ProviderLoginConfig>) -> Router {
+    let path = config.provider.login_path();
     Router::new()
-        .route(START_PATH, post(start).options(preflight))
-        .route(CALLBACK_PATH, get(callback))
-        .route(COMPLETE_PATH, post(complete).options(preflight))
-        .route(PENDING_PATH, get(pending_context))
-        .route(CANCEL_PATH, post(cancel).options(preflight))
+        .route(&path, post(start).options(preflight))
+        .route(&config.provider.callback_path(), get(callback))
+        .route(
+            &format!("{path}/complete"),
+            post(complete).options(preflight),
+        )
+        .route(&format!("{path}/pending"), get(pending_context))
+        .route(&format!("{path}/cancel"), post(cancel).options(preflight))
         .with_state(config)
 }
 
 #[derive(Serialize, Deserialize)]
 struct Flow {
+    provider: Provider,
     browser_hash: String,
     verifier: String,
     session_hash: String,
@@ -218,10 +371,11 @@ enum BindingResolution {
     Linked(Binding),
 }
 
-/// Constructed only after the server exchanges a GitHub code and reads /user.
+/// Constructed only after the server exchanges a code and reads the provider user.
 /// The serializable pending representation contains no password hash or provider token.
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct GithubProof {
+pub(crate) struct ProviderProof {
+    provider: Provider,
     subject: String,
     binding: Binding,
     account_hash: String,
@@ -233,13 +387,17 @@ pub(crate) struct GithubProof {
     session_hash: String,
 }
 
-pub(crate) struct GithubEvidence<'a> {
-    pub proof: &'a GithubProof,
+pub(crate) struct ProviderEvidence<'a> {
+    pub proof: &'a ProviderProof,
     pub cache: &'a CacheStore,
     pub code: Option<&'a str>,
 }
 
-impl GithubProof {
+impl ProviderProof {
+    pub(crate) fn provider_id(&self) -> &'static str {
+        self.provider.id()
+    }
+
     pub(crate) fn authenticated_at(&self) -> u64 {
         self.authenticated_at
     }
@@ -258,17 +416,25 @@ impl GithubProof {
             .as_secs();
         if self.binding.account_id != account_id
             || self.binding.identity_id != identity_id
+            || !self
+                .once
+                .strip_prefix(&self.provider.cache_key("issued", ""))
+                .is_some_and(valid_opaque)
             || seconds < self.authenticated_at
             || seconds - self.authenticated_at >= TTL.as_secs()
             || cache.contains_live_in_tx(tx, &self.once, now).await?
             || cache
-                .contains_live_in_tx(tx, &format!("github-canceled:{}", self.browser_hash), now)
+                .contains_live_in_tx(
+                    tx,
+                    &self.provider.cache_key("canceled", &self.browser_hash),
+                    now,
+                )
                 .await?
         {
             return Ok(false);
         }
         Ok(
-            matches!(resolve_binding(tx, &self.subject).await?, BindingResolution::Linked(binding) if binding == self.binding),
+            matches!(resolve_binding(tx, self.provider, &self.subject).await?, BindingResolution::Linked(binding) if binding == self.binding),
         )
     }
 
@@ -307,10 +473,11 @@ impl GithubProof {
 // Add a reconciled (provider, subject) primary-key index before enabling link writers at scale.
 async fn resolve_binding(
     tx: &mut Transaction,
+    provider: Provider,
     subject: &str,
 ) -> ydb::YdbResultWithCustomerErr<BindingResolution> {
-    let mut rows = tx.query("SELECT id, user_id FROM socialaccount_socialaccount WHERE provider = 'github' AND uid = $subject LIMIT 2")
-        .param("$subject", subject.to_owned()).await?;
+    let mut rows = tx.query("SELECT id, user_id FROM socialaccount_socialaccount WHERE provider = $provider AND uid = $subject LIMIT 2")
+        .param("$provider", provider.id().to_owned()).param("$subject", subject.to_owned()).await?;
     let mut social: Vec<(i32, i32)> = Vec::new();
     while let Some(set) = rows.next_result_set().await? {
         for mut row in set {
@@ -321,8 +488,8 @@ async fn resolve_binding(
         }
     }
     rows.close().await?;
-    let mut rows = tx.query("SELECT id, user_id FROM usid_external_identity VIEW usid_ext_provider_idx WHERE provider = 'github' AND subject = $subject LIMIT 2")
-        .param("$subject", subject.to_owned()).await?;
+    let mut rows = tx.query("SELECT id, user_id FROM usid_external_identity VIEW usid_ext_provider_idx WHERE provider = $provider AND subject = $subject LIMIT 2")
+        .param("$provider", provider.id().to_owned()).param("$subject", subject.to_owned()).await?;
     let mut external: Vec<(i64, Uuid)> = Vec::new();
     while let Some(set) = rows.next_result_set().await? {
         for mut row in set {
@@ -390,7 +557,7 @@ async fn resolve_binding(
 
 #[derive(Serialize, Deserialize)]
 struct Pending {
-    proof: GithubProof,
+    proof: ProviderProof,
     next: String,
 }
 
@@ -419,7 +586,7 @@ fn digest(value: &str) -> String {
 }
 
 fn json_response(
-    config: &GithubLoginConfig,
+    config: &ProviderLoginConfig,
     headers: &HeaderMap,
     status: StatusCode,
     body: Value,
@@ -434,14 +601,14 @@ fn json_response(
     )
 }
 fn error(
-    config: &GithubLoginConfig,
+    config: &ProviderLoginConfig,
     headers: &HeaderMap,
     status: StatusCode,
     code: &str,
 ) -> Response {
     json_response(config, headers, status, json!({"code":code,"message":code}))
 }
-fn unavailable(config: &GithubLoginConfig, headers: &HeaderMap) -> Response {
+fn unavailable(config: &ProviderLoginConfig, headers: &HeaderMap) -> Response {
     error(
         config,
         headers,
@@ -480,11 +647,11 @@ fn redirect(mut response: Response, location: &str) -> Response {
     );
     response
 }
-async fn preflight(State(config): State<Arc<GithubLoginConfig>>, headers: HeaderMap) -> Response {
+async fn preflight(State(config): State<Arc<ProviderLoginConfig>>, headers: HeaderMap) -> Response {
     json_response(&config, &headers, StatusCode::NO_CONTENT, Value::Null)
 }
 async fn read_json<T: DeserializeOwned>(
-    config: &GithubLoginConfig,
+    config: &ProviderLoginConfig,
     request: Request,
 ) -> std::result::Result<T, (StatusCode, &'static str)> {
     let headers = request.headers();
@@ -519,7 +686,7 @@ async fn read_json<T: DeserializeOwned>(
     serde_json::from_slice(&bytes).map_err(|_| (StatusCode::BAD_REQUEST, "VALIDATION_ERROR"))
 }
 async fn rate(
-    config: &GithubLoginConfig,
+    config: &ProviderLoginConfig,
     headers: &HeaderMap,
     ip: &str,
     email: Option<&str>,
@@ -551,7 +718,7 @@ async fn rate(
     }
 }
 
-async fn start(State(config): State<Arc<GithubLoginConfig>>, request: Request) -> Response {
+async fn start(State(config): State<Arc<ProviderLoginConfig>>, request: Request) -> Response {
     let headers = request.headers().clone();
     let ip = login_http::request_ip(&request).unwrap_or_default();
     let payload: StartIn = match read_json(&config, request).await {
@@ -594,6 +761,7 @@ async fn start(State(config): State<Arc<GithubLoginConfig>>, request: Request) -
     let verifier = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let flow = Flow {
+        provider: config.provider,
         browser_hash: digest(&browser),
         verifier,
         session_hash: session_hash(&config, &headers),
@@ -606,7 +774,7 @@ async fn start(State(config): State<Arc<GithubLoginConfig>>, request: Request) -
                 .login
                 .cache
                 .add(
-                    &format!("github-state:{state}"),
+                    &config.provider.cache_key("state", &state),
                     &CacheValue::String(serde_json::to_string(&flow)?),
                     Some(now + TTL),
                     now
@@ -618,10 +786,13 @@ async fn start(State(config): State<Arc<GithubLoginConfig>>, request: Request) -
         url.query_pairs_mut()
             .append_pair("client_id", &config.client_id)
             .append_pair("redirect_uri", &config.callback_url)
-            .append_pair("scope", "read:user")
+            .append_pair("scope", config.provider.scope())
             .append_pair("state", &state)
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256");
+        if config.provider == Provider::Discord {
+            url.query_pairs_mut().append_pair("response_type", "code");
+        }
         Ok::<_, anyhow::Error>(url)
     }
     .await;
@@ -634,8 +805,14 @@ async fn start(State(config): State<Arc<GithubLoginConfig>>, request: Request) -
         StatusCode::OK,
         json!({"authorize_url":url.as_str(),"method":"GET"}),
     );
-    flow_cookie(&mut response, FLOW_COOKIE, &browser);
-    flow_cookie(&mut response, MFA_COOKIE, "");
+    for previous in Provider::ALL {
+        if previous != config.provider {
+            flow_cookie(&mut response, previous.flow_cookie(), "");
+            flow_cookie(&mut response, previous.mfa_cookie(), "");
+        }
+    }
+    flow_cookie(&mut response, config.provider.flow_cookie(), &browser);
+    flow_cookie(&mut response, config.provider.mfa_cookie(), "");
     response
 }
 
@@ -677,27 +854,35 @@ async fn response_json(mut response: reqwest::Response) -> Result<Value> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-async fn exchange(config: &GithubLoginConfig, code: &str, verifier: &str) -> Result<String> {
+async fn exchange(config: &ProviderLoginConfig, code: &str, verifier: &str) -> Result<String> {
     ensure!(
         !code.is_empty() && code.len() <= 2048,
         "invalid provider code"
     );
-    let data = response_json(
-        config
-            .http
-            .post(&config.token_url)
-            .header("accept", "application/json")
+    let request = config
+        .http
+        .post(&config.token_url)
+        .header("accept", "application/json");
+    let request = match config.provider {
+        Provider::Github => request.form(&[
+            ("client_id", config.client_id.as_str()),
+            ("client_secret", config.client_secret.as_str()),
+            ("code", code),
+            ("redirect_uri", config.callback_url.as_str()),
+            ("code_verifier", verifier),
+        ]),
+        Provider::Discord => request
+            .basic_auth(&config.client_id, Some(&config.client_secret))
             .form(&[
-                ("client_id", config.client_id.as_str()),
-                ("client_secret", config.client_secret.as_str()),
+                ("grant_type", "authorization_code"),
                 ("code", code),
                 ("redirect_uri", config.callback_url.as_str()),
                 ("code_verifier", verifier),
-            ])
-            .send()
-            .await?,
-    )
-    .await?;
+            ]),
+    };
+    // Both adapters require S256. A failed exchange never downgrades to a
+    // second request without code_verifier or repeats the one-use code.
+    let data = response_json(request.send().await?).await?;
     ensure!(data.get("error").is_none(), "provider rejected code");
     let token = data
         .get("access_token")
@@ -710,27 +895,32 @@ async fn exchange(config: &GithubLoginConfig, code: &str, verifier: &str) -> Res
             .is_some_and(|kind| kind.eq_ignore_ascii_case("bearer")),
         "invalid provider token type"
     );
-    let user = response_json(
-        config
-            .http
-            .get(&config.user_url)
-            .bearer_auth(token)
-            .header("accept", "application/json")
-            .header("x-github-api-version", "2022-11-28")
-            .send()
-            .await?,
-    )
-    .await?;
-    let subject = user
-        .get("id")
-        .and_then(Value::as_u64)
-        .filter(|id| *id > 0)
-        .context("invalid GitHub user ID")?;
-    Ok(subject.to_string())
+    if config.provider == Provider::Discord {
+        ensure!(
+            data.get("scope")
+                .and_then(Value::as_str)
+                .is_some_and(|scope| scope
+                    .split_ascii_whitespace()
+                    .any(|value| value == "identify")),
+            "Discord token lacks identify scope"
+        );
+    }
+    let request = config
+        .http
+        .get(&config.user_url)
+        .bearer_auth(token)
+        .header("accept", "application/json");
+    let request = if config.provider == Provider::Github {
+        request.header("x-github-api-version", "2022-11-28")
+    } else {
+        request
+    };
+    let user = response_json(request.send().await?).await?;
+    config.provider.subject(&user)
 }
 
 async fn callback_inner(
-    State(config): State<Arc<GithubLoginConfig>>,
+    State(config): State<Arc<ProviderLoginConfig>>,
     request: Request,
 ) -> Response {
     let headers = request.headers().clone();
@@ -742,11 +932,12 @@ async fn callback_inner(
     let Some(state) = params.get("state").filter(|value| valid_opaque(value)) else {
         return invalid();
     };
-    let Some(browser) = cookie_value(&headers, FLOW_COOKIE).filter(|value| valid_opaque(value))
+    let Some(browser) =
+        cookie_value(&headers, config.provider.flow_cookie()).filter(|value| valid_opaque(value))
     else {
         return invalid();
     };
-    let key = format!("github-state:{state}");
+    let key = config.provider.cache_key("state", state);
     let now = SystemTime::now();
     let flow: Flow = match config.login.cache.get(&key, now).await {
         Ok(Some(CacheValue::String(value))) => match serde_json::from_str(&value) {
@@ -756,7 +947,8 @@ async fn callback_inner(
         Ok(_) => return invalid(),
         Err(_) => return unavailable(&config, &headers),
     };
-    if flow.browser_hash != digest(&browser)
+    if flow.provider != config.provider
+        || flow.browser_hash != digest(&browser)
         || flow.session_hash != session_hash(&config, &headers)
         || flow.callback != config.callback_url
         || !config.next_paths.contains(&flow.next)
@@ -766,7 +958,10 @@ async fn callback_inner(
     match config
         .login
         .cache
-        .get(&format!("github-canceled:{}", flow.browser_hash), now)
+        .get(
+            &config.provider.cache_key("canceled", &flow.browser_hash),
+            now,
+        )
         .await
     {
         Ok(None) => {}
@@ -805,12 +1000,13 @@ async fn callback_inner(
         }
     };
     let lookup_subject = subject.clone();
+    let provider = config.provider;
     let binding = config
         .login
         .client
         .query_client()
         .retry_tx(closure!([lookup_subject], async |tx: &mut Transaction| {
-            resolve_binding(tx, lookup_subject).await
+            resolve_binding(tx, provider, lookup_subject).await
         }))
         .with_mode(TxMode::SnapshotReadOnly)
         .timeout(Duration::from_secs(5))
@@ -842,7 +1038,8 @@ async fn callback_inner(
         }
         Err(_) => return unavailable(&config, &headers),
     };
-    let proof = GithubProof {
+    let proof = ProviderProof {
+        provider: config.provider,
         subject,
         binding,
         account_hash: match config
@@ -859,7 +1056,7 @@ async fn callback_inner(
             Ok(value) => value.as_secs(),
             Err(_) => return unavailable(&config, &headers),
         },
-        once: format!("github-issued:{state}"),
+        once: config.provider.cache_key("issued", state),
         browser_hash: flow.browser_hash,
         session_hash: flow.session_hash,
     };
@@ -875,7 +1072,7 @@ async fn callback_inner(
                 .login
                 .cache
                 .add(
-                    &format!("github-mfa:{token}"),
+                    &config.provider.cache_key("mfa", &token),
                     &CacheValue::String(serde_json::to_string(&pending)?),
                     Some(now + TTL),
                     now,
@@ -888,10 +1085,10 @@ async fn callback_inner(
         }
         let mut response = redirect(
             json_response(&config, &headers, StatusCode::OK, Value::Null),
-            "/login?provider_mfa=github",
+            &format!("/login?provider_mfa={}", config.provider.id()),
         );
-        flow_cookie(&mut response, FLOW_COOKIE, &browser);
-        flow_cookie(&mut response, MFA_COOKIE, &token);
+        flow_cookie(&mut response, config.provider.flow_cookie(), &browser);
+        flow_cookie(&mut response, config.provider.mfa_cookie(), &token);
         return response;
     }
     let response = finish(&config, &headers, &ip, &account, &proof, None).await;
@@ -899,17 +1096,17 @@ async fn callback_inner(
         return response;
     }
     let mut response = redirect(response, &flow.next);
-    flow_cookie(&mut response, FLOW_COOKIE, "");
-    flow_cookie(&mut response, MFA_COOKIE, "");
+    flow_cookie(&mut response, config.provider.flow_cookie(), "");
+    flow_cookie(&mut response, config.provider.mfa_cookie(), "");
     response
 }
 
 async fn finish(
-    config: &GithubLoginConfig,
+    config: &ProviderLoginConfig,
     headers: &HeaderMap,
     ip: &str,
     account: &VerifiedAccount,
-    proof: &GithubProof,
+    proof: &ProviderProof,
     code: Option<&str>,
 ) -> Response {
     let Ok(ip) = ip.parse() else {
@@ -924,7 +1121,7 @@ async fn finish(
             .into(),
         device_fingerprint_salt: config.login.options.device_fingerprint_salt.clone(),
     };
-    match issue_github_login(
+    match issue_provider_login(
         &config.login.client,
         config.login.session_codec.clone(),
         &config.login.jwt_codec,
@@ -934,7 +1131,7 @@ async fn finish(
             now: SystemTime::now(),
             lifetime: Duration::from_secs(config.login.options.session_cookie_age),
         },
-        GithubEvidence {
+        ProviderEvidence {
             proof,
             cache: &config.login.cache,
             code,
@@ -955,7 +1152,7 @@ async fn finish(
     }
 }
 
-async fn complete(State(config): State<Arc<GithubLoginConfig>>, request: Request) -> Response {
+async fn complete(State(config): State<Arc<ProviderLoginConfig>>, request: Request) -> Response {
     let headers = request.headers().clone();
     let ip = login_http::request_ip(&request).unwrap_or_default();
     let payload: CompleteIn = match read_json(&config, request).await {
@@ -982,14 +1179,16 @@ async fn complete(State(config): State<Arc<GithubLoginConfig>>, request: Request
             "INVALID_CREDENTIALS",
         )
     };
-    let Some(token) = cookie_value(&headers, MFA_COOKIE).filter(|value| valid_opaque(value)) else {
+    let Some(token) =
+        cookie_value(&headers, config.provider.mfa_cookie()).filter(|value| valid_opaque(value))
+    else {
         return flow_expired(&config, &headers);
     };
     let now = SystemTime::now();
     let pending: Pending = match config
         .login
         .cache
-        .get(&format!("github-mfa:{token}"), now)
+        .get(&config.provider.cache_key("mfa", &token), now)
         .await
     {
         Ok(Some(CacheValue::String(value))) => match serde_json::from_str(&value) {
@@ -1059,38 +1258,50 @@ async fn complete(State(config): State<Arc<GithubLoginConfig>>, request: Request
     body["next"] = json!(pending.next);
     parts.headers.remove(header::CONTENT_LENGTH);
     let mut response = Response::from_parts(parts, Body::from(body.to_string()));
-    flow_cookie(&mut response, MFA_COOKIE, "");
-    flow_cookie(&mut response, FLOW_COOKIE, "");
+    flow_cookie(&mut response, config.provider.mfa_cookie(), "");
+    flow_cookie(&mut response, config.provider.flow_cookie(), "");
     response
 }
 
-fn session_hash(config: &GithubLoginConfig, headers: &HeaderMap) -> String {
+fn session_hash(config: &ProviderLoginConfig, headers: &HeaderMap) -> String {
     digest(&cookie_value(headers, &config.login.options.session_cookie_name).unwrap_or_default())
 }
 
-fn same_browser(config: &GithubLoginConfig, headers: &HeaderMap, proof: &GithubProof) -> bool {
-    cookie_value(headers, FLOW_COOKIE)
-        .filter(|value| valid_opaque(value))
-        .is_some_and(|value| digest(&value) == proof.browser_hash)
+fn same_browser(config: &ProviderLoginConfig, headers: &HeaderMap, proof: &ProviderProof) -> bool {
+    proof.provider == config.provider
+        && cookie_value(headers, config.provider.flow_cookie())
+            .filter(|value| valid_opaque(value))
+            .is_some_and(|value| digest(&value) == proof.browser_hash)
         && session_hash(config, headers) == proof.session_hash
 }
 
 pub(crate) async fn cancel_existing(cache: &CacheStore, headers: &HeaderMap) -> Result<()> {
-    if let Some(browser) = cookie_value(headers, FLOW_COOKIE).filter(|value| valid_opaque(value)) {
-        let now = SystemTime::now();
-        cache
-            .add(
-                &format!("github-canceled:{}", digest(&browser)),
-                &CacheValue::Bool(true),
-                Some(now + TTL * 2),
-                now,
-            )
-            .await?;
+    for provider in Provider::ALL {
+        if let Some(browser) =
+            cookie_value(headers, provider.flow_cookie()).filter(|value| valid_opaque(value))
+        {
+            let now = SystemTime::now();
+            cache
+                .add(
+                    &provider.cache_key("canceled", &digest(&browser)),
+                    &CacheValue::Bool(true),
+                    Some(now + TTL * 2),
+                    now,
+                )
+                .await?;
+        }
     }
     Ok(())
 }
 
-async fn cancel(State(config): State<Arc<GithubLoginConfig>>, request: Request) -> Response {
+fn clear_flow_cookies(response: &mut Response) {
+    for provider in Provider::ALL {
+        flow_cookie(response, provider.flow_cookie(), "");
+        flow_cookie(response, provider.mfa_cookie(), "");
+    }
+}
+
+async fn cancel(State(config): State<Arc<ProviderLoginConfig>>, request: Request) -> Response {
     let headers = request.headers().clone();
     let _: BTreeMap<String, Value> = match read_json(&config, request).await {
         Ok(value) => value,
@@ -1103,12 +1314,11 @@ async fn cancel(State(config): State<Arc<GithubLoginConfig>>, request: Request) 
         return unavailable(&config, &headers);
     }
     let mut response = json_response(&config, &headers, StatusCode::OK, json!({"ok":true}));
-    flow_cookie(&mut response, FLOW_COOKIE, "");
-    flow_cookie(&mut response, MFA_COOKIE, "");
+    clear_flow_cookies(&mut response);
     response
 }
 
-fn flow_expired(config: &GithubLoginConfig, headers: &HeaderMap) -> Response {
+fn flow_expired(config: &ProviderLoginConfig, headers: &HeaderMap) -> Response {
     json_response(
         config,
         headers,
@@ -1118,8 +1328,8 @@ fn flow_expired(config: &GithubLoginConfig, headers: &HeaderMap) -> Response {
 }
 
 async fn proof_active(
-    config: &GithubLoginConfig,
-    proof: &GithubProof,
+    config: &ProviderLoginConfig,
+    proof: &ProviderProof,
     now: SystemTime,
 ) -> Result<bool> {
     let proof = proof.clone();
@@ -1145,17 +1355,19 @@ async fn proof_active(
 }
 
 async fn pending_context(
-    State(config): State<Arc<GithubLoginConfig>>,
+    State(config): State<Arc<ProviderLoginConfig>>,
     headers: HeaderMap,
 ) -> Response {
-    let Some(token) = cookie_value(&headers, MFA_COOKIE).filter(|value| valid_opaque(value)) else {
+    let Some(token) =
+        cookie_value(&headers, config.provider.mfa_cookie()).filter(|value| valid_opaque(value))
+    else {
         return flow_expired(&config, &headers);
     };
     let now = SystemTime::now();
     let pending: Pending = match config
         .login
         .cache
-        .get(&format!("github-mfa:{token}"), now)
+        .get(&config.provider.cache_key("mfa", &token), now)
         .await
     {
         Ok(Some(CacheValue::String(value))) => match serde_json::from_str(&value) {
@@ -1227,7 +1439,7 @@ async fn pending_context(
     )
 }
 
-async fn callback(State(config): State<Arc<GithubLoginConfig>>, request: Request) -> Response {
+async fn callback(State(config): State<Arc<ProviderLoginConfig>>, request: Request) -> Response {
     let response = callback_inner(State(config.clone()), request).await;
     if response.status() == StatusCode::SEE_OTHER {
         return response;
