@@ -32,6 +32,17 @@ WebAuthn и других интерактивных действий. Веб-с�
   приоритет заголовков, сравнение CSRF, TOTP и recovery codes allauth, внутренний HMAC
   и переносимые значения временного YDB-кэша.
 - `id-runtime`: общий YDB-клиент с явным выбором credentials, TLS и timeout.
+  `connect_ydb` для API, jobs и `idctl` задаёт session create timeout 2 секунды
+  вместо SDK default 500 мс. SDK 0.18.2 применяет его отдельно к `CreateSession`
+  и `AttachSession`: на два этапа может уйти до 4 секунд, если более короткий
+  deadline вызывающей операции не завершит их раньше. При ошибке attach
+  сохраняется прежняя ограниченная очистка `DeleteSession` до 500 мс.
+  Общий предел подключения остаётся 15 секунд, readiness-запроса — 5 секунд;
+  query/transaction deadlines и правила retries/idempotence не меняются.
+  Прогрев пула остаётся нулевым: сессия создаётся по первому запросу,
+  scale-to-zero не требует прогретого контейнера. Существующий `ydb_pilot`
+  проверяет отсутствие созданных сессий после connect и их появление после probe;
+  это не воспроизводит production-задержку `CreateSession` или IAM freeze/resume.
   Read-only `me_store` проверяет существующую Django session, account, metadata,
   неизменяемый identity binding, статус master identity и отсутствие
   незавершённого удаления, затем читает профиль в той же транзакции YDB.
