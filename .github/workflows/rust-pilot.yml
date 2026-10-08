@@ -210,6 +210,10 @@ jobs:
         working-directory: services/id-rust
         run: node scripts/check-web-login-state-browser.cjs
 
+      - name: Browser → Topcoat GitHub login capability and pending MFA
+        working-directory: services/id-rust
+        run: node scripts/check-web-github-login-browser.cjs
+
       - name: Verify responsive account UI, themes and form state in Chromium
         working-directory: services/id-rust
         run: node scripts/check-web-ui-browser.cjs
