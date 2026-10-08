@@ -10,6 +10,11 @@ made green by lowering thresholds or deleting production files/branches.
 
 ## Run the measurement
 
+Pushes to `codex/rust-coverage-gates` run the preparatory measurement alongside
+the ordinary stable checks. This branch-only job provides the first baseline;
+it must be replaced by a required gate after the profile and test gaps are
+resolved. Other branches keep the ordinary stable scenario.
+
 After this branch has been published and the workflow is available for dispatch:
 
 ```sh

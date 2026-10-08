@@ -427,3 +427,10 @@ jobs:
 
   rust-extended:
     uses: ./.github/workflows/rust-pilot.yml
+
+  rust-coverage-baseline:
+    # Preparatory branch measurement; keep the required stable run above.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/rust-coverage-gates'
+    uses: ./.github/workflows/rust-pilot.yml
+    with:
+      coverage: true
