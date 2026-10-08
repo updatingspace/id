@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
   <title>Вход — UpdSpace ID</title>
   <link rel="stylesheet" href="/_id/login.css?v=ui-20261008-1" />
-  <script src="/_id/login.js?v=ui-20261008-2" defer></script>
+  <script src="/_id/login.js?v=ui-20261008-3" defer></script>
   <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
 <body>
@@ -52,8 +52,9 @@
         <button id="submit" type="submit">{{LOGIN_ACTION}}</button>
       </form>
       {{PASSKEY_ACTION}}
-      <button id="github-login" type="button" aria-describedby="github-hint" hidden>Войти через GitHub</button>
-      <p id="github-hint" class="muted" hidden>Для аккаунтов, к которым уже подключён GitHub.</p>
+      <button id="github-login" class="secondary" type="button" aria-describedby="provider-hint" hidden>Войти через GitHub</button>
+      <button id="discord-login" class="secondary" type="button" aria-describedby="provider-hint" hidden>Войти через Discord</button>
+      <p id="provider-hint" class="muted" hidden>Для аккаунтов, к которым уже подключён выбранный сервис.</p>
       <div class="auth-links">
         {{RECOVERY_LINK}}
         {{SIGNUP_LINK}}
