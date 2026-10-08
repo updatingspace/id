@@ -181,7 +181,7 @@ jobs:
       - name: Sign in with a passkey through two Rust instances on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test passkey_login_ydb -- --ignored --nocapture
-      - name: GitHub and Discord browser login and MFA through loopback providers and local YDB
+      - name: GitHub, Discord and Steam OpenID browser login and MFA through local YDB
         working-directory: services/id-rust
         env:
           ID_MFA_SEAL_KEY_B64: QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=

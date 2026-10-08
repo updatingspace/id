@@ -6,7 +6,7 @@ use axum::{
     Form, Json, Router,
     body::{Body, to_bytes},
     extract::State,
-    http::{HeaderMap, Request, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Request, StatusCode, header},
     routing::{get, post},
 };
 use base64::{
@@ -42,24 +42,34 @@ enum Kind {
     #[default]
     Github,
     Discord,
+    Steam,
 }
 impl Kind {
     fn name(self) -> &'static str {
         match self {
             Self::Github => "github",
             Self::Discord => "discord",
+            Self::Steam => "steam",
         }
     }
     fn other(self) -> Self {
         match self {
             Self::Github => Self::Discord,
-            Self::Discord => Self::Github,
+            Self::Discord | Self::Steam => Self::Github,
         }
     }
     fn config(self, login: Arc<LoginHttpConfig>) -> Result<ProviderLoginConfig> {
+        if self == Self::Steam {
+            return ProviderLoginConfig::steam(
+                login,
+                format!("{ORIGIN}/api/v1/auth/oauth/callback/steam"),
+                vec!["/account".into()],
+            );
+        }
         let constructor = match self {
             Self::Github => ProviderLoginConfig::github,
             Self::Discord => ProviderLoginConfig::discord,
+            Self::Steam => unreachable!(),
         };
         constructor(
             login,
@@ -81,6 +91,12 @@ struct Provider {
     tokens: BTreeMap<String, u64>,
     exchanges: u32,
     email: String,
+    steam_assertions: BTreeMap<String, BTreeMap<String, String>>,
+    steam_endpoint: String,
+    verification_reply: Option<String>,
+    discovery_reply: Option<String>,
+    verification_redirect: bool,
+    redirected_requests: u32,
 }
 
 async fn provider_token(
@@ -108,6 +124,7 @@ async fn provider_token(
         return invalid();
     };
     let valid_credentials = match provider.kind {
+        Kind::Steam => false,
         Kind::Github => {
             form.get("client_id").map(String::as_str) == Some("synthetic-client")
                 && form.get("client_secret").map(String::as_str) == Some("synthetic-secret")
@@ -175,7 +192,7 @@ async fn provider_user(
                 .clone()
                 .unwrap_or_else(|| match provider.kind {
                     Kind::Github => json!(subject),
-                    Kind::Discord => json!(subject.to_string()),
+                    Kind::Discord | Kind::Steam => json!(subject.to_string()),
                 });
             Some((id, provider.email.clone()))
         });
@@ -186,6 +203,159 @@ async fn provider_user(
             Json(json!({"message":"invalid token"})),
         ),
     }
+}
+
+const OPENID_NS: &str = "http://specs.openid.net/auth/2.0";
+const STEAM_CALLBACK: &str = "/api/v1/auth/oauth/callback/steam";
+
+async fn steam_check(
+    State(state): State<Arc<Mutex<Provider>>>,
+    Form(form): Form<BTreeMap<String, String>>,
+) -> (StatusCode, HeaderMap, String) {
+    let Ok(mut provider) = state.lock() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            HeaderMap::new(),
+            String::new(),
+        );
+    };
+    provider.exchanges += 1;
+    let expected = form
+        .get("openid.sig")
+        .and_then(|sig| provider.steam_assertions.get(sig));
+    // The local OP signs the complete assertion. A verifier must forward every
+    // assertion value unchanged except mode, and must never send the RP's state.
+    let valid = expected.is_some_and(|expected| expected == &form);
+    let mut headers = HeaderMap::new();
+    if provider.verification_redirect {
+        headers.insert(
+            header::LOCATION,
+            HeaderValue::from_static("/openid/redirect"),
+        );
+    }
+    (
+        if provider.verification_redirect {
+            StatusCode::FOUND
+        } else {
+            StatusCode::OK
+        },
+        headers,
+        provider.verification_reply.clone().unwrap_or_else(|| {
+            format!(
+                "ns:{OPENID_NS}\nis_valid:{}\n",
+                if valid { "true" } else { "false" }
+            )
+        }),
+    )
+}
+
+async fn steam_redirect(State(state): State<Arc<Mutex<Provider>>>) -> (StatusCode, String) {
+    let Ok(mut provider) = state.lock() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, String::new());
+    };
+    provider.redirected_requests += 1;
+    (StatusCode::OK, format!("ns:{OPENID_NS}\nis_valid:true\n"))
+}
+
+async fn steam_discovery(State(state): State<Arc<Mutex<Provider>>>) -> (StatusCode, String) {
+    let Ok(provider) = state.lock() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, String::new());
+    };
+    (StatusCode::OK,provider.discovery_reply.clone().unwrap_or_else(||format!(
+        "<?xml version=\"1.0\"?><xrds:XRDS xmlns:xrds=\"xri://$xrds\" xmlns=\"xri://$xrd*($v*2.0)\"><XRD><Service priority=\"0\"><Type>http://specs.openid.net/auth/2.0/signon</Type><URI>{}</URI></Service></XRD></xrds:XRDS>",provider.steam_endpoint)))
+}
+
+fn steam_assertion(
+    query: &BTreeMap<String, String>,
+    provider: &Arc<Mutex<Provider>>,
+    subject: u64,
+) -> Result<String> {
+    let mut provider = provider
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider mutex"))?;
+    let return_to = query.get("openid.return_to").context("OpenID return_to")?;
+    let url = Url::parse(return_to)?;
+    ensure!(url.origin().ascii_serialization() == ORIGIN && url.path() == STEAM_CALLBACK);
+    ensure!(
+        query.get("openid.realm").map(String::as_str) == Some(&format!("{ORIGIN}/"))
+            && query.get("openid.ns").map(String::as_str) == Some(OPENID_NS)
+            && query.get("openid.mode").map(String::as_str) == Some("checkid_setup")
+            && query.get("openid.claimed_id").map(String::as_str)
+                == Some("http://specs.openid.net/auth/2.0/identifier_select")
+            && query.get("openid.identity") == query.get("openid.claimed_id")
+            && query.len() == 6,
+        "Steam authorization accidentally uses OAuth parameters"
+    );
+    let state = url
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .context("Steam state")?
+        .1
+        .into_owned();
+    let sig = STANDARD.encode(rand::random::<[u8; 20]>());
+    let mut form: BTreeMap<String, String> = [
+        ("openid.ns", OPENID_NS.to_owned()),
+        ("openid.mode", "id_res".into()),
+        ("openid.op_endpoint", provider.steam_endpoint.clone()),
+        (
+            "openid.claimed_id",
+            format!("https://steamcommunity.com/openid/id/{subject}"),
+        ),
+        (
+            "openid.identity",
+            format!("https://steamcommunity.com/openid/id/{subject}"),
+        ),
+        ("openid.return_to", return_to.clone()),
+        ("openid.assoc_handle", "synthetic-steam-association".into()),
+        (
+            "openid.response_nonce",
+            format!(
+                "{}{}",
+                chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
+                Uuid::new_v4().simple()
+            ),
+        ),
+        (
+            "openid.signed",
+            "op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle".into(),
+        ),
+        ("openid.sig", sig.clone()),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_owned(), value))
+    .collect();
+    let mut expected = form.clone();
+    expected.insert("openid.mode".into(), "check_authentication".into());
+    provider.steam_assertions.insert(sig, expected);
+    form.insert("state".into(), state);
+    Ok(callback_query(&form))
+}
+fn callback_query(form: &BTreeMap<String, String>) -> String {
+    format!(
+        "{STEAM_CALLBACK}?{}",
+        url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(form)
+            .finish()
+    )
+}
+fn callback_fields(path: &str) -> Result<BTreeMap<String, String>> {
+    Ok(Url::parse(&format!("{ORIGIN}{path}"))?
+        .query_pairs()
+        .into_owned()
+        .collect())
+}
+fn sign_steam(form: &mut BTreeMap<String, String>, provider: &Arc<Mutex<Provider>>) -> Result<()> {
+    let sig = STANDARD.encode(rand::random::<[u8; 20]>());
+    form.insert("openid.sig".into(), sig.clone());
+    let mut expected = form.clone();
+    expected.remove("state");
+    expected.insert("openid.mode".into(), "check_authentication".into());
+    provider
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider mutex"))?
+        .steam_assertions
+        .insert(sig, expected);
+    Ok(())
 }
 
 #[derive(Clone, Default)]
@@ -308,6 +478,17 @@ impl Browser {
         );
         let url = Url::parse(r.body["authorize_url"].as_str().context("authorize URL")?)?;
         let query: BTreeMap<String, String> = url.query_pairs().into_owned().collect();
+        if name == "steam" {
+            ensure!(
+                url.as_str().starts_with(
+                    &provider
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("provider mutex"))?
+                        .steam_endpoint
+                )
+            );
+            return steam_assertion(&query, provider, subject);
+        }
         ensure!(
             query.get("redirect_uri") == Some(&format!("{ORIGIN}{callback_path}"))
                 && query.get("code_challenge_method").map(String::as_str) == Some("S256")
@@ -396,7 +577,14 @@ async fn serve_provider(
 ) -> Result<(String, tokio::task::JoinHandle<std::io::Result<()>>)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let origin = format!("http://{}/", listener.local_addr()?);
+    provider
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider mutex"))?
+        .steam_endpoint = format!("{origin}openid/login");
     let app = Router::new()
+        .route("/openid/login", post(steam_check))
+        .route("/openid/redirect", get(steam_redirect).post(steam_redirect))
+        .route("/openid/id/{subject}", get(steam_discovery))
         .route("/token", post(provider_token))
         .route("/user", get(provider_user))
         .with_state(provider);
@@ -404,6 +592,272 @@ async fn serve_provider(
         origin,
         tokio::spawn(async move { axum::serve(listener, app).await }),
     ))
+}
+
+// Malformed assertions are signed by the fixture OP where indicated: rejection
+// must come from the RP's contract, not only the fake signature verifier.
+async fn steam_negative_assertions(
+    app: &Router,
+    provider: &Arc<Mutex<Provider>>,
+    subject: u64,
+    cache: &CacheStore,
+) -> Result<()> {
+    for (field, value) in [
+        ("openid.ns", "http://specs.openid.net/auth/1.1".to_owned()),
+        ("openid.mode", "check_authentication".into()),
+        (
+            "openid.op_endpoint",
+            "http://169.254.169.254/latest/meta-data/".into(),
+        ),
+        (
+            "openid.return_to",
+            format!("{ORIGIN}{STEAM_CALLBACK}?state=other"),
+        ),
+        (
+            "openid.claimed_id",
+            format!("https://attacker.invalid/openid/id/{subject}"),
+        ),
+        (
+            "openid.identity",
+            format!("https://steamcommunity.com/openid/id/{}", subject + 1),
+        ),
+        (
+            "openid.signed",
+            "op_endpoint,claimed_id,return_to,response_nonce,assoc_handle".into(),
+        ),
+        (
+            "openid.signed",
+            "op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle,identity".into(),
+        ),
+        ("openid.assoc_handle", "".into()),
+        ("openid.response_nonce", "not-a-timestamp".into()),
+        (
+            "openid.response_nonce",
+            format!(
+                "{}expired",
+                (chrono::Utc::now() - chrono::Duration::minutes(6)).format("%Y-%m-%dT%H:%M:%SZ")
+            ),
+        ),
+        (
+            "openid.response_nonce",
+            format!(
+                "{}future",
+                (chrono::Utc::now() + chrono::Duration::minutes(2)).format("%Y-%m-%dT%H:%M:%SZ")
+            ),
+        ),
+    ] {
+        let mut browser = Browser::default();
+        let path = browser.start(app, provider, subject).await?;
+        let mut fields = callback_fields(&path)?;
+        fields.insert(field.into(), value);
+        sign_steam(&mut fields, provider)?;
+        let exchanges = provider
+            .lock()
+            .map_err(|_| anyhow::anyhow!("provider mutex"))?
+            .exchanges;
+        redirected(
+            &browser
+                .call(app, "GET", &callback_query(&fields), Value::Null)
+                .await?,
+            "/login?provider_error=PROVIDER_UNAVAILABLE",
+        )?;
+        ensure!(!browser.cookies.contains_key("sessionid"));
+        ensure!(
+            provider
+                .lock()
+                .map_err(|_| anyhow::anyhow!("provider mutex"))?
+                .exchanges
+                == exchanges,
+            "malformed {field} reached direct verification"
+        );
+    }
+    for suffix in [
+        "0".into(),
+        format!("0{subject}"),
+        "18446744073709551616".into(),
+        format!("{subject}?other=true"),
+        format!("{subject}/"),
+    ] {
+        let mut browser = Browser::default();
+        let path = browser.start(app, provider, subject).await?;
+        let mut fields = callback_fields(&path)?;
+        for key in ["openid.claimed_id", "openid.identity"] {
+            fields.insert(
+                key.into(),
+                format!("https://steamcommunity.com/openid/id/{suffix}"),
+            );
+        }
+        sign_steam(&mut fields, provider)?;
+        redirected(
+            &browser
+                .call(app, "GET", &callback_query(&fields), Value::Null)
+                .await?,
+            "/login?provider_error=PROVIDER_UNAVAILABLE",
+        )?;
+        ensure!(!browser.cookies.contains_key("sessionid"));
+    }
+    for duplicate in [
+        "openid.ns",
+        "openid.mode",
+        "openid.return_to",
+        "openid.sig",
+        "openid.response_nonce",
+    ] {
+        let mut browser = Browser::default();
+        let path = browser.start(app, provider, subject).await?;
+        redirected(
+            &browser
+                .call(
+                    app,
+                    "GET",
+                    &format!("{path}&{duplicate}=duplicate"),
+                    Value::Null,
+                )
+                .await?,
+            "/login?provider_error=INVALID_STATE",
+        )?;
+        ensure!(!browser.cookies.contains_key("sessionid"));
+    }
+    for response in [
+        format!("ns:{OPENID_NS}\nis_valid:false\n"),
+        format!("ns:{OPENID_NS}\nerror:is_valid:true\n"),
+        format!("ns:{OPENID_NS}\nis_valid:truejunk\n"),
+        format!("ns:{OPENID_NS}\nis_valid:false\nis_valid:true\n"),
+        "ns:other\nis_valid:true\n".into(),
+        "is_valid:true\n".into(),
+        "x".repeat(17_000),
+    ] {
+        provider
+            .lock()
+            .map_err(|_| anyhow::anyhow!("provider mutex"))?
+            .verification_reply = Some(response);
+        let mut browser = Browser::default();
+        let path = browser.start(app, provider, subject).await?;
+        redirected(
+            &browser.call(app, "GET", &path, Value::Null).await?,
+            "/login?provider_error=PROVIDER_UNAVAILABLE",
+        )?;
+        ensure!(!browser.cookies.contains_key("sessionid"));
+    }
+    provider
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider mutex"))?
+        .verification_reply = None;
+    for response in [
+        "<html>not discovery</html>".to_owned(),
+        "<xrds:XRDS xmlns:xrds=\"xri://$xrds\" xmlns=\"xri://$xrd*($v*2.0)\"><XRD><Service><Type>http://specs.openid.net/auth/2.0/signon</Type><URI>https://attacker.invalid/</URI></Service></XRD></xrds:XRDS>".into(),
+    ] {
+        provider.lock().map_err(|_|anyhow::anyhow!("provider mutex"))?.discovery_reply=Some(response);
+        let mut browser=Browser::default();
+        let path=browser.start(app,provider,subject).await?;
+        redirected(&browser.call(app,"GET",&path,Value::Null).await?,"/login?provider_error=PROVIDER_UNAVAILABLE")?;
+        ensure!(!browser.cookies.contains_key("sessionid"));
+    }
+    provider
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider mutex"))?
+        .discovery_reply = None;
+    provider
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider mutex"))?
+        .verification_redirect = true;
+    let mut redirected_op = Browser::default();
+    let path = redirected_op.start(app, provider, subject).await?;
+    redirected(
+        &redirected_op.call(app, "GET", &path, Value::Null).await?,
+        "/login?provider_error=PROVIDER_UNAVAILABLE",
+    )?;
+    {
+        let mut provider = provider
+            .lock()
+            .map_err(|_| anyhow::anyhow!("provider mutex"))?;
+        ensure!(
+            provider.redirected_requests == 0,
+            "OpenID verification followed a redirect"
+        );
+        provider.verification_redirect = false;
+    }
+    // Two separately valid state-bound assertions reuse one provider nonce. The
+    // mock OP validates both: YDB must supply the independent replay barrier.
+    let mut first = Browser::default();
+    let path = first.start(app, provider, subject).await?;
+    let nonce = callback_fields(&path)?
+        .get("openid.response_nonce")
+        .context("nonce")?
+        .clone();
+    redirected(
+        &first.call(app, "GET", &path, Value::Null).await?,
+        "/account",
+    )?;
+    let mut second = Browser::default();
+    let path = second.start(app, provider, subject).await?;
+    let mut fields = callback_fields(&path)?;
+    fields.insert("openid.response_nonce".into(), nonce.clone());
+    sign_steam(&mut fields, provider)?;
+    redirected(
+        &second
+            .call(app, "GET", &callback_query(&fields), Value::Null)
+            .await?,
+        "/login?provider_error=INVALID_STATE",
+    )?;
+    ensure!(!second.cookies.contains_key("sessionid"));
+    ensure!(
+        cache
+            .get(
+                &format!("steam-nonce:{:x}", Sha256::digest(nonce.as_bytes())),
+                SystemTime::now()
+            )
+            .await?
+            .is_some()
+    );
+    // Independent browser states race for the same nonce; exactly one may issue.
+    let mut left = Browser::default();
+    let left_path = left.start(app, provider, subject).await?;
+    let nonce = callback_fields(&left_path)?
+        .get("openid.response_nonce")
+        .context("race nonce")?
+        .clone();
+    let mut right = Browser::default();
+    let right_path = right.start(app, provider, subject).await?;
+    let mut right_fields = callback_fields(&right_path)?;
+    right_fields.insert("openid.response_nonce".into(), nonce);
+    sign_steam(&mut right_fields, provider)?;
+    let right_path = callback_query(&right_fields);
+    let (left_reply, right_reply) = tokio::join!(
+        left.call(app, "GET", &left_path, Value::Null),
+        right.call(app, "GET", &right_path, Value::Null)
+    );
+    ensure!(
+        [left_reply?, right_reply?]
+            .iter()
+            .filter(|reply| reply
+                .headers
+                .get(header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                == Some("/account"))
+            .count()
+            == 1,
+        "shared nonce issued more or fewer than one session"
+    );
+    // Historical HTTP claimed IDs map to the same numeric binding. Discovery
+    // and direct verification still use the pinned HTTPS endpoint in production.
+    let mut legacy = Browser::default();
+    let path = legacy.start(app, provider, subject).await?;
+    let mut fields = callback_fields(&path)?;
+    for field in ["openid.claimed_id", "openid.identity"] {
+        fields.insert(
+            field.into(),
+            format!("http://steamcommunity.com/openid/id/{subject}"),
+        );
+    }
+    sign_steam(&mut fields, provider)?;
+    redirected(
+        &legacy
+            .call(app, "GET", &callback_query(&fields), Value::Null)
+            .await?,
+        "/account",
+    )?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -416,6 +870,12 @@ async fn github_browser_login_binds_state_identity_and_mfa() -> Result<()> {
 #[ignore = "requires migrated local YDB on localhost:2136 and /local"]
 async fn discord_browser_login_binds_state_identity_and_mfa() -> Result<()> {
     browser_login_binds_state_identity_and_mfa(Kind::Discord).await
+}
+
+#[tokio::test]
+#[ignore = "requires migrated local YDB on localhost:2136 and /local"]
+async fn steam_openid_browser_login_binds_assertion_identity_and_mfa() -> Result<()> {
+    browser_login_binds_state_identity_and_mfa(Kind::Steam).await
 }
 
 async fn browser_login_binds_state_identity_and_mfa(kind: Kind) -> Result<()> {
@@ -444,14 +904,19 @@ async fn browser_login_binds_state_identity_and_mfa(kind: Kind) -> Result<()> {
     let other_mfa_cookie = format!("__Host-id_{other_name}_mfa");
     let client = Arc::new(id_runtime::connect_ydb().await?);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-    let account = (if kind == Kind::Github {
-        1_000_000_000
-    } else {
-        1_100_000_000
+    let account = (match kind {
+        Kind::Github => 1_000_000_000,
+        Kind::Discord => 1_100_000_000,
+        Kind::Steam => 1_200_000_000,
     }) + i32::try_from(stamp % 100_000_000)?;
     let identity = Uuid::new_v4();
     let other_identity = Uuid::new_v4();
-    let subject = u64::try_from(stamp % 9_000_000_000 + 1)?;
+    let subject = u64::try_from(stamp % 9_000_000_000 + 1)?
+        + if kind == Kind::Steam {
+            76_561_198_000_000_000
+        } else {
+            0
+        };
     let table = format!("id_{name}_test_{}", identity.simple());
     let cache = CacheStore::new(client.clone(), &table, "", 1)?;
     let codec = Arc::new(SessionCodec::new(SECRET, &[])?);
@@ -559,6 +1024,9 @@ async fn browser_login_binds_state_identity_and_mfa(kind: Kind) -> Result<()> {
         ensure!(!swapped.cookies.contains_key("sessionid"));
         redirected(&state_owner.call(&app,"GET",&owner_callback,Value::Null).await?,"/account")?;
 
+        if kind == Kind::Steam {
+            steam_negative_assertions(&app,&provider,subject,&cache).await?;
+        }
         if kind == Kind::Discord {
             for bad_id in [json!(subject),json!("0"),json!(format!("0{subject}")),json!(format!("+{subject}")),json!("18446744073709551616"),Value::Null] {
                 provider.lock().map_err(|_| anyhow::anyhow!("provider mutex"))?.user_id_override=Some(bad_id);
@@ -621,21 +1089,39 @@ async fn browser_login_binds_state_identity_and_mfa(kind: Kind) -> Result<()> {
 
         let mut denied = Browser::default();
         let path = denied.start(&app,&provider,subject).await?;
-        redirected(&denied.call(&app,"GET",&format!("{path}&error=access_denied&error_description=private-provider-message"),Value::Null).await?,
-            "/login?provider_error=PROVIDER_DENIED")?;
+        let denied_path = if kind == Kind::Steam {
+            let fields = callback_fields(&path)?;
+            let form = BTreeMap::from([("state".into(),fields.get("state").context("cancel state")?.clone()),("openid.ns".into(),OPENID_NS.into()),("openid.mode".into(),"cancel".into())]);
+            callback_query(&form)
+        } else {format!("{path}&error=access_denied&error_description=private-provider-message")};
+        redirected(&denied.call(&app,"GET",&denied_path,Value::Null).await?,"/login?provider_error=PROVIDER_DENIED")?;
         let mut unavailable = Browser::default();
         let path = unavailable.start(&app,&provider,subject).await?;
         let parsed = Url::parse(&format!("{ORIGIN}{path}"))?;
         let state = parsed.query_pairs().find(|(key,_)|key=="state").context("callback state")?.1.into_owned();
-        redirected(&unavailable.call(&app,"GET",&format!("{callback_path}?state={state}&code=invalid-code"),Value::Null).await?,
-            "/login?provider_error=PROVIDER_UNAVAILABLE")?;
+        let unavailable_path = if kind == Kind::Steam {
+            let mut fields=callback_fields(&path)?;
+            fields.insert("openid.sig".into(),STANDARD.encode([0u8;20]));
+            callback_query(&fields)
+        } else {format!("{callback_path}?state={state}&code=invalid-code")};
+        redirected(&unavailable.call(&app,"GET",&unavailable_path,Value::Null).await?,"/login?provider_error=PROVIDER_UNAVAILABLE")?;
 
+        // A subject linked only to another provider must not authenticate Steam.
+        if kind == Kind::Steam {
+            client.query_client().exec("UPDATE socialaccount_socialaccount SET uid=$subject WHERE id=$id")
+                .param("$id",account+200_000_000).param("$subject",(subject+1).to_string()).await?;
+        }
         // A provider email matching the local email is not an identity proof.
         let mut unknown = Browser::default();
         let path = unknown.start(&app,&provider,subject+1).await?;
         let reply = unknown.call(&app,"GET",&path,Value::Null).await?;
         redirected(&reply,"/login?provider_error=ACCOUNT_NOT_LINKED")?;
         ensure!(!unknown.cookies.contains_key("sessionid"));
+        if kind == Kind::Steam {
+            client.query_client().exec("UPDATE socialaccount_socialaccount SET uid=$subject WHERE id=$id")
+                .param("$id",account+200_000_000).param("$subject",subject.to_string()).await?;
+        }
+
         client.query_client().exec("INSERT INTO usid_external_identity (id,user_id,provider,subject,created_at) VALUES ($id,$identity,$provider,$subject,CurrentUtcDatetime())")
             .param("$id",i64::from(account)).param("$identity",other_identity).param("$subject",subject.to_string()).param("$provider", name).await?;
         let mut conflict = Browser::default();
@@ -676,6 +1162,28 @@ async fn browser_login_binds_state_identity_and_mfa(kind: Kind) -> Result<()> {
         let principal = id_runtime::session_store::restore_django_principal(&client,codec.clone(),switching.cookies.get("sessionid").context("switched session")?,
             id_runtime::session_store::LEGACY_BACKENDS,SystemTime::now()).await?.context("switched session restore")?;
         ensure!(principal.account_id.get() == i64::from(account) && principal.identity_id.get() == identity);
+
+        if kind == Kind::Steam {
+            // Reverse direction: GitHub → Steam cancels a copied GitHub MFA flow.
+            let mut reverse=Browser::default();
+            let path=reverse.start(&app,&other_provider,subject).await?;
+            redirected(&reverse.call(&app,"GET",&path,Value::Null).await?,&format!("/login?provider_mfa={other_name}"))?;
+            let mut old=reverse.clone();
+            let path=reverse.start(&app,&provider,subject).await?;
+            ensure!(old.call(&app,"GET",&other_pending,Value::Null).await?.status==StatusCode::UNAUTHORIZED);
+            ensure!(old.call(&app,"POST",&other_complete,json!({"recovery_code":"24681357"})).await?.status==StatusCode::UNAUTHORIZED);
+            redirected(&reverse.call(&app,"GET",&path,Value::Null).await?,&mfa_redirect)?;
+            ensure!(reverse.call(&app,"POST",&cancel_path,json!({})).await?.status==StatusCode::OK);
+            for status in ["suspended","deleted"] {
+                let mut stale=Browser::default();
+                let path=stale.start(&app,&provider,subject).await?;
+                redirected(&stale.call(&app,"GET",&path,Value::Null).await?,&mfa_redirect)?;
+                client.query_client().exec("UPDATE usid_user SET status=$status WHERE user_id=$id").param("$id",identity).param("$status",status).await?;
+                let denied=stale.call(&app,"POST",&complete_path,json!({"recovery_code":"24681357"})).await?;
+                ensure!(denied.status==StatusCode::UNAUTHORIZED && !stale.cookies.contains_key("sessionid"));
+                client.query_client().exec("UPDATE usid_user SET status='active' WHERE user_id=$id").param("$id",identity).await?;
+            }
+        }
 
         let mut mfa = Browser::default();
         let path = mfa.start(&app,&provider,subject).await?;
