@@ -118,6 +118,9 @@ async function main() {
       const responses = Object.fromEntries(['preferences', 'timezones', 'consents'].slice(['preferences', 'timezones', 'consents'].indexOf(name)).map(key => [key, { status: 403, delay: key === name ? 80 : 0 }]));
       await check('privacy', { status: 503, text: `Не удалось загрузить ${text}`, responses });
     }
+    // Higher-priority failures must cancel lower-priority reads that never finish.
+    await check('privacy', { status: 503, text: 'Не удалось загрузить настройки', responses: { preferences: { status: 503 }, timezones: { hold: true }, consents: { hold: true } } });
+    await check('privacy', { status: 503, text: 'Не удалось загрузить часовые пояса', responses: { timezones: { status: 503 }, consents: { hold: true } } });
     const guestReads = await check('privacy', { status: 303, responses: { me: { body: { user: null } } } });
     assert.deepEqual(guestReads.map(read => read.name), ['me']);
     for (const section of ['sessions', 'privacy', 'apps', 'delete']) {

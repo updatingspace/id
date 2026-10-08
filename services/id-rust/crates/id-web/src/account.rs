@@ -326,19 +326,48 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         return sessions_page(cx, sessions, cookies).await;
     }
     if privacy_section {
-        let (preferences, timezones, consents) =
-            tokio::join!(preferences(api, cookie), timezones(api), async {
+        let secondary_reads = async {
+            let timezones_request = timezones(api);
+            let consents_request = async {
                 if api.consents_enabled {
                     consents(api, cookie).await
                 } else {
                     Ok(Vec::new())
                 }
-            });
+            };
+            tokio::pin!(timezones_request, consents_request);
+            let mut consents_result = None;
+            let timezones = tokio::select! {
+                result = &mut timezones_request => result,
+                result = &mut consents_request => {
+                    consents_result = Some(result);
+                    timezones_request.await
+                }
+            }?;
+            let consents = match consents_result {
+                Some(result) => result,
+                None => consents_request.await,
+            };
+            Ok::<_, anyhow::Error>((timezones, consents))
+        };
+        let preferences_request = preferences(api, cookie);
+        tokio::pin!(preferences_request, secondary_reads);
+        let mut secondary_result = None;
+        let preferences = tokio::select! {
+            result = &mut preferences_request => result,
+            result = &mut secondary_reads => {
+                secondary_result = Some(result);
+                preferences_request.await
+            }
+        };
         let preferences = match preferences {
             Ok(value) => value,
             Err(_) => return error_page("Не удалось загрузить настройки. Попробуйте позже."),
         };
-        let timezones = match timezones {
+        let (timezones, consents) = match match secondary_result {
+            Some(result) => result,
+            None => secondary_reads.await,
+        } {
             Ok(value) => value,
             Err(_) => return error_page("Не удалось загрузить часовые пояса. Попробуйте позже."),
         };
