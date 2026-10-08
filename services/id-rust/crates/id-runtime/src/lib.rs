@@ -131,6 +131,20 @@ use ydb::{
     MetadataUrlCredentials,
 };
 
+/// Finish in-flight HTTP requests when the process is asked to stop.
+pub async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        if let Ok(mut term) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
+}
+
 pub async fn connect_ydb() -> Result<Client> {
     let endpoint = env::var("YDB_ENDPOINT").context("YDB_ENDPOINT is required")?;
     let database = env::var("YDB_DATABASE").context("YDB_DATABASE is required")?;

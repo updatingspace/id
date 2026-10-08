@@ -70,9 +70,7 @@ async fn main() -> Result<()> {
             app = app.merge(jobs_http::gravatar_router(job, limit));
         }
         axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = tokio::signal::ctrl_c().await;
-            })
+            .with_graceful_shutdown(id_runtime::shutdown_signal())
             .await?;
         return Ok(());
     }

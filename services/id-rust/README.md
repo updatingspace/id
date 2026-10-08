@@ -557,6 +557,9 @@ WebAuthn и других интерактивных действий. Веб-с�
   `/internal/jobs/recover` (резервная прямая SMTP-обработка). HTTP-режим требует
   `ID_JOBS_HTTP_ENABLED=true`; права вызова должны ограничиваться IAM
   самого контейнера, а маршруты не добавляются в публичный Gateway.
+  При SIGTERM или SIGINT HTTP-режим прекращает принимать соединения,
+  завершает уже принятые запросы и штатно выходит. Проверка реального процесса:
+  `node scripts/check-jobs-shutdown.cjs` после сборки с локальной YDB.
   Тело одного YMQ-сообщения: `{"version":1,"kind":"new_device_mail","event_id":42}`;
   endpoint получает его внутри стандартного Yandex `messages[].details.message.body`.
   HTTP batch ограничен десятью сообщениями/записями на вызов, чтобы даже

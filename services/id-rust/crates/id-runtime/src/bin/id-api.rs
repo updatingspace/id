@@ -285,18 +285,7 @@ async fn main() -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(async {
-        #[cfg(unix)]
-        {
-            if let Ok(mut term) =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            {
-                tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
-                return;
-            }
-        }
-        let _ = tokio::signal::ctrl_c().await;
-    })
+    .with_graceful_shutdown(id_runtime::shutdown_signal())
     .await?;
     Ok(())
 }
