@@ -90,7 +90,7 @@ pub(crate) type ProfileRows = (
     Vec<ProfileFields>,
     Vec<PreferenceFields>,
     bool,
-    Vec<(i32, String)>,
+    Vec<String>,
     Vec<bool>,
 );
 
@@ -99,19 +99,23 @@ pub(crate) async fn read_profile_details_tx(
     user_id: i32,
 ) -> ydb::YdbResultWithCustomerErr<ProfileRows> {
     // QueryStream keeps SELECT result sets in order and assembles their chunks.
-    // Keep the caller's transaction, using one ExecuteQuery RPC instead of six.
+    // Stored provider links are display data, not proof that login is available.
+    // Both owner namespaces and the reverse-owner check share this one RPC.
     let mut stream = tx
         .query(
             "SELECT username, email, first_name, last_name, is_staff, is_superuser, is_active FROM auth_user WHERE id = $user_id;
              SELECT phone_number, phone_verified, CAST(birth_date AS Utf8) AS birth_date, CAST(avatar AS Utf8) AS avatar_key, avatar_source, gravatar_enabled FROM accounts_userprofile VIEW acct_profile_user_idx WHERE user_id = $user_id LIMIT 2;
              SELECT language, timezone FROM accounts_userpreferences VIEW acct_prefs_user_idx WHERE user_id = $user_id LIMIT 2;
              SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $user_id LIMIT 1;
-             SELECT id, provider FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $user_id;
-             SELECT verified FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id AND primary = true LIMIT 2;",
+             SELECT provider FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $user_id
+             UNION
+             SELECT provider FROM usid_external_identity VIEW usid_external_identity_user_id_b18cc632 WHERE user_id IN (SELECT identity_id FROM accounts_accountidentity WHERE user_id = $user_id AND identity_id IS NOT NULL);
+             SELECT verified FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id AND primary = true LIMIT 2;
+             SELECT user_id FROM accounts_accountidentity VIEW account_identity_reverse_idx WHERE identity_id IN (SELECT identity_id FROM accounts_accountidentity WHERE user_id = $user_id AND identity_id IS NOT NULL) LIMIT 2;",
         )
         .param("$user_id", user_id)
         .await?;
-    let mut sets = Vec::with_capacity(6);
+    let mut sets = Vec::with_capacity(7);
     while let Some(rows) = stream.next_result_set().await? {
         sets.push(rows);
     }
@@ -123,9 +127,24 @@ pub(crate) async fn read_profile_details_tx(
         mfa_rows,
         provider_rows,
         email_rows,
-    ]: [ydb::ResultSet; 6] = sets
+        identity_owner_rows,
+    ]: [ydb::ResultSet; 7] = sets
         .try_into()
-        .map_err(|_| ydb::YdbError::Custom("expected six profile result sets".into()))?;
+        .map_err(|_| ydb::YdbError::Custom("expected seven profile result sets".into()))?;
+    let mut identity_owners = Vec::<i32>::with_capacity(2);
+    for mut row in identity_owner_rows {
+        identity_owners.push(row.remove_field_by_name("user_id")?.try_into()?);
+    }
+    if identity_owners.len() > 1
+        || identity_owners
+            .first()
+            .is_some_and(|owner| *owner != user_id)
+    {
+        return Err(ydb::YdbError::Custom(
+            "ambiguous account identity ownership in profile".into(),
+        )
+        .into());
+    }
     let mut account_rows = account_rows.into_iter();
     let account = account_rows.next();
     if account_rows.next().is_some() {
@@ -168,9 +187,7 @@ pub(crate) async fn read_profile_details_tx(
 
     let mut providers = Vec::new();
     for mut row in provider_rows {
-        let id: i32 = row.remove_field_by_name("id")?.try_into()?;
-        let provider: String = row.remove_field_by_name("provider")?.try_into()?;
-        providers.push((id, provider));
+        providers.push(row.remove_field_by_name("provider")?.try_into()?);
     }
 
     let mut primary_emails = Vec::with_capacity(2);
@@ -198,16 +215,13 @@ pub(crate) fn finish_profile_rows(rows: ProfileRows) -> Result<ProfileDetails> {
     if primary_emails.len() > 1 {
         bail!("multiple primary email rows for one account");
     }
-    providers.sort_by_key(|(id, _)| *id);
+    providers.sort();
     Ok(ProfileDetails {
         account,
         profile: profiles.pop(),
         preferences: preferences.pop(),
         has_mfa,
-        oauth_providers: providers
-            .into_iter()
-            .map(|(_, provider)| provider)
-            .collect(),
+        oauth_providers: providers,
         email_verified: primary_emails.first().copied().unwrap_or(false),
     })
 }

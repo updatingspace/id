@@ -4,6 +4,7 @@
 use anyhow::{Context, Result, ensure};
 use id_runtime::{ids::AccountId, profile_store::read_profile_details};
 use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 #[tokio::test]
 #[ignore = "requires local YDB after migrate_ydb; writes only synthetic negative-ID rows"]
@@ -23,6 +24,10 @@ async fn reads_indexed_profile_and_rejects_ambiguous_one_to_one_rows() -> Result
     let second_row = first_row - 1_000_000_000;
     let second_email = id - 1;
     let second_provider = id - 2;
+    let other_account = id - 3;
+    let identity_id = Uuid::new_v4();
+    let other_identity_id = Uuid::new_v4();
+    let foreign_external = second_row - 1;
 
     let result: Result<()> = async {
         let initial = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
@@ -118,6 +123,56 @@ async fn reads_indexed_profile_and_rejects_ambiguous_one_to_one_rows() -> Result
         ensure!(without_preferences.profile.is_none() && without_preferences.preferences.is_none());
         ensure!(without_preferences.has_mfa && without_preferences.email_verified);
         ensure!(without_preferences.oauth_providers == ["discord", "github"]);
+
+        // External links are scoped by the account's immutable UUID binding,
+        // never by email or by the mere presence of external identity rows.
+        for (row_id, owner, provider) in [
+            (first_row, identity_id, "github"),
+            (second_row, identity_id, "steam"),
+            (foreign_external, other_identity_id, "foreign-only"),
+        ] {
+            client.query_client().exec("INSERT INTO usid_external_identity (id, user_id, provider, subject, created_at) VALUES ($id, $owner, $provider, $subject, CurrentUtcDatetime())")
+                .param("$id", row_id).param("$owner", owner).param("$provider", provider)
+                .param("$subject", format!("profile-{stamp}-{provider}")).await?;
+        }
+        client.query_client().exec("INSERT INTO socialaccount_socialaccount (id, user_id, provider, uid, last_login, date_joined, extra_data) VALUES ($id, $id, 'foreign-social', $subject, CurrentUtcDatetime(), CurrentUtcDatetime(), Unwrap(CAST('{}' AS Json)))")
+            .param("$id", other_account).param("$subject", format!("foreign-profile-{stamp}")).await?;
+        let missing_binding = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
+        ensure!(missing_binding.oauth_providers == ["discord", "github"], "missing binding exposed external or foreign links");
+
+        client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($id, $identity, $subject, CurrentUtcDatetime())")
+            .param("$id", id).param("$identity", identity_id)
+            .param("$subject", format!("profile-subject-{stamp}")).await?;
+        let combined = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
+        ensure!(combined.oauth_providers == ["discord", "github", "steam"], "both provider stores must be distinct, ordered and owner-scoped");
+        ensure!(combined.has_mfa && combined.email_verified, "provider union shifted another result set");
+
+        for row_id in [id, second_provider] {
+            client.query_client().exec("DELETE FROM socialaccount_socialaccount WHERE id = $id")
+                .param("$id", row_id).await?;
+        }
+        let external_only = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
+        ensure!(external_only.oauth_providers == ["github", "steam"], "external-only links were hidden");
+
+        client.query_client().exec("UPDATE accounts_accountidentity SET identity_id = NULL WHERE user_id = $id")
+            .param("$id", id).await?;
+        let null_binding = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
+        ensure!(null_binding.oauth_providers.is_empty(), "null binding exposed external links");
+        client.query_client().exec("UPDATE accounts_accountidentity SET identity_id = $identity WHERE user_id = $id")
+            .param("$identity", identity_id).param("$id", id).await?;
+
+        // Even an orphan reverse binding makes the UUID owner ambiguous. Do
+        // not turn this into an empty list that would advertise a free link.
+        client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($id, $identity, $subject, CurrentUtcDatetime())")
+            .param("$id", other_account).param("$identity", identity_id)
+            .param("$subject", format!("ambiguous-profile-{stamp}")).await?;
+        let error = read_profile_details(&client, AccountId::new(i64::from(id))).await.err()
+            .context("ambiguous reverse identity ownership was accepted")?;
+        ensure!(format!("{error:#}").contains("ambiguous account identity ownership in profile"), "unexpected ambiguity error: {error:#}");
+        client.query_client().exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
+            .param("$id", other_account).await?;
+        let restored = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
+        ensure!(restored.oauth_providers == ["github", "steam"], "ambiguity check changed stored links");
         Ok(())
     }.await;
 
@@ -138,11 +193,34 @@ async fn reads_indexed_profile_and_rejects_ambiguous_one_to_one_rows() -> Result
         .exec("DELETE FROM mfa_authenticator WHERE id = $row_id")
         .param("$row_id", first_row)
         .await?;
-    for row_id in [id, second_provider] {
+    for row_id in [id, second_provider, other_account] {
         client
             .query_client()
             .exec("DELETE FROM socialaccount_socialaccount WHERE id = $row_id")
             .param("$row_id", row_id)
+            .await?;
+    }
+    for (row_id, owner) in [
+        (first_row, identity_id),
+        (second_row, identity_id),
+        (foreign_external, other_identity_id),
+    ] {
+        client
+            .query_client()
+            .exec("DELETE FROM usid_external_identity WHERE id = $id AND user_id = $owner")
+            .param("$id", row_id)
+            .param("$owner", owner)
+            .await?;
+    }
+    for (owner, subject) in [
+        (id, format!("profile-subject-{stamp}")),
+        (other_account, format!("ambiguous-profile-{stamp}")),
+    ] {
+        client
+            .query_client()
+            .exec("DELETE FROM accounts_accountidentity WHERE user_id = $id AND public_subject = $subject")
+            .param("$id", owner)
+            .param("$subject", subject)
             .await?;
     }
     for row_id in [id, second_email] {
