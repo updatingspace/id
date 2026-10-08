@@ -98,11 +98,39 @@ pub(crate) async fn read_profile_details_tx(
     tx: &mut Transaction,
     user_id: i32,
 ) -> ydb::YdbResultWithCustomerErr<ProfileRows> {
-    let account = tx
-        .query_row("SELECT username, email, first_name, last_name, is_staff, is_superuser, is_active FROM auth_user WHERE id = $user_id")
+    // QueryStream keeps SELECT result sets in order and assembles their chunks.
+    // Keep the caller's transaction, using one ExecuteQuery RPC instead of six.
+    let mut stream = tx
+        .query(
+            "SELECT username, email, first_name, last_name, is_staff, is_superuser, is_active FROM auth_user WHERE id = $user_id;
+             SELECT phone_number, phone_verified, CAST(birth_date AS Utf8) AS birth_date, CAST(avatar AS Utf8) AS avatar_key, avatar_source, gravatar_enabled FROM accounts_userprofile VIEW acct_profile_user_idx WHERE user_id = $user_id LIMIT 2;
+             SELECT language, timezone FROM accounts_userpreferences VIEW acct_prefs_user_idx WHERE user_id = $user_id LIMIT 2;
+             SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $user_id LIMIT 1;
+             SELECT id, provider FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $user_id;
+             SELECT verified FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id AND primary = true LIMIT 2;",
+        )
         .param("$user_id", user_id)
-        .optional()
         .await?;
+    let mut sets = Vec::with_capacity(6);
+    while let Some(rows) = stream.next_result_set().await? {
+        sets.push(rows);
+    }
+    stream.close().await?;
+    let [
+        account_rows,
+        profile_rows,
+        preference_rows,
+        mfa_rows,
+        provider_rows,
+        email_rows,
+    ]: [ydb::ResultSet; 6] = sets
+        .try_into()
+        .map_err(|_| ydb::YdbError::Custom("expected six profile result sets".into()))?;
+    let mut account_rows = account_rows.into_iter();
+    let account = account_rows.next();
+    if account_rows.next().is_some() {
+        return Err(ydb::YdbError::Custom("expected at most one account row".into()).into());
+    }
     let account = if let Some(mut row) = account {
         Some(AccountFields {
             username: row.remove_field_by_name("username")?.try_into()?,
@@ -117,71 +145,38 @@ pub(crate) async fn read_profile_details_tx(
         None
     };
 
-    let mut profile_stream = tx
-        .query("SELECT phone_number, phone_verified, CAST(birth_date AS Utf8) AS birth_date, CAST(avatar AS Utf8) AS avatar_key, avatar_source, gravatar_enabled FROM accounts_userprofile VIEW acct_profile_user_idx WHERE user_id = $user_id LIMIT 2")
-        .param("$user_id", user_id)
-        .await?;
     let mut profiles = Vec::with_capacity(2);
-    while let Some(rows) = profile_stream.next_result_set().await? {
-        for mut row in rows {
-            profiles.push(ProfileFields {
-                phone_number: row.remove_field_by_name("phone_number")?.try_into()?,
-                phone_verified: row.remove_field_by_name("phone_verified")?.try_into()?,
-                birth_date: row.remove_field_by_name("birth_date")?.try_into()?,
-                avatar_key: row.remove_field_by_name("avatar_key")?.try_into()?,
-                avatar_source: row.remove_field_by_name("avatar_source")?.try_into()?,
-                gravatar_enabled: row.remove_field_by_name("gravatar_enabled")?.try_into()?,
-            });
-        }
+    for mut row in profile_rows {
+        profiles.push(ProfileFields {
+            phone_number: row.remove_field_by_name("phone_number")?.try_into()?,
+            phone_verified: row.remove_field_by_name("phone_verified")?.try_into()?,
+            birth_date: row.remove_field_by_name("birth_date")?.try_into()?,
+            avatar_key: row.remove_field_by_name("avatar_key")?.try_into()?,
+            avatar_source: row.remove_field_by_name("avatar_source")?.try_into()?,
+            gravatar_enabled: row.remove_field_by_name("gravatar_enabled")?.try_into()?,
+        });
     }
-    profile_stream.close().await?;
-    let mut preference_stream = tx
-        .query("SELECT language, timezone FROM accounts_userpreferences VIEW acct_prefs_user_idx WHERE user_id = $user_id LIMIT 2")
-        .param("$user_id", user_id)
-        .await?;
     let mut preferences = Vec::with_capacity(2);
-    while let Some(rows) = preference_stream.next_result_set().await? {
-        for mut row in rows {
-            preferences.push(PreferenceFields {
-                language: row.remove_field_by_name("language")?.try_into()?,
-                timezone: row.remove_field_by_name("timezone")?.try_into()?,
-            });
-        }
+    for mut row in preference_rows {
+        preferences.push(PreferenceFields {
+            language: row.remove_field_by_name("language")?.try_into()?,
+            timezone: row.remove_field_by_name("timezone")?.try_into()?,
+        });
     }
-    preference_stream.close().await?;
 
-    let has_mfa = tx
-        .query_row("SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $user_id LIMIT 1")
-        .param("$user_id", user_id)
-        .optional()
-        .await?
-        .is_some();
+    let has_mfa = mfa_rows.into_iter().next().is_some();
 
-    let mut provider_stream = tx
-        .query("SELECT id, provider FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $user_id")
-        .param("$user_id", user_id)
-        .await?;
     let mut providers = Vec::new();
-    while let Some(rows) = provider_stream.next_result_set().await? {
-        for mut row in rows {
-            let id: i32 = row.remove_field_by_name("id")?.try_into()?;
-            let provider: String = row.remove_field_by_name("provider")?.try_into()?;
-            providers.push((id, provider));
-        }
+    for mut row in provider_rows {
+        let id: i32 = row.remove_field_by_name("id")?.try_into()?;
+        let provider: String = row.remove_field_by_name("provider")?.try_into()?;
+        providers.push((id, provider));
     }
-    provider_stream.close().await?;
 
-    let mut email_stream = tx
-        .query("SELECT verified FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id AND primary = true LIMIT 2")
-        .param("$user_id", user_id)
-        .await?;
     let mut primary_emails = Vec::with_capacity(2);
-    while let Some(rows) = email_stream.next_result_set().await? {
-        for mut row in rows {
-            primary_emails.push(row.remove_field_by_name("verified")?.try_into()?);
-        }
+    for mut row in email_rows {
+        primary_emails.push(row.remove_field_by_name("verified")?.try_into()?);
     }
-    email_stream.close().await?;
     Ok((
         account,
         profiles,
