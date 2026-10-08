@@ -5,7 +5,7 @@ replays the selected required schema-job scenarios below through their shared
 command source. It does not duplicate their test lists. The default required run still uses Rust
 1.98.1. The optional `coverage=true` run uses a separately pinned nightly to
 measure real branches. **The migration's coverage acceptance is not complete:**
-the first baseline below fails the thresholds; completing the measured scenarios,
+both baselines below fail the thresholds; completing the measured scenarios,
 covering remaining paths and promotion to a required job in
 `idctl/tested_revision.rs` remain outstanding. A failed baseline must not be
 made green by lowering thresholds or deleting production files/branches.
@@ -30,6 +30,12 @@ the strict gate from that JSON after an in-memory source-root remap reproduced
 every file count, total and failure in `result.json`. `mfa_secret.rs`,
 `legacy_passkey.rs` and `bin/idctl/oidc_clients.rs` have zero measured branch
 counts; they remain FAIL pending an explicit instrumentation review, not 100%.
+The later [pinned compiler probe](branch-semantics.md) confirms that ordinary
+`match`, `?` and an ensure-like macro can contain real decisions while emitting
+zero branch counters. Thus this gate measures represented LLVM conditional
+branches; it is not exhaustive source-decision coverage. Neither `condition`
+nor the removed MC/DC option resolves that demonstrated limitation on the pin.
+No zero-denominator exception or replacement metric has been approved.
 
 The five largest critical deficits by uncovered lines are below. Paths are
 relative to `crates/id-runtime/src/`.
@@ -114,8 +120,80 @@ requires the coverage wrapper's completion receipt and nonempty profile files.
 It previously used SIGKILL, which could lose child coverage. A failed graceful
 exit or missing receipt fails the scenario. This is a test-harness change;
 graceful shutdown on the production platform's SIGTERM remains unverified and
-is not claimed by this measurement. The new measured totals still require the
-next complete instrumented CI run; the historical baseline above is unchanged.
+is not claimed by this measurement. The expanded measurement below includes
+these cases; the historical baseline above is unchanged.
+
+## Expanded baseline: 2026-10-08
+
+[Run 37712432551, job 113101197870](https://github.com/updatingspace/id/actions/runs/37712432551/job/113101197870)
+measured immutable commit `9dead02d9d7b3394723e77ca94a1c8aa05a87ab6`.
+Every applicable scenario step succeeded, including the four shared cases,
+six internal-identity tests and the real export/delete jobs processes.
+`scenario_completed` is true; the final gate is FAIL. This is a completed
+measurement of that scenario set, not full feature or production acceptance.
+
+| Profile metric | Covered / total | Measured | Required |
+|---|---:|---:|---:|
+| Lines | 17,668 / 22,403 | 78.86% | 85% |
+| Represented LLVM conditional branches | 2,847 / 4,924 | 57.82% | 80% |
+| Critical files meeting both 100% gates | 1 / 69 | `id-compat/src/csrf.rs` only | 69 / 69 |
+
+All 92 manifest files are present among the 146 LLVM files. An independent
+source-root remap and strict-checker recalculation reproduced every per-file
+count, total and failure exactly. The source denominator changed between the
+two immutable revisions; the increased counts reflect both scenario expansion
+and intervening fixes, not a same-source performance comparison.
+
+The five largest critical deficits by uncovered lines are below. Source paths
+are relative to `crates/id-runtime/src/`; these counts do not imply a functional
+failure or that no test exists.
+
+| File | Lines | Branches | Narrow next action |
+|---|---:|---:|---|
+| `login_http.rs` | 620/842 (73.63%) | 75/128 (58.59%) | Its real HTTP test already ran. Review remaining validation/configuration and MFA refusal branches against the HTML report before adding focused cases. |
+| `password_change.rs` | 84/268 (31.34%) | 10/46 (21.74%) | Include the already-required `password_change_http_ydb` schema-job scenario in instrumentation. Its change/session transaction paths at lines 61–174 have no execution in this measurement. |
+| `data_export_http.rs` | 384/564 (68.09%) | 51/138 (36.96%) | Export/delete, escrow and operation scenarios ran. Review unexecuted configuration guards from lines 64–82 and remaining HTTP rejection paths; do not exclude production startup guards. |
+| `signup.rs` | 59/230 (25.65%) | 14/44 (31.82%) | Include the already-required `signup_ydb` and real browser/backend signup scenario from the schema job before designing new tests. |
+| `email_verify.rs` | 382/552 (69.20%) | 54/142 (38.03%) | Include the already-required `email_verify_http_ydb` and ignored mail-claim/expiry scenario from the schema job; request ownership checks at lines 189–255 are unexecuted here. |
+
+The schema-job command sources remain `.github/workflows/ci-cd.yml`; this
+expanded run reuses only the four cases listed above. It does not yet merge
+all required schema-job profiles. Low counters for those other cases remain
+a measurement gap until their existing tests are instrumented.
+
+The added scenarios now measure internal identity at 529/541 lines and 89/92
+branches, admin at 545/629 and 120/186, email change at 498/557 and 92/130,
+password reset at 621/659 and 94/162, and escrow at 545/601 and 87/134.
+Each remains below its critical 100/100 requirement. The three zero-branch
+critical files remain FAIL: `mfa_secret.rs` (7/8 lines), `legacy_passkey.rs`
+(50/52) and `bin/idctl/oidc_clients.rs` (80/97). The
+[compiler probe](branch-semantics.md) explains why more execution alone does
+not establish complete source-decision coverage for those files.
+
+The [253-entry artifact, ID 11522329540](https://github.com/updatingspace/id/actions/runs/37712432551/artifacts/11522329540)
+is 3,554,411 bytes with verified SHA-256
+`63a576f1018f2861b94ada56e662e6d4ce6bc5f4a32b7a7594db2fa69d765193`.
+Compiler, LLVM, cargo-llvm-cov, manifest and Cargo.lock hashes match the first
+baseline's pins. The runner checked 50 completed wrapper children: 5 API,
+19 web, 24 CLI and 2 jobs. The artifact contains all 50 paired start/completion
+receipts with consistent PID-specific paths. The isolated export/delete test
+also asserts that each jobs process exited successfully after SIGINT and
+flushed a nonempty profile before the report runs.
+
+The artifact still omits raw profiles, merged profdata and instrumented objects;
+receipt pairing is independently checkable, but outside-runner profile existence
+and LLVM re-export are not. Direct `CARGO_BIN_EXE_idctl` children inherit the
+instrumented environment and are awaited by their process tests, but have no
+individual wrapper receipts. The native smoke proves that direct-child mechanism,
+not exhaustive accounting of every application child. No lost profile was
+demonstrated by this audit; complete independent child accounting is not claimed.
+
+The browser passkey-management assertions passed at 01:30:15.997 UTC; its next
+step started at 01:33:14.906 UTC. Thus the observed delay was after assertions,
+within cleanup/process exit, and the step eventually succeeded. A single bounded
+local reproduction completed its browser, proxy and web-process cleanup in about
+11 seconds. No CI cleanup phase was timed individually, so the cause is unknown;
+no timeout or UI change is justified by this observation alone.
 
 ## Run the measurement
 
@@ -220,9 +298,9 @@ server child, and proves that one side of an `if` gives 1/2 branches and fails,
 while both sides give 2/2 and pass. This proves the mechanism, not coverage of
 the actual application's server paths; their evidence comes from the full CI
 run and its mandatory API/web/CLI receipts. Processes killed with SIGKILL cannot
-be assumed to flush profiles. The extended scenario currently does not run the
-separate destructive export/delete jobs-server test; it must not be counted as
-covered by this measurement.
+be assumed to flush profiles. The coverage-only isolated export/delete case now
+checks both jobs children separately before proceeding; its evidence is recorded
+in the expanded baseline above.
 
 ## Local bounded verification
 
