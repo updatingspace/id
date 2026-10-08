@@ -223,6 +223,9 @@ jobs:
         working-directory: services/id-rust
         run: node scripts/check-web-provider-link-browser.cjs
 
+      - name: Browser → Topcoat → Rust provider unlink on local YDB
+        run: bash services/id-rust/scripts/smoke-web-provider-unlink-live.sh
+
       - name: Verify responsive account UI, themes and form state in Chromium
         working-directory: services/id-rust
         run: node scripts/check-web-ui-browser.cjs

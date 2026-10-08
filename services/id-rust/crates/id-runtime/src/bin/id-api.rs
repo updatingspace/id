@@ -100,6 +100,10 @@ async fn main() -> Result<()> {
     };
     let login_pilot_enabled =
         if let Some(config) = id_runtime::login_http::LoginHttpConfig::from_env(client.clone())? {
+            app = app.merge(id_runtime::provider_login::unlink_router(
+                config.clone(),
+                id_runtime::provider_login::ProviderLoginConfig::available_from_env(client.clone()),
+            ));
             app = app.merge(id_runtime::login_http::router(config));
             true
         } else {

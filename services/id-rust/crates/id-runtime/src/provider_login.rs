@@ -37,6 +37,9 @@ use url::Url;
 use uuid::Uuid;
 use ydb::{Transaction, TxMode, closure};
 
+mod unlink;
+pub use unlink::router as unlink_router;
+
 const TTL: Duration = Duration::from_secs(300);
 const MAX_BODY: usize = 16_384;
 
@@ -168,7 +171,7 @@ pub struct ProviderLoginConfig {
 impl ProviderLoginConfig {
     /// Fail closed exactly as the public inventory: a flag without valid login
     /// configuration is not an available alternative credential.
-    pub(crate) fn available_from_env(client: Arc<ydb::Client>) -> Vec<Arc<Self>> {
+    pub fn available_from_env(client: Arc<ydb::Client>) -> Vec<Arc<Self>> {
         Provider::ALL
             .into_iter()
             .filter_map(|provider| Self::from_env(client.clone(), provider).ok().flatten())
@@ -467,12 +470,21 @@ async fn link_owner(
     token: &str,
     now: SystemTime,
 ) -> ydb::YdbResultWithCustomerErr<std::result::Result<LinkIntent, &'static str>> {
+    credential_owner(tx, &config.login, token, now).await
+}
+
+async fn credential_owner(
+    tx: &mut Transaction,
+    login: &LoginHttpConfig,
+    token: &str,
+    now: SystemTime,
+) -> ydb::YdbResultWithCustomerErr<std::result::Result<LinkIntent, &'static str>> {
     let backends = LEGACY_BACKENDS
         .iter()
         .map(|backend| (*backend).to_owned())
         .collect::<Vec<_>>();
     let Some(session) =
-        restore_django_session_tx(tx, &config.login.session_codec, token, &backends, now).await?
+        restore_django_session_tx(tx, &login.session_codec, token, &backends, now).await?
     else {
         return Ok(Err("AUTHENTICATION_REQUIRED"));
     };
@@ -495,7 +507,7 @@ async fn link_owner(
     if owners != [account_id] {
         return Ok(Err("IDENTITY_CONFLICT"));
     }
-    let data = session_data(tx, &config.login.session_codec, token).await?;
+    let data = session_data(tx, &login.session_codec, token).await?;
     if !recent_auth(&data, now)
         || (factors(tx, account_id).await?.any && (!session.mfa_verified || !fresh_mfa(&data, now)))
     {
@@ -513,7 +525,11 @@ async fn link_owner(
 }
 
 fn link_cookie(config: &ProviderLoginConfig, headers: &HeaderMap) -> Option<String> {
-    let token = cookie_value(headers, &config.login.options.session_cookie_name)?;
+    credential_cookie(&config.login, headers)
+}
+
+fn credential_cookie(login: &LoginHttpConfig, headers: &HeaderMap) -> Option<String> {
+    let token = cookie_value(headers, &login.options.session_cookie_name)?;
     if token.is_empty()
         || headers
             .get("x-session-token")
@@ -991,21 +1007,27 @@ async fn read_json<T: DeserializeOwned>(
     config: &ProviderLoginConfig,
     request: Request,
 ) -> std::result::Result<T, (StatusCode, &'static str)> {
+    read_credential_json(&config.login, request).await
+}
+
+async fn read_credential_json<T: DeserializeOwned>(
+    login: &LoginHttpConfig,
+    request: Request,
+) -> std::result::Result<T, (StatusCode, &'static str)> {
     let headers = request.headers();
     let origin = headers
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok());
     if !origin.is_some_and(|origin| {
-        config
-            .login
+        login
             .options
             .trusted_origins
             .iter()
             .any(|trusted| trusted == origin)
     }) || !csrf_allowed(
         headers,
-        &config.login.options.csrf_cookie_name,
-        &config.login.options.trusted_origins,
+        &login.options.csrf_cookie_name,
+        &login.options.trusted_origins,
     ) {
         return Err((StatusCode::FORBIDDEN, "CSRF_FAILED"));
     }

@@ -14,7 +14,7 @@
   {% if password_change_enabled %}<script src="/_id/password-change.js?v=ui-20261008-1" defer></script>{% endif %}
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
   <script src="/_id/ui.js?v=ui-20261008-1"></script>
-  <script src="/_id/provider-link.js?v=ui-20261008-1" defer></script>
+  <script src="/_id/provider-link.js?v=ui-20261008-2" defer></script>
 </head>
 <body>
   {% call shell::open(features, "security", "Вход и защита") %}{% endcall %}
@@ -32,9 +32,18 @@
         <li class="list-row" data-link-provider="{{ id }}" data-linked="{{ self.provider_linked(id) }}" {% if !self.provider_linked(id) %}hidden{% endif %}><div>
           <strong>{{ name }}</strong><p data-link-state>{% if self.provider_linked(id) %}Связан{% endif %}</p>
           <details name="provider-link" data-link-review hidden><summary>Подключить {{ name }}</summary>
-            <p>На следующем экране выберите свой аккаунт {{ name }}. Он будет связан с текущим аккаунтом UpdSpace ID. Отвязка или замена пока недоступны.</p>
+            <p>На следующем экране выберите свой аккаунт {{ name }}. Он будет связан с текущим аккаунтом UpdSpace ID.</p>
             <button type="button" data-link-begin disabled>Продолжить в {{ name }}</button>
           </details>
+          <details id="unlink-{{ id }}" name="provider-unlink" data-unlink-review hidden><summary>Отключить {{ name }}</summary>
+            <p>Отключить {{ name }} от текущего аккаунта UpdSpace ID? Вход через {{ name }} перестанет работать. Убедитесь, что у вас есть другой способ входа. Текущие сеансы сохранятся.</p>
+            <p>Это не удалит аккаунт {{ name }}. Разрешение на стороне сервиса можно отозвать в его настройках.</p>
+            <button type="button" class="danger" data-unlink-confirm disabled>Да, отключить {{ name }}</button>
+            <button type="button" data-unlink-cancel>Оставить подключённым</button>
+          </details>
+          <p data-unlink-error role="alert" tabindex="-1" hidden></p>
+          <a data-unlink-reauth class="button" href="/login?reauth=provider-unlink&amp;provider={{ id }}" hidden>Подтвердить личность</a>
+          <button type="button" data-unlink-refresh hidden>Проверить связь</button>
         </div></li>
       {% endfor %}
       </ul>

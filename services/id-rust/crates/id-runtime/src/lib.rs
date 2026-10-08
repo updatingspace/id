@@ -254,3 +254,5 @@ mod tests {
         assert!(validate_endpoint("grpcs://example.com:2135", "local").is_err());
     }
 }
+
+pub(crate) mod credential_methods;
