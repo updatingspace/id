@@ -5,8 +5,7 @@ on:
     branches:
       - main
       - master
-      - "feat-*"
-      - "codex/**"
+      - "codex/rust-coverage-gates"
   pull_request:
     branches:
       - main
