@@ -161,6 +161,11 @@ jobs:
           ID_AUTH_TOTP_PILOT_ENABLED: "true"
           ID_MFA_SEAL_KEY_B64: QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=
         run: cargo test --locked -p id-runtime --test totp_setup_http_ydb -- --ignored --nocapture
+      - name: Backfill and verify passkey credential index on local YDB
+        working-directory: services/id-rust
+        run: |
+          cargo test --locked -p id-runtime --test passkey_index_ydb -- --ignored --nocapture
+          cargo run --locked -p id-runtime --bin idctl -- passkey-index
       - name: Manage passkeys with ownership and concurrent deletion on local YDB
         working-directory: services/id-rust
         env:
@@ -169,11 +174,6 @@ jobs:
       - name: Deliver passkey security mail once from durable YDB intent
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --lib security_mail::tests -- --include-ignored --nocapture
-      - name: Backfill and verify passkey credential index on local YDB
-        working-directory: services/id-rust
-        run: |
-          cargo test --locked -p id-runtime --test passkey_index_ydb -- --ignored --nocapture
-          cargo run --locked -p id-runtime --bin idctl -- passkey-index
       - name: Register one passkey across concurrent Rust instances on local YDB
         working-directory: services/id-rust
         env:
