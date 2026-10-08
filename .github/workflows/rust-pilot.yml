@@ -111,6 +111,9 @@ jobs:
       - name: BFF exchange HMAC and one-time race on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test exchange_http_ydb -- --ignored --nocapture
+      - name: Internal identity signatures, revocation and tenant isolation on local YDB
+        working-directory: services/id-rust
+        run: cargo test --locked -p id-runtime --lib internal_identity_http::tests -- --include-ignored --nocapture
       - name: Rust login rate-limit window on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test login_rate_limit_ydb -- --ignored --nocapture

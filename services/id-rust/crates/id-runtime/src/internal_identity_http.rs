@@ -728,31 +728,61 @@ mod tests {
         Ok(())
     }
 
-    async fn get(app: &Router, id: Uuid, signed: bool) -> Result<(StatusCode, Value)> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    fn signed_request(path: &str, id: Uuid, body: &[u8], age: i64) -> Result<Request<Body>> {
+        let timestamp =
+            i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())? - age;
         let request_id = Uuid::new_v4().to_string();
         let canonical = format!(
-            "GET\n{PATH}\n{}\n{request_id}\n{timestamp}",
-            hex::encode(Sha256::digest([]))
+            "GET\n{path}\n{}\n{request_id}\n{timestamp}",
+            hex::encode(Sha256::digest(body))
         );
         let mut mac = Hmac::<Sha256>::new_from_slice(SECRET)?;
         mac.update(canonical.as_bytes());
-        let signature = if signed {
-            hex::encode(mac.finalize().into_bytes())
-        } else {
-            "0".repeat(64)
-        };
-        let request = Request::builder()
-            .uri(PATH)
+        Ok(Request::builder()
+            .uri(path)
             .header("x-request-id", request_id)
             .header("x-user-id", id.to_string())
             .header("x-updspace-timestamp", timestamp.to_string())
-            .header("x-updspace-signature", signature)
-            .body(Body::empty())?;
+            .header(
+                "x-updspace-signature",
+                hex::encode(mac.finalize().into_bytes()),
+            )
+            .body(Body::from(body.to_vec()))?)
+    }
+
+    async fn send(app: &Router, request: Request<Body>) -> Result<(StatusCode, Value)> {
+        let request_id = unique_header(request.headers(), "x-request-id")
+            .unwrap_or("")
+            .to_owned();
         let response = app.clone().oneshot(request).await?;
         let status = response.status();
-        let body = serde_json::from_slice(&to_bytes(response.into_body(), 65536).await?)?;
+        ensure!(response.headers()[header::CACHE_CONTROL] == "no-store");
+        let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 65536).await?)?;
+        if !status.is_success() {
+            ensure!(
+                body.get("user").is_none() && body.get("memberships").is_none(),
+                "denial leaked identity: {body}"
+            );
+            ensure!(body["error"]["details"].is_null());
+            let expected_id = if body["error"]["code"] == "MISSING_REQUEST_ID" {
+                ""
+            } else {
+                &request_id
+            };
+            ensure!(body["error"]["request_id"] == expected_id);
+        }
         Ok((status, body))
+    }
+
+    async fn get(app: &Router, id: Uuid, signed: bool) -> Result<(StatusCode, Value)> {
+        let mut request = signed_request(PATH, id, &[], 0)?;
+        if !signed {
+            request.headers_mut().insert(
+                "x-updspace-signature",
+                HeaderValue::from_str(&"0".repeat(64))?,
+            );
+        }
+        send(app, request).await
     }
 
     async fn portal_get(
@@ -762,59 +792,270 @@ mod tests {
         tenant_slug: &str,
         cookie: Option<&str>,
     ) -> Result<(StatusCode, Value)> {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let request_id = Uuid::new_v4().to_string();
-        let canonical = format!(
-            "GET\n{PORTAL_PATH}\n{}\n{request_id}\n{timestamp}",
-            hex::encode(Sha256::digest([]))
+        let mut request = signed_request(PORTAL_PATH, id, &[], 0)?;
+        request.headers_mut().insert(
+            "x-tenant-id",
+            HeaderValue::from_str(&tenant_id.to_string())?,
         );
-        let mut mac = Hmac::<Sha256>::new_from_slice(SECRET)?;
-        mac.update(canonical.as_bytes());
-        let mut request = Request::builder()
-            .uri(PORTAL_PATH)
-            .header("x-request-id", request_id)
-            .header("x-tenant-id", tenant_id.to_string())
-            .header("x-tenant-slug", tenant_slug);
-        request = if let Some(cookie) = cookie {
-            request.header("cookie", format!("updspace_session={cookie}"))
-        } else {
-            request
-                .header("x-user-id", id.to_string())
-                .header("x-updspace-timestamp", timestamp.to_string())
-                .header(
-                    "x-updspace-signature",
-                    hex::encode(mac.finalize().into_bytes()),
-                )
-        };
-        let response = app.clone().oneshot(request.body(Body::empty())?).await?;
-        let status = response.status();
-        let body = serde_json::from_slice(&to_bytes(response.into_body(), 65536).await?)?;
-        Ok((status, body))
+        request
+            .headers_mut()
+            .insert("x-tenant-slug", HeaderValue::from_str(tenant_slug)?);
+        if let Some(cookie) = cookie {
+            request.headers_mut().remove("x-updspace-timestamp");
+            request.headers_mut().remove("x-updspace-signature");
+            request.headers_mut().insert(
+                header::COOKIE,
+                HeaderValue::from_str(&format!("updspace_session={cookie}"))?,
+            );
+        }
+        send(app, request).await
+    }
+
+    fn require_local_ydb() -> Result<()> {
+        ensure!(
+            matches!(
+                std::env::var("YDB_ENDPOINT")?.as_str(),
+                "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
+            ) && std::env::var("YDB_DATABASE")? == "/local",
+            "local YDB on port 2136 required"
+        );
+        Ok(())
     }
 
     #[test]
-    fn duplicate_portal_cookie_fails_closed() {
+    fn duplicate_portal_cookie_fails_closed() -> Result<()> {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::COOKIE,
             HeaderValue::from_static("updspace_session=a; updspace_session=b"),
         );
         assert_eq!(portal_cookie(&headers), None);
+        headers.clear();
+        headers.append(header::COOKIE, HeaderValue::from_static("other=ignored"));
+        headers.append(
+            header::COOKIE,
+            HeaderValue::from_static("updspace_session=owner"),
+        );
+        assert_eq!(portal_cookie(&headers).as_deref(), Some("owner"));
+        headers.append(
+            header::COOKIE,
+            HeaderValue::from_static("updspace_session=foreign"),
+        );
+        assert_eq!(portal_cookie(&headers), None);
+        headers.clear();
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("updspace_session={}", "x".repeat(129)))?,
+        );
+        assert_eq!(portal_cookie(&headers), None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires local YDB; queries a nonexistent database without changing schema"]
+    async fn unavailable_identity_store_returns_503_without_identity_data() -> Result<()> {
+        require_local_ydb()?;
+        let endpoint = std::env::var("YDB_ENDPOINT")?;
+        let client = ydb::ClientBuilder::new_from_connection_string(endpoint.clone())?
+            .with_database(format!("/local/absent-identity-test-{}", Uuid::new_v4()))
+            .with_discovery(ydb::StaticDiscovery::new_from_str(endpoint.as_str())?)
+            .with_credentials(ydb::AnonymousCredentials::new())
+            .build()
+            .await?;
+        let app = router(Arc::new(InternalIdentityConfig {
+            client: Arc::new(client),
+            secret: SECRET.to_vec(),
+            media: MediaUrl::new("https://example.invalid/media/")?,
+            internal_enabled: true,
+            portal_enabled: true,
+        }));
+        let id = Uuid::new_v4();
+        for response in [
+            get(&app, id, true).await?,
+            portal_get(&app, id, Uuid::new_v4(), "synthetic", None).await?,
+        ] {
+            ensure!(
+                response.0 == StatusCode::SERVICE_UNAVAILABLE
+                    && response.1["error"]["code"] == "SERVICE_UNAVAILABLE"
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires migrated local YDB; synthetic identity and membership only"]
+    async fn signed_routes_validate_raw_bytes_and_reject_ambiguous_credentials() -> Result<()> {
+        require_local_ydb()?;
+        let client = Arc::new(crate::connect_ydb().await?);
+        let identity_id = Uuid::new_v4();
+        let tenant_id = Uuid::new_v4();
+        let tenant_slug = format!("headers-{tenant_id}");
+        let membership_id =
+            -(i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros())? * 10 + 3);
+        let app = router(Arc::new(InternalIdentityConfig {
+            client: client.clone(),
+            secret: SECRET.to_vec(),
+            media: MediaUrl::new("https://example.invalid/media/")?,
+            internal_enabled: true,
+            portal_enabled: true,
+        }));
+        let result: Result<()> = async {
+            client.query_client().exec("UPSERT INTO usid_user (user_id, username, display_name, email, email_verified, status, system_admin, created_at) VALUES ($id, 'owner', 'Owner', $email, true, 'active', false, CurrentUtcDatetime())")
+                .param("$id", identity_id).param("$email", format!("{identity_id}@example.invalid")).await?;
+            client.query_client().exec("UPSERT INTO usid_tenant (id, slug, created_at) VALUES ($id, $slug, CurrentUtcDatetime())")
+                .param("$id", tenant_id).param("$slug", tenant_slug.clone()).await?;
+            client.query_client().exec("UPSERT INTO usid_tenant_membership (id, user_id, tenant_id, status, base_role, source, created_at) VALUES ($id, $user_id, $tenant_id, 'active', 'member', 'native', CurrentUtcDatetime())")
+                .param("$id", membership_id).param("$user_id", identity_id).param("$tenant_id", tenant_id).await?;
+            for path in [PATH, PORTAL_PATH] {
+                let request = || -> Result<Request<Body>> {
+                    let mut request = signed_request(path, identity_id, b"{ \"a\": 1 }", 0)?;
+                    request.headers_mut().insert(
+                        "x-tenant-id",
+                        HeaderValue::from_str(&tenant_id.to_string())?,
+                    );
+                    request
+                        .headers_mut()
+                        .insert("x-tenant-slug", HeaderValue::from_str(&tenant_slug)?);
+                    Ok(request)
+                };
+                ensure!(send(&app, request()?).await?.0 == StatusCode::OK, "positive control for {path}");
+                for name in [
+                    "x-request-id",
+                    "x-updspace-timestamp",
+                    "x-updspace-signature",
+                    "x-user-id",
+                ] {
+                    for duplicate in [false, true] {
+                        let mut req = request()?;
+                        if duplicate {
+                            let value = req.headers()[name].clone();
+                            req.headers_mut().append(name, value);
+                        } else {
+                            req.headers_mut().remove(name);
+                        }
+                        let (status, body) = send(&app, req).await?;
+                        let (expected, code) = if name == "x-request-id" {
+                            (StatusCode::BAD_REQUEST, "MISSING_REQUEST_ID")
+                        } else {
+                            (StatusCode::UNAUTHORIZED, "UNAUTHORIZED")
+                        };
+                        ensure!(
+                            status == expected && body["error"]["code"] == code,
+                            "{path} {name}: {body}"
+                        );
+                    }
+                }
+                for (name, value, code) in [
+                    ("x-request-id", String::new(), "MISSING_REQUEST_ID"),
+                    ("x-request-id", "r".repeat(129), "MISSING_REQUEST_ID"),
+                    ("x-user-id", "not-a-uuid".into(), "INVALID_USER_ID"),
+                ] {
+                    let mut req = request()?;
+                    req.headers_mut()
+                        .insert(name, HeaderValue::from_str(&value)?);
+                    let (status, body) = send(&app, req).await?;
+                    ensure!(status == StatusCode::BAD_REQUEST && body["error"]["code"] == code);
+                }
+                for age in [301, -600] {
+                    let mut req = request()?;
+                    let expired = signed_request(path, identity_id, b"{ \"a\": 1 }", age)?;
+                    for name in [
+                        "x-request-id",
+                        "x-updspace-timestamp",
+                        "x-updspace-signature",
+                    ] {
+                        req.headers_mut()
+                            .insert(name, expired.headers()[name].clone());
+                    }
+                    ensure!(send(&app, req).await?.0 == StatusCode::UNAUTHORIZED);
+                }
+                let mut req = request()?;
+                *req.body_mut() = Body::from(r#"{"a":1}"#);
+                ensure!(
+                    send(&app, req).await?.0 == StatusCode::UNAUTHORIZED,
+                    "semantically equal JSON must not bypass raw-byte HMAC"
+                );
+                let mut req = request()?;
+                let other_path = if path == PATH { PORTAL_PATH } else { PATH };
+                *req.uri_mut() = other_path.parse()?;
+                ensure!(
+                    send(&app, req).await?.0 == StatusCode::UNAUTHORIZED,
+                    "signature must bind route"
+                );
+                let mut req = request()?;
+                *req.body_mut() = Body::from(vec![b'x'; 4097]);
+                let (status, body) = send(&app, req).await?;
+                ensure!(
+                    status == StatusCode::PAYLOAD_TOO_LARGE && body["error"]["code"] == "INVALID_BODY"
+                );
+                if path == PORTAL_PATH {
+                    for name in ["x-tenant-id", "x-tenant-slug"] {
+                        let mut req = request()?;
+                        req.headers_mut().remove(name);
+                        let (status, body) = send(&app, req).await?;
+                        ensure!(
+                            status == StatusCode::BAD_REQUEST
+                                && body["error"]["code"] == "MISSING_TENANT"
+                        );
+                    }
+                    for (name, value, code) in [
+                        ("x-tenant-id", "bad".to_owned(), "INVALID_TENANT_ID"),
+                        ("x-tenant-slug", String::new(), "MISSING_TENANT"),
+                        ("x-tenant-slug", "x".repeat(65), "MISSING_TENANT"),
+                    ] {
+                        let mut req = request()?;
+                        req.headers_mut()
+                            .insert(name, HeaderValue::from_str(&value)?);
+                        let (status, body) = send(&app, req).await?;
+                        ensure!(status == StatusCode::BAD_REQUEST && body["error"]["code"] == code);
+                    }
+                    for cookie in [
+                        None,
+                        Some("other=value"),
+                        Some("updspace_session="),
+                        Some("updspace_session=a; updspace_session=b"),
+                    ] {
+                        let mut req = request()?;
+                        req.headers_mut().remove("x-updspace-timestamp");
+                        req.headers_mut().remove("x-updspace-signature");
+                        if let Some(cookie) = cookie {
+                            req.headers_mut()
+                                .insert(header::COOKIE, HeaderValue::from_str(cookie)?);
+                        }
+                        ensure!(send(&app, req).await?.0 == StatusCode::UNAUTHORIZED);
+                    }
+                }
+            }
+            Ok(())
+        }.await;
+        client
+            .query_client()
+            .exec("DELETE FROM usid_tenant_membership WHERE id = $id")
+            .param("$id", membership_id)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM usid_tenant WHERE id = $id")
+            .param("$id", tenant_id)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM usid_user WHERE user_id = $id")
+            .param("$id", identity_id)
+            .await?;
+        result
     }
 
     #[tokio::test]
     #[ignore = "requires migrated local YDB"]
     async fn portal_me_checks_membership_and_legacy_cookie() -> Result<()> {
-        ensure!(
-            std::env::var("YDB_DATABASE")? == "/local",
-            "local YDB required"
-        );
+        require_local_ydb()?;
         let client = Arc::new(crate::connect_ydb().await?);
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
         let id = Uuid::new_v4();
         let tenant_id = Uuid::new_v4();
         let other_tenant_id = Uuid::new_v4();
-        let membership_id = -i64::try_from(stamp)?;
+        let membership_id = -(i64::try_from(stamp)? * 10 + 1);
         let token = format!("test-portal-{id}");
         let email = format!("portal-{id}@example.invalid");
         let slug = format!("portal-{id}");
@@ -830,6 +1071,10 @@ mod tests {
         client.query_client().exec("UPSERT INTO usid_tenant (id, slug, created_at) VALUES ($id, $slug, CurrentUtcDatetime())")
             .param("$id", tenant_id).param("$slug", slug.clone()).await?;
         let result: Result<()> = async {
+            let (status, body) = portal_get(&app, Uuid::new_v4(), tenant_id, &slug, None).await?;
+            ensure!(status == StatusCode::UNAUTHORIZED && body["error"]["code"] == "UNAUTHORIZED");
+            let (status, body) = portal_get(&app, id, tenant_id, "missing-tenant", None).await?;
+            ensure!(status == StatusCode::FORBIDDEN && body["error"]["code"] == "TENANT_FORBIDDEN");
             let (status, body) = portal_get(&app, id, tenant_id, &slug, None).await?;
             assert_eq!(status, StatusCode::FORBIDDEN);
             assert_eq!(body["error"]["code"], "TENANT_FORBIDDEN");
@@ -839,6 +1084,13 @@ mod tests {
             assert_eq!(status, StatusCode::OK);
             assert_eq!(body["memberships"][0]["tenant_id"], tenant_id.to_string());
             assert_eq!(body["memberships"][0]["base_role"], "member");
+            ensure!(body["memberships"].as_array().is_some_and(|memberships| memberships.len() == 1));
+            assert_eq!(body["user"]["user_id"], id.to_string());
+            // The same principal cannot borrow access to a different, existing tenant.
+            client.query_client().exec("UPSERT INTO usid_tenant (id, slug, created_at) VALUES ($id, $slug, CurrentUtcDatetime())")
+                .param("$id", other_tenant_id).param("$slug", format!("other-{slug}")).await?;
+            let (status, body) = portal_get(&app, id, other_tenant_id, &format!("other-{slug}"), None).await?;
+            ensure!(status == StatusCode::FORBIDDEN && body["error"]["code"] == "TENANT_FORBIDDEN");
             let (status, body) = portal_get(&app, id, other_tenant_id, &slug, None).await?;
             assert_eq!(status, StatusCode::CONFLICT);
             assert_eq!(body["error"]["code"], "TENANT_MISMATCH");
@@ -846,8 +1098,39 @@ mod tests {
                 .param("$token", token.clone()).param("$user_id", id)
                 .param("$expires_at", SystemTime::now() + Duration::from_secs(3600))
                 .param("$empty", String::new()).await?;
-            let (status, body) = portal_get(&app, id, tenant_id, &slug, Some(&token)).await?;
+            let (status, body) = portal_get(&app, id, tenant_id, &slug, Some("missing-session")).await?;
+            ensure!(status == StatusCode::UNAUTHORIZED && body["error"]["code"] == "UNAUTHORIZED");
+            // An unsigned X-User-Id never overrides the cookie's authenticated owner.
+            let (status, body) = portal_get(&app, Uuid::new_v4(), tenant_id, &slug, Some(&token)).await?;
             assert_eq!(status, StatusCode::OK, "{body}");
+            ensure!(body["user"]["user_id"] == id.to_string());
+            for signature in [None, Some("invalid")] {
+                let mut request = signed_request(PORTAL_PATH, id, &[], 0)?;
+                request.headers_mut().insert("x-tenant-id", HeaderValue::from_str(&tenant_id.to_string())?);
+                request.headers_mut().insert("x-tenant-slug", HeaderValue::from_str(&slug)?);
+                request.headers_mut().insert(header::COOKIE, HeaderValue::from_str(&format!("updspace_session={token}"))?);
+                if let Some(signature) = signature {
+                    request.headers_mut().insert("x-updspace-signature", HeaderValue::from_str(signature)?);
+                } else {
+                    request.headers_mut().remove("x-updspace-signature");
+                }
+                ensure!(send(&app, request).await?.0 == StatusCode::UNAUTHORIZED, "invalid internal credentials must not fall back to a valid cookie");
+            }
+            client.query_client().exec("UPDATE usid_session SET expires_at = CAST($expires AS Datetime) WHERE token = $token")
+                .param("$token", token.clone()).param("$expires", SystemTime::now() - Duration::from_secs(60)).await?;
+            ensure!(portal_get(&app, id, tenant_id, &slug, Some(&token)).await?.0 == StatusCode::UNAUTHORIZED);
+            client.query_client().exec("UPDATE usid_session SET expires_at = CAST($expires AS Datetime) WHERE token = $token")
+                .param("$token", token.clone()).param("$expires", SystemTime::now() + Duration::from_secs(3600)).await?;
+            for (state, code) in [("suspended", "ACCOUNT_SUSPENDED"), ("banned", "ACCOUNT_BANNED"), ("unknown", "ACCOUNT_INACTIVE")] {
+                client.query_client().exec("UPDATE usid_user SET status = $status WHERE user_id = $id")
+                    .param("$status", state).param("$id", id).await?;
+                for cookie in [None, Some(token.as_str())] {
+                    let (status, body) = portal_get(&app, id, tenant_id, &slug, cookie).await?;
+                    ensure!(status == StatusCode::FORBIDDEN && body["error"]["code"] == code);
+                }
+            }
+            client.query_client().exec("UPDATE usid_user SET status = 'active' WHERE user_id = $id")
+                .param("$id", id).await?;
             client.query_client().exec("UPDATE usid_session SET revoked_at = CurrentUtcDatetime() WHERE token = $token")
                 .param("$token", token.clone()).await?;
             let (status, body) = portal_get(&app, id, tenant_id, &slug, Some(&token)).await?;
@@ -871,12 +1154,13 @@ mod tests {
             .param("$id", membership_id)
             .await
             .ok();
-        client
-            .query_client()
-            .exec("DELETE FROM usid_tenant WHERE id = $id")
-            .param("$id", tenant_id)
-            .await
-            .ok();
+        for id in [tenant_id, other_tenant_id] {
+            client
+                .query_client()
+                .exec("DELETE FROM usid_tenant WHERE id = $id")
+                .param("$id", id)
+                .await?;
+        }
         client
             .query_client()
             .exec("DELETE FROM usid_user WHERE user_id = $id")
@@ -889,28 +1173,33 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires migrated local YDB"]
     async fn signed_lookup_rejects_unknown_banned_and_inactive_accounts() -> Result<()> {
-        ensure!(
-            std::env::var("YDB_DATABASE")? == "/local",
-            "local YDB required"
-        );
+        require_local_ydb()?;
         let client = Arc::new(crate::connect_ydb().await?);
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
         let id = Uuid::new_v4();
         let account_id = -i32::try_from(stamp % 1_000_000_000 + 1)?;
-        let deletion_id = -i64::try_from(stamp)?;
+        let deletion_id = -(i64::try_from(stamp)? * 10 + 2);
+        let second_account_id = account_id - 1_000_000_000;
+        let profile_id = deletion_id;
+        let tenant_id = Uuid::new_v4();
+        let tenant_slug = format!("bound-{id}");
         let email = format!("internal-{id}@example.invalid");
         let app = router(Arc::new(InternalIdentityConfig {
             client: client.clone(),
             secret: SECRET.to_vec(),
             media: MediaUrl::new("https://example.invalid/media/")?,
             internal_enabled: true,
-            portal_enabled: false,
+            portal_enabled: true,
         }));
         let (status, _) = get(&app, id, true).await?;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         client.query_client().exec("UPSERT INTO usid_user (user_id, username, display_name, email, email_verified, status, system_admin, created_at) VALUES ($id, 'owner', 'Owner', $email, true, 'active', false, CurrentUtcDatetime())")
             .param("$id", id).param("$email", email.clone()).await?;
         let result: Result<()> = async {
+            client.query_client().exec("UPSERT INTO usid_tenant (id, slug, created_at) VALUES ($id, $slug, CurrentUtcDatetime())")
+                .param("$id", tenant_id).param("$slug", tenant_slug.clone()).await?;
+            client.query_client().exec("UPSERT INTO usid_tenant_membership (id, user_id, tenant_id, status, base_role, source, created_at) VALUES ($id, $user_id, $tenant_id, 'active', 'member', 'native', CurrentUtcDatetime())")
+                .param("$id", deletion_id).param("$user_id", id).param("$tenant_id", tenant_id).await?;
             let (status, body) = get(&app, id, false).await?;
             assert_eq!(status, StatusCode::UNAUTHORIZED);
             assert_eq!(body["error"]["code"], "UNAUTHORIZED");
@@ -920,11 +1209,22 @@ mod tests {
             assert_eq!(body["user"]["email"], email);
             assert!(body["user"]["first_name"].is_null());
             assert!(body.get("memberships").is_none());
-            client.query_client().exec("UPDATE usid_user SET status = 'banned' WHERE user_id = $id")
-                .param("$id", id).await?;
-            let (status, body) = get(&app, id, true).await?;
-            assert_eq!(status, StatusCode::FORBIDDEN);
-            assert_eq!(body["error"]["code"], "ACCOUNT_BANNED");
+            let raw_body = b"{ \"a\": 1 }";
+            let saved = signed_request(PATH, id, raw_body, 0)?.headers().clone();
+            // This read-only signature is repeatable in its time window; each read must recheck revocation.
+            for _ in 0..2 {
+                let mut request = Request::builder().uri(PATH).body(Body::from(raw_body.to_vec()))?;
+                *request.headers_mut() = saved.clone();
+                ensure!(send(&app, request).await?.0 == StatusCode::OK);
+            }
+            for (state, code) in [("suspended", "ACCOUNT_SUSPENDED"), ("banned", "ACCOUNT_BANNED"), ("unknown", "ACCOUNT_INACTIVE")] {
+                client.query_client().exec("UPDATE usid_user SET status = $status WHERE user_id = $id")
+                    .param("$status", state).param("$id", id).await?;
+                let mut request = Request::builder().uri(PATH).body(Body::from(raw_body.to_vec()))?;
+                *request.headers_mut() = saved.clone();
+                let (status, body) = send(&app, request).await?;
+                ensure!(status == StatusCode::FORBIDDEN && body["error"]["code"] == code);
+            }
             client.query_client().exec("UPDATE usid_user SET status = 'active' WHERE user_id = $id")
                 .param("$id", id).await?;
             client.query_client().exec("UPSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, 'unusable', false, 'owner', 'First', 'Last', $email, false, false, CurrentUtcDatetime())")
@@ -940,13 +1240,80 @@ mod tests {
             assert_eq!(status, StatusCode::OK);
             assert_eq!(body["user"]["first_name"], "First");
             assert_eq!(body["user"]["last_name"], "Last");
+            client.query_client().exec("UPSERT INTO accounts_userprofile (id, user_id, avatar, avatar_source, gravatar_enabled, phone_number, phone_verified, birth_date, created_at, updated_at) VALUES ($id, $user_id, CAST('avatars/saved.jpg' AS String), 'upload', false, '+123456789', true, CAST('2001-02-03' AS Date), CurrentUtcDatetime(), CurrentUtcDatetime())")
+                .param("$id", profile_id).param("$user_id", account_id).await?;
+            client.query_client().exec("UPSERT INTO accounts_userpreferences (id, user_id, language, timezone, marketing_opt_in, privacy_scope_defaults, created_at, updated_at) VALUES ($id, $user_id, 'ru', 'Europe/Moscow', false, Unwrap(CAST('{}' AS Json)), CurrentUtcDatetime(), CurrentUtcDatetime())")
+                .param("$id", profile_id).param("$user_id", account_id).await?;
+            for (staff, superuser) in [(true, false), (false, true), (false, false)] {
+                client.query_client().exec("UPDATE auth_user SET is_staff = $staff, is_superuser = $superuser WHERE id = $id")
+                    .param("$staff", staff).param("$superuser", superuser).param("$id", account_id).await?;
+                let (status, body) = get(&app, id, true).await?;
+                ensure!(status == StatusCode::OK);
+                ensure!(body["user"]["system_admin"] == (staff || superuser));
+                ensure!(body["user"]["phone_number"] == "+123456789" && body["user"]["phone_verified"] == true);
+                ensure!(body["user"]["birth_date"] == "2001-02-03");
+                ensure!(body["user"]["language"] == "ru" && body["user"]["timezone"] == "Europe/Moscow");
+                ensure!(body["user"]["avatar_url"] == "https://example.invalid/media/avatars/saved.jpg");
+                ensure!(body["user"]["avatar_source"] == "upload" && body["user"]["avatar_gravatar_enabled"] == false);
+            }
+            // Invalid stored media and ambiguous ownership must fail closed in both consumers.
+            client.query_client().exec("UPDATE accounts_userprofile SET avatar = CAST('../private' AS String) WHERE id = $id")
+                .param("$id", profile_id).await?;
+            for response in [get(&app, id, true).await?, portal_get(&app, id, tenant_id, &tenant_slug, None).await?] {
+                ensure!(response.0 == StatusCode::SERVICE_UNAVAILABLE && response.1["error"]["code"] == "SERVICE_UNAVAILABLE");
+            }
+            client.query_client().exec("UPDATE accounts_userprofile SET avatar = CAST('avatars/saved.jpg' AS String) WHERE id = $id")
+                .param("$id", profile_id).await?;
+            client.query_client().exec("UPSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($id, $identity, $subject, CurrentUtcDatetime())")
+                .param("$id", second_account_id).param("$identity", id).param("$subject", format!("foreign-{id}")).await?;
+            for response in [get(&app, id, true).await?, portal_get(&app, id, tenant_id, &tenant_slug, None).await?] {
+                ensure!(response.0 == StatusCode::SERVICE_UNAVAILABLE && response.1["error"]["code"] == "SERVICE_UNAVAILABLE");
+            }
+            client.query_client().exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
+                .param("$id", second_account_id).await?;
             client.query_client().exec("UPSERT INTO accounts_accountdeletionrequest (id, user_id, status, requested_at, reason) VALUES ($id, $user_id, 'pending', CurrentUtcDatetime(), '')")
                 .param("$id", deletion_id).param("$user_id", account_id).await?;
             let (status, body) = get(&app, id, true).await?;
             assert_eq!(status, StatusCode::FORBIDDEN);
             assert_eq!(body["error"]["code"], "ACCOUNT_INACTIVE");
+            for state in ["pending", "running"] {
+                client.query_client().exec("UPDATE accounts_accountdeletionrequest SET status = $state WHERE id = $id")
+                    .param("$state", state).param("$id", deletion_id).await?;
+                for response in [get(&app, id, true).await?, portal_get(&app, id, tenant_id, &tenant_slug, None).await?] {
+                    ensure!(response.0 == StatusCode::FORBIDDEN && response.1["error"]["code"] == "ACCOUNT_INACTIVE");
+                }
+            }
+            client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
+                .param("$id", deletion_id).await?;
+            client.query_client().exec("DELETE FROM auth_user WHERE id = $id")
+                .param("$id", account_id).await?;
+            // An orphan binding is not a legacy master-only account.
+            for response in [get(&app, id, true).await?, portal_get(&app, id, tenant_id, &tenant_slug, None).await?] {
+                ensure!(response.0 == StatusCode::FORBIDDEN && response.1["error"]["code"] == "ACCOUNT_INACTIVE");
+            }
             Ok(())
         }.await;
+        for table in [
+            "accounts_userprofile",
+            "accounts_userpreferences",
+            "usid_tenant_membership",
+        ] {
+            client
+                .query_client()
+                .exec(format!("DELETE FROM {table} WHERE id = $id"))
+                .param("$id", profile_id)
+                .await?;
+        }
+        client
+            .query_client()
+            .exec("DELETE FROM usid_tenant WHERE id = $id")
+            .param("$id", tenant_id)
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM accounts_accountidentity WHERE user_id = $id")
+            .param("$id", second_account_id)
+            .await?;
         client
             .query_client()
             .exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
