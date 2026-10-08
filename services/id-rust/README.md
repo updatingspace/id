@@ -879,8 +879,9 @@ BCrypt cost ≤16; PBKDF2 ≤10 млн итераций; пароль ≤1 MiB; 
 ## GitHub browser login
 
 `ID_AUTH_GITHUB_LOGIN_ENABLED` по умолчанию выключен. Первый Rust-поток
-поддерживает только вход в уже связанный аккаунт; регистрации, автоматической
-привязки по email, link/unlink в нём нет. Steam описан отдельно ниже. Нужны существующие
+поддерживает вход в уже связанный аккаунт; регистрации и автоматической
+привязки по email нет. Явная привязка к открытому аккаунту описана ниже; unlink
+пока не реализован. Steam описан отдельно ниже. Нужны существующие
 Rust login/form-token gates, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `ID_GITHUB_CALLBACK_URL` и secure session/CSRF cookies. Callback — единственный
 точный HTTPS URL с путём `/api/v1/auth/oauth/callback/github`, без query/fragment;
@@ -995,7 +996,7 @@ Steam callback проверяет namespace, mode, exact return_to (настро
 поля. `realm` формируется из настроенного origin, с завершающим `/`.
 Принимаются только точные HTTP/HTTPS Steam claimed ID с каноническим положительным
 uint64; владельца ищем по `provider=steam` и числовому subject без изменения
-сохранённых идентификаторов. Signup, email linking, link/unlink и получение
+сохранённых идентификаторов. Signup, email linking, unlink и получение
 профиля Steam отсутствуют. Старый frozen Python adapter
 `32f22a6^:services/id/src/updspaceid/providers.py` подтверждает числовой формат
 subject; его допущения о подписи и произвольном redirect не перенесены.
@@ -1026,3 +1027,88 @@ assertions, discovery и signature failures, expiry/replay, MFA/recovery/TOTP,
 Обязательный workflow запускает все три named tests. Это проверка локального
 протокола; реальный Steam approval/callback, production Gateway и Topcoat
 потребуют отдельной сквозной приёмки перед включением gate.
+
+## Явная привязка внешнего аккаунта
+
+`POST /api/v1/auth/oauth/link/{provider}` поддерживает `github`, `discord` и
+`steam` через ту же включённую конфигурацию, что их login. Новый gate, secret
+или callback URL не нужен. Эта операция добавляет способ входа **текущему**
+пользователю: не регистрирует аккаунт, не выбирает владельца по email и не
+выдаёт session/JWT. Отвязка в этот патч не входит.
+
+Запрос — JSON `{}`, trusted `Origin` и существующий CSRF cookie/header.
+Поля `target`, `email`, `intent`, `next` и любые другие отклоняются с
+`400 VALIDATION_ERROR`. Нужна исходная cookie session. Если дополнительно
+передан `X-Session-Token`, он должен точно совпадать с cookie; header-only или
+несовпадение не переключают владельца и возвращают `401 AUTHENTICATION_REQUIRED`.
+Успех начала: `200 {"authorize_url":"...","method":"GET"}`. Браузер переходит
+на этот URL верхним уровнем, как при provider login. CSRF, media type, размер
+тела и rate limit используют существующие ответы `403 CSRF_FAILED`,
+`415 UNSUPPORTED_MEDIA_TYPE`, `413 VALIDATION_ERROR`,
+`429 LOGIN_RATE_LIMITED` с `Retry-After`. Сбой хранилища — `503 SERVICE_UNAVAILABLE`.
+
+В начале и в завершающей транзакции требуется действующий аккаунт/identity без
+заявки на удаление и явная аутентификация моложе 300 секунд. При наличии MFA
+нужны также привязанный к account marker **и** свежий метод `mfa` с типом
+`totp`, `recovery_codes` или `webauthn`. Старый marker, свежая сессия без MFA,
+будущее/некорректное время или только восстановление сессии не подходят.
+Отказ начала — `403 REAUTH_REQUIRED`; неоднозначная identity —
+`403 IDENTITY_CONFLICT`. Пользователь сначала проходит существующий вход с
+нужным фактором, затем повторяет привязку. Привязка сама recovery code не расходует.
+
+Сервер сохраняет LinkIntent (account, identity, public subject) в одноразовом
+состоянии на пять минут, связанном с исходной cookie session, защищённой
+`__Host-..._flow` cookie и provider. Клиент не может превратить login state в
+link. Новый provider begin или существующий CSRF-protected
+`POST /api/v1/auth/oauth/login/{provider}/cancel` с `{}` отменяет попытку.
+PKCE/OAuth exchange и Steam assertion/nonce проверяются прежним транспортом
+через тот же exact callback URL. Отдельного link MFA pending нет: свежий MFA
+проверяется на исходной сессии и ещё раз после внешнего перехода.
+
+Успешный callback: `303 /account?section=security&provider_linked={provider}`.
+После распознания серверного link state ошибки возвращаются через
+`303 /account?section=security&provider_link_error={code}`; фиксированные коды:
+`INVALID_STATE`, `PROVIDER_DENIED`, `PROVIDER_UNAVAILABLE`,
+`IDENTITY_CONFLICT`, `AUTHENTICATION_REQUIRED`, `REAUTH_REQUIRED`,
+`LOGIN_RATE_LIMITED`, `SERVICE_UNAVAILABLE`. Если state отсутствует, истёк или
+уже погашен, его намерение больше не известно: сохраняется безопасный общий
+`303 /login?provider_error=INVALID_STATE`. В redirect нет внешних code/token,
+subject или текстов провайдера. Query-параметры — только подсказки интерфейсу;
+наличие связи UI обязан заново прочитать из profile API.
+
+Финальная SerializableRW-транзакция повторяет session/identity/subject/freshness,
+проверяет отмену и raw reservations в `socialaccount_socialaccount` и
+`usid_external_identity`. Связи отключённых, удаляемых и orphan владельцев
+остаются занятыми. Уже существующий provider у владельца не заменяется даже
+при другом subject; отказ — `IDENTITY_CONFLICT`. One-time claim, вставка
+`socialaccount_socialaccount` и audit `provider.linked` коммитятся вместе.
+Provider tokens и email не сохраняются. Повторяется только подтверждённый
+YDB `ABORTED` с новой проверкой политики в пределах 10 секунд; неизвестный
+commit не повторяется и не объявляется успешным. Существующие сессии и JWT
+сохраняются. После неопределённого результата нужно перечитать profile.
+
+До включения provider gates необходимы additive индексы. Команда
+`idctl provider-indexes` только проверяет их; явная
+`idctl provider-indexes --apply` добавляет недостающие и проверяет точные
+колонки, тип Global и Ready. Повторный `--apply` должен вернуть
+`created_indexes: 0`; затем снова выполняется read-only check. Frozen legacy
+manifest/его checksum остаются прежними; новый отчёт содержит отдельный hash
+трёх DDL. CI bootstrap использует этот же путь, а production schema receipt
+должен включать `provider-indexes` и актуальный source digest. Старая receipt
+после этого изменения намеренно не допускает deploy без операторской проверки.
+
+Добавляются `social_provider_subject_idx(provider, uid)`,
+`usid_ext_provider_subject_idx(provider, subject)` и
+`account_identity_reverse_idx(identity_id)`. Проверки владельца используют
+существующие user_id indexes. Это устраняет широкие чтения таблиц, которые
+при совместных login/link записях исчерпывали 16 подтверждённых ABORTED попыток
+финального issuer. Политика retries не расширяется.
+
+Legacy таблицы всё ещё не имеют уникального ключа `(provider, subject)`:
+безопасность конкурентных вставок опирается на узкие synchronous-index ranges
+в одной SerializableRW транзакции.
+Реальные локальные YDB-тесты в `github_login_ydb` проверяют по десять парных
+гонок для каждого провайдера, подмену browser/session/intent, свежесть MFA,
+отключение/удаление владельца, занятую inactive/orphan связь, отмену, replay и
+отсутствие выдачи session/JWT. Оценка нагрузки и приёмка с настоящими provider credentials,
+браузером и production Gateway остаются отдельными проверками.

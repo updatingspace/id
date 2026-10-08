@@ -1,4 +1,4 @@
-//! Provider browser login for previously linked accounts. No signup or email linking.
+//! Provider login and explicit authenticated account linking. No signup or email matching.
 use crate::{
     cache_store::CacheStore,
     form_token_consume::consume_login_form_token,
@@ -8,7 +8,9 @@ use crate::{
     logout_http::{cookie_value, csrf_allowed},
     me_http::{env_flag, make_cookie},
     session_issuer::{IssueTiming, SessionClient, issue_provider_login},
-    session_store::active_principal_tx,
+    session_store::{LEGACY_BACKENDS, active_principal_tx, restore_django_session_tx},
+    totp_setup::{factors, recent_auth, session_data},
+    tx_retry::retry_known_abort,
 };
 use anyhow::{Context, Result, ensure};
 use axum::{
@@ -384,6 +386,10 @@ pub fn router(config: Arc<ProviderLoginConfig>) -> Router {
     let path = config.provider.login_path();
     Router::new()
         .route(&path, post(start).options(preflight))
+        .route(
+            &format!("/api/v1/auth/oauth/link/{}", config.provider.id()),
+            post(start_link).options(preflight),
+        )
         .route(&config.provider.callback_path(), get(callback))
         .route(
             &format!("{path}/complete"),
@@ -402,6 +408,225 @@ struct Flow {
     session_hash: String,
     callback: String,
     next: String,
+    #[serde(default)]
+    link: Option<LinkIntent>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct LinkIntent {
+    account_id: i32,
+    identity_id: Uuid,
+    public_subject: String,
+    started_at: u64,
+}
+
+#[derive(Clone)]
+struct LinkCallback;
+
+const LINK_RETURN: &str = "/account?section=security";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LinkIn {}
+
+// A bound MFA marker alone has no authentication timestamp. Linking a new
+// primary credential needs a recent explicit factor as well as recent auth.
+fn fresh_mfa(data: &serde_json::Map<String, Value>, now: SystemTime) -> bool {
+    let Ok(seconds) = now.duration_since(UNIX_EPOCH) else {
+        return false;
+    };
+    data.get("account_authentication_methods")
+        .and_then(Value::as_array)
+        .is_some_and(|methods| {
+            methods.iter().any(|method| {
+                method.get("method").and_then(Value::as_str) == Some("mfa")
+                    && matches!(
+                        method.get("type").and_then(Value::as_str),
+                        Some("totp" | "recovery_codes" | "webauthn")
+                    )
+                    && method.get("at").and_then(Value::as_f64).is_some_and(|at| {
+                        let age = seconds.as_secs_f64() - at;
+                        age.is_finite() && (0.0..TTL.as_secs_f64()).contains(&age)
+                    })
+            })
+        })
+}
+
+async fn link_owner(
+    tx: &mut Transaction,
+    config: &ProviderLoginConfig,
+    token: &str,
+    now: SystemTime,
+) -> ydb::YdbResultWithCustomerErr<std::result::Result<LinkIntent, &'static str>> {
+    let backends = LEGACY_BACKENDS
+        .iter()
+        .map(|backend| (*backend).to_owned())
+        .collect::<Vec<_>>();
+    let Some(session) =
+        restore_django_session_tx(tx, &config.login.session_codec, token, &backends, now).await?
+    else {
+        return Ok(Err("AUTHENTICATION_REQUIRED"));
+    };
+    let account_id = i32::try_from(session.principal.account_id.get())
+        .map_err(ydb::YdbOrCustomerError::from_err)?;
+    let identity_id = session.principal.identity_id.get();
+    // Legacy reverse bindings are not unique. Never add a login credential to
+    // an identity that several accounts can claim.
+    let mut stream = tx
+        .query("SELECT user_id FROM accounts_accountidentity VIEW account_identity_reverse_idx WHERE identity_id = $identity LIMIT 2")
+        .param("$identity", identity_id)
+        .await?;
+    let mut owners = Vec::<i32>::new();
+    while let Some(rows) = stream.next_result_set().await? {
+        for mut row in rows {
+            owners.push(row.remove_field_by_name("user_id")?.try_into()?);
+        }
+    }
+    stream.close().await?;
+    if owners != [account_id] {
+        return Ok(Err("IDENTITY_CONFLICT"));
+    }
+    let data = session_data(tx, &config.login.session_codec, token).await?;
+    if !recent_auth(&data, now)
+        || (factors(tx, account_id).await?.any && (!session.mfa_verified || !fresh_mfa(&data, now)))
+    {
+        return Ok(Err("REAUTH_REQUIRED"));
+    }
+    Ok(Ok(LinkIntent {
+        account_id,
+        identity_id,
+        public_subject: session.principal.public_subject.as_str().to_owned(),
+        started_at: now
+            .duration_since(UNIX_EPOCH)
+            .map_err(ydb::YdbOrCustomerError::from_err)?
+            .as_secs(),
+    }))
+}
+
+fn link_cookie(config: &ProviderLoginConfig, headers: &HeaderMap) -> Option<String> {
+    let token = cookie_value(headers, &config.login.options.session_cookie_name)?;
+    if token.is_empty()
+        || headers
+            .get("x-session-token")
+            .is_some_and(|header| header.to_str().ok() != Some(token.as_str()))
+    {
+        return None;
+    }
+    Some(token)
+}
+
+async fn start_link(State(config): State<Arc<ProviderLoginConfig>>, request: Request) -> Response {
+    let headers = request.headers().clone();
+    let ip = login_http::request_ip(&request).unwrap_or_default();
+    let _: LinkIn = match read_json(&config, request).await {
+        Ok(value) => value,
+        Err((status, code)) => return error(&config, &headers, status, code),
+    };
+    let Some(token) = link_cookie(&config, &headers) else {
+        return error(
+            &config,
+            &headers,
+            StatusCode::UNAUTHORIZED,
+            "AUTHENTICATION_REQUIRED",
+        );
+    };
+    let now = SystemTime::now();
+    let link = config
+        .login
+        .client
+        .query_client()
+        .retry_tx(closure!([&config, token], async |tx: &mut Transaction| {
+            link_owner(tx, config, token, now).await
+        }))
+        .with_mode(TxMode::SnapshotReadOnly)
+        .timeout(Duration::from_secs(5))
+        .await;
+    match link {
+        Ok(Ok(link)) => begin_flow(&config, &headers, &ip, LINK_RETURN.into(), Some(link)).await,
+        Ok(Err(code)) => error(
+            &config,
+            &headers,
+            if code == "AUTHENTICATION_REQUIRED" {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::FORBIDDEN
+            },
+            code,
+        ),
+        Err(_) => unavailable(&config, &headers),
+    }
+}
+
+async fn finish_link(
+    config: &ProviderLoginConfig,
+    headers: &HeaderMap,
+    flow: &Flow,
+    intent: &LinkIntent,
+    state: &str,
+    subject: &str,
+) -> Response {
+    let Some(token) = link_cookie(config, headers) else {
+        return error(
+            config,
+            headers,
+            StatusCode::UNAUTHORIZED,
+            "AUTHENTICATION_REQUIRED",
+        );
+    };
+    let once = config.provider.cache_key("linked", state);
+    let canceled = config.provider.cache_key("canceled", &flow.browser_hash);
+    let result = tokio::time::timeout(Duration::from_secs(10), retry_known_abort(|| async {
+        config.login.client.query_client().retry_tx(closure!(
+            [&config, &intent, &token, &once, &canceled, &subject], async |tx: &mut Transaction| {
+                let now = SystemTime::now();
+                let Ok(owner) = link_owner(tx, config, token, now).await? else {
+                    return Ok(Err("REAUTH_REQUIRED"));
+                };
+                if owner.account_id != intent.account_id || owner.identity_id != intent.identity_id
+                    || owner.public_subject != intent.public_subject
+                    || owner.started_at < intent.started_at || owner.started_at - intent.started_at >= TTL.as_secs()
+                    || config.login.cache.contains_live_in_tx(tx, canceled, now).await?
+                    || config.login.cache.contains_live_in_tx(tx, once, now).await? {
+                    return Ok(Err("INVALID_STATE"));
+                }
+                // Raw reservations must survive disabled/deleting/orphaned owners.
+                // Do not use login's active-owner resolution to decide availability.
+                // Separate narrow subject/owner ranges avoid table-wide contention.
+                // SerializableRW still rejects competing inserts into either range.
+                if tx.query_row("SELECT id FROM socialaccount_socialaccount VIEW social_provider_subject_idx WHERE provider = $provider AND uid = $subject LIMIT 1")
+                    .param("$provider", config.provider.id().to_owned()).param("$subject", subject.to_string()).optional().await?.is_some()
+                    || tx.query_row("SELECT id FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $owner AND provider = $provider LIMIT 1")
+                    .param("$owner", intent.account_id).param("$provider", config.provider.id().to_owned()).optional().await?.is_some()
+                    || tx.query_row("SELECT id FROM usid_external_identity VIEW usid_ext_provider_subject_idx WHERE provider = $provider AND subject = $subject LIMIT 1")
+                    .param("$provider", config.provider.id().to_owned()).param("$subject", subject.to_string()).optional().await?.is_some()
+                    || tx.query_row("SELECT id FROM usid_external_identity VIEW usid_external_identity_user_id_b18cc632 WHERE user_id = $owner AND provider = $provider LIMIT 1")
+                    .param("$owner", intent.identity_id).param("$provider", config.provider.id().to_owned()).optional().await?.is_some() {
+                    return Ok(Err("IDENTITY_CONFLICT"));
+                }
+                if !config.login.cache.claim_in_tx(tx, once, UNIX_EPOCH + Duration::from_secs(intent.started_at) + TTL, now).await? {
+                    return Ok(Err("INVALID_STATE"));
+                }
+                tx.exec("INSERT INTO socialaccount_socialaccount (user_id, provider, uid, last_login, date_joined, extra_data) VALUES ($owner, $provider, $subject, CAST($now AS Datetime), CAST($now AS Datetime), Unwrap(CAST('{}' AS Json)))")
+                    .param("$owner", intent.account_id).param("$provider", config.provider.id().to_owned())
+                    .param("$subject", subject.to_string()).param("$now", now).await?;
+                tx.exec("INSERT INTO usid_audit_log (actor_user_id, action, target_type, target_id, tenant_id, meta_json, created_at) VALUES ($actor, 'provider.linked', 'provider', $provider, NULL, Unwrap(CAST('{}' AS Json)), CAST($now AS Datetime))")
+                    .param("$actor", intent.identity_id).param("$provider", config.provider.id().to_owned()).param("$now", now).await?;
+                Ok(Ok(()))
+            })).with_mode(TxMode::SerializableReadWrite).idempotent(false).timeout(Duration::from_secs(10)).await
+    })).await;
+    match result {
+        Ok(Ok(Ok(()))) => {
+            let mut response = redirect(
+                json_response(config, headers, StatusCode::OK, Value::Null),
+                &format!("{LINK_RETURN}&provider_linked={}", config.provider.id()),
+            );
+            flow_cookie(&mut response, config.provider.flow_cookie(), "");
+            flow_cookie(&mut response, config.provider.mfa_cookie(), "");
+            response
+        }
+        Ok(Ok(Err(code))) => error(config, headers, StatusCode::CONFLICT, code),
+        _ => unavailable(config, headers),
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -516,14 +741,14 @@ impl ProviderProof {
     }
 }
 
-// ponytail: legacy tables lack a subject index; bounded results but scans remain.
-// Add a reconciled (provider, subject) primary-key index before enabling link writers at scale.
+// Narrow synchronous index ranges preserve duplicate detection and prevent
+// unrelated provider link writes from invalidating final login transactions.
 async fn resolve_binding(
     tx: &mut Transaction,
     provider: Provider,
     subject: &str,
 ) -> ydb::YdbResultWithCustomerErr<BindingResolution> {
-    let mut rows = tx.query("SELECT id, user_id FROM socialaccount_socialaccount WHERE provider = $provider AND uid = $subject LIMIT 2")
+    let mut rows = tx.query("SELECT id, user_id FROM socialaccount_socialaccount VIEW social_provider_subject_idx WHERE provider = $provider AND uid = $subject LIMIT 2")
         .param("$provider", provider.id().to_owned()).param("$subject", subject.to_owned()).await?;
     let mut social: Vec<(i32, i32)> = Vec::new();
     while let Some(set) = rows.next_result_set().await? {
@@ -535,7 +760,7 @@ async fn resolve_binding(
         }
     }
     rows.close().await?;
-    let mut rows = tx.query("SELECT id, user_id FROM usid_external_identity VIEW usid_ext_provider_idx WHERE provider = $provider AND subject = $subject LIMIT 2")
+    let mut rows = tx.query("SELECT id, user_id FROM usid_external_identity VIEW usid_ext_provider_subject_idx WHERE provider = $provider AND subject = $subject LIMIT 2")
         .param("$provider", provider.id().to_owned()).param("$subject", subject.to_owned()).await?;
     let mut external: Vec<(i64, Uuid)> = Vec::new();
     while let Some(set) = rows.next_result_set().await? {
@@ -556,7 +781,7 @@ async fn resolve_binding(
     let account_id = if let Some((_, owner)) = social.first() {
         *owner
     } else {
-        let mut rows = tx.query("SELECT user_id FROM accounts_accountidentity WHERE identity_id = $identity LIMIT 2")
+        let mut rows = tx.query("SELECT user_id FROM accounts_accountidentity VIEW account_identity_reverse_idx WHERE identity_id = $identity LIMIT 2")
             .param("$identity", external[0].1).await?;
         let mut owners: Vec<i32> = Vec::new();
         while let Some(set) = rows.next_result_set().await? {
@@ -581,7 +806,7 @@ async fn resolve_binding(
         return Ok(BindingResolution::Conflict);
     }
     let mut rows = tx
-        .query("SELECT user_id FROM accounts_accountidentity WHERE identity_id = $identity LIMIT 2")
+        .query("SELECT user_id FROM accounts_accountidentity VIEW account_identity_reverse_idx WHERE identity_id = $identity LIMIT 2")
         .param("$identity", identity_id)
         .await?;
     let mut owners: Vec<i32> = Vec::new();
@@ -794,15 +1019,23 @@ async fn start(State(config): State<Arc<ProviderLoginConfig>>, request: Request)
         }
         Err(_) => return unavailable(&config, &headers),
     }
-    if let Some(response) = rate(&config, &headers, &ip, None).await {
+    begin_flow(&config, &headers, &ip, next, None).await
+}
+
+async fn begin_flow(
+    config: &ProviderLoginConfig,
+    headers: &HeaderMap,
+    ip: &str,
+    next: String,
+    link: Option<LinkIntent>,
+) -> Response {
+    if let Some(response) = rate(config, headers, ip, None).await {
         return response;
     }
+    let now = SystemTime::now();
     let state = opaque();
-    if cancel_existing(&config.login.cache, &headers)
-        .await
-        .is_err()
-    {
-        return unavailable(&config, &headers);
+    if cancel_existing(&config.login.cache, headers).await.is_err() {
+        return unavailable(config, headers);
     }
     let browser = opaque();
     let verifier = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
@@ -811,9 +1044,10 @@ async fn start(State(config): State<Arc<ProviderLoginConfig>>, request: Request)
         provider: config.provider,
         browser_hash: digest(&browser),
         verifier,
-        session_hash: session_hash(&config, &headers),
+        session_hash: session_hash(config, headers),
         callback: config.callback_url.clone(),
         next,
+        link,
     };
     let result = async {
         ensure!(
@@ -851,11 +1085,11 @@ async fn start(State(config): State<Arc<ProviderLoginConfig>>, request: Request)
     }
     .await;
     let Ok(url) = result else {
-        return unavailable(&config, &headers);
+        return unavailable(config, headers);
     };
     let mut response = json_response(
-        &config,
-        &headers,
+        config,
+        headers,
         StatusCode::OK,
         json!({"authorize_url":url.as_str(),"method":"GET"}),
     );
@@ -1008,200 +1242,216 @@ async fn callback_inner(
         Ok(_) => return invalid(),
         Err(_) => return unavailable(&config, &headers),
     };
-    if flow.provider != config.provider
-        || flow.browser_hash != digest(&browser)
-        || flow.session_hash != session_hash(&config, &headers)
-        || flow.callback != config.callback_url
-        || !config.next_paths.contains(&flow.next)
-    {
-        return invalid();
-    }
-    match config
-        .login
-        .cache
-        .get(
-            &config.provider.cache_key("canceled", &flow.browser_hash),
-            now,
-        )
-        .await
-    {
-        Ok(None) => {}
-        Ok(Some(_)) => return invalid(),
-        Err(_) => return unavailable(&config, &headers),
-    }
-    if let Some(response) = rate(&config, &headers, &ip, None).await {
-        return response;
-    }
-    // Consume before network I/O: a failed exchange requires a new browser flow.
-    match config.login.cache.take(&key, now).await {
-        Ok(Some(_)) => {}
-        Ok(None) => return invalid(),
-        Err(_) => return unavailable(&config, &headers),
-    }
-    if params.contains_key("error")
-        || (config.provider == Provider::Steam && crate::steam_openid::denied(&params))
-    {
-        return error(
-            &config,
-            &headers,
-            StatusCode::UNAUTHORIZED,
-            "PROVIDER_DENIED",
-        );
-    }
-    let verification = if config.provider == Provider::Steam {
-        crate::steam_openid::verify(
-            &config.http,
-            &config.authorize_url,
-            &config.user_url,
-            &config.callback_url,
-            state,
-            &params,
-            now,
-        )
-        .await
-        .map(|assertion| {
-            (
-                assertion.subject,
-                Some((assertion.nonce, assertion.expires)),
-            )
-        })
-    } else {
-        let Some(code) = params.get("code") else {
+    let linking = flow.link.is_some();
+    let mut response = async {
+        if flow.provider != config.provider
+            || flow.browser_hash != digest(&browser)
+            || flow.session_hash != session_hash(&config, &headers)
+            || flow.callback != config.callback_url
+            || if linking {
+                flow.next != LINK_RETURN
+            } else {
+                !config.next_paths.contains(&flow.next)
+            }
+        {
             return invalid();
-        };
-        exchange(&config, code, &flow.verifier)
-            .await
-            .map(|subject| (subject, None))
-    };
-    let (subject, nonce) = match verification {
-        Ok(value) => value,
-        Err(_) => {
-            return error(
-                &config,
-                &headers,
-                StatusCode::SERVICE_UNAVAILABLE,
-                "PROVIDER_UNAVAILABLE",
-            );
         }
-    };
-    if let Some((nonce, expiry)) = nonce {
-        // State and the provider nonce are independent replay barriers. Shared YDB
-        // enforces this even across API instances; ambiguity never permits issuance.
         match config
             .login
             .cache
-            .add(
-                &config.provider.cache_key("nonce", &digest(&nonce)),
-                &CacheValue::Bool(true),
-                Some(expiry),
-                SystemTime::now(),
+            .get(
+                &config.provider.cache_key("canceled", &flow.browser_hash),
+                now,
             )
             .await
         {
-            Ok(true) => {}
-            Ok(false) => return invalid(),
+            Ok(None) => {}
+            Ok(Some(_)) => return invalid(),
             Err(_) => return unavailable(&config, &headers),
         }
-    }
-    let lookup_subject = subject.clone();
-    let provider = config.provider;
-    let binding = config
-        .login
-        .client
-        .query_client()
-        .retry_tx(closure!([lookup_subject], async |tx: &mut Transaction| {
-            resolve_binding(tx, provider, lookup_subject).await
-        }))
-        .with_mode(TxMode::SnapshotReadOnly)
-        .timeout(Duration::from_secs(5))
-        .await;
-    let binding = match binding {
-        Ok(BindingResolution::Linked(value)) => value,
-        Ok(BindingResolution::Unlinked) => {
-            return error(
-                &config,
-                &headers,
-                StatusCode::UNAUTHORIZED,
-                "ACCOUNT_NOT_LINKED",
-            );
+        if let Some(response) = rate(&config, &headers, &ip, None).await {
+            return response;
         }
-        Ok(BindingResolution::Conflict) => {
-            return error(&config, &headers, StatusCode::CONFLICT, "IDENTITY_CONFLICT");
+        // Consume before network I/O: a failed exchange requires a new browser flow.
+        match config.login.cache.take(&key, now).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return invalid(),
+            Err(_) => return unavailable(&config, &headers),
         }
-        Err(_) => return unavailable(&config, &headers),
-    };
-    let account = match verified_credential_owner(&config.login.client, binding.account_id).await {
-        Ok(Some(value)) if value.identity_id.get() == binding.identity_id => value,
-        Ok(_) => {
-            return error(
-                &config,
-                &headers,
-                StatusCode::UNAUTHORIZED,
-                "INVALID_CREDENTIALS",
-            );
-        }
-        Err(_) => return unavailable(&config, &headers),
-    };
-    let proof = ProviderProof {
-        provider: config.provider,
-        subject,
-        binding,
-        account_hash: match config
-            .login
-            .session_codec
-            .auth_hash(account.password_hash())
+        if params.contains_key("error")
+            || (config.provider == Provider::Steam && crate::steam_openid::denied(&params))
         {
-            Ok(value) => value,
-            Err(_) => return unavailable(&config, &headers),
-        },
-        email: account.email_key().into(),
-        public_subject: account.public_subject.as_str().into(),
-        authenticated_at: match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(value) => value.as_secs(),
-            Err(_) => return unavailable(&config, &headers),
-        },
-        once: config.provider.cache_key("issued", state),
-        browser_hash: flow.browser_hash,
-        session_hash: flow.session_hash,
-    };
-    if account.has_mfa {
-        let token = opaque();
-        let pending = Pending {
-            proof,
-            next: flow.next,
+            return error(
+                &config,
+                &headers,
+                StatusCode::UNAUTHORIZED,
+                "PROVIDER_DENIED",
+            );
+        }
+        let verification = if config.provider == Provider::Steam {
+            crate::steam_openid::verify(
+                &config.http,
+                &config.authorize_url,
+                &config.user_url,
+                &config.callback_url,
+                state,
+                &params,
+                now,
+            )
+            .await
+            .map(|assertion| {
+                (
+                    assertion.subject,
+                    Some((assertion.nonce, assertion.expires)),
+                )
+            })
+        } else {
+            let Some(code) = params.get("code") else {
+                return invalid();
+            };
+            exchange(&config, code, &flow.verifier)
+                .await
+                .map(|subject| (subject, None))
         };
-        let now = SystemTime::now();
-        let result = async {
-            config
+        let (subject, nonce) = match verification {
+            Ok(value) => value,
+            Err(_) => {
+                return error(
+                    &config,
+                    &headers,
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "PROVIDER_UNAVAILABLE",
+                );
+            }
+        };
+        if let Some((nonce, expiry)) = nonce {
+            // State and the provider nonce are independent replay barriers. Shared YDB
+            // enforces this even across API instances; ambiguity never permits issuance.
+            match config
                 .login
                 .cache
                 .add(
-                    &config.provider.cache_key("mfa", &token),
-                    &CacheValue::String(serde_json::to_string(&pending)?),
-                    Some(now + TTL),
-                    now,
+                    &config.provider.cache_key("nonce", &digest(&nonce)),
+                    &CacheValue::Bool(true),
+                    Some(expiry),
+                    SystemTime::now(),
                 )
                 .await
+            {
+                Ok(true) => {}
+                Ok(false) => return invalid(),
+                Err(_) => return unavailable(&config, &headers),
+            }
         }
-        .await;
-        if !matches!(result, Ok(true)) {
-            return unavailable(&config, &headers);
+        if let Some(intent) = &flow.link {
+            return finish_link(&config, &headers, &flow, intent, state, &subject).await;
         }
-        let mut response = redirect(
-            json_response(&config, &headers, StatusCode::OK, Value::Null),
-            &format!("/login?provider_mfa={}", config.provider.id()),
-        );
-        flow_cookie(&mut response, config.provider.flow_cookie(), &browser);
-        flow_cookie(&mut response, config.provider.mfa_cookie(), &token);
-        return response;
+        let lookup_subject = subject.clone();
+        let provider = config.provider;
+        let binding = config
+            .login
+            .client
+            .query_client()
+            .retry_tx(closure!([lookup_subject], async |tx: &mut Transaction| {
+                resolve_binding(tx, provider, lookup_subject).await
+            }))
+            .with_mode(TxMode::SnapshotReadOnly)
+            .timeout(Duration::from_secs(5))
+            .await;
+        let binding = match binding {
+            Ok(BindingResolution::Linked(value)) => value,
+            Ok(BindingResolution::Unlinked) => {
+                return error(
+                    &config,
+                    &headers,
+                    StatusCode::UNAUTHORIZED,
+                    "ACCOUNT_NOT_LINKED",
+                );
+            }
+            Ok(BindingResolution::Conflict) => {
+                return error(&config, &headers, StatusCode::CONFLICT, "IDENTITY_CONFLICT");
+            }
+            Err(_) => return unavailable(&config, &headers),
+        };
+        let account =
+            match verified_credential_owner(&config.login.client, binding.account_id).await {
+                Ok(Some(value)) if value.identity_id.get() == binding.identity_id => value,
+                Ok(_) => {
+                    return error(
+                        &config,
+                        &headers,
+                        StatusCode::UNAUTHORIZED,
+                        "INVALID_CREDENTIALS",
+                    );
+                }
+                Err(_) => return unavailable(&config, &headers),
+            };
+        let proof = ProviderProof {
+            provider: config.provider,
+            subject,
+            binding,
+            account_hash: match config
+                .login
+                .session_codec
+                .auth_hash(account.password_hash())
+            {
+                Ok(value) => value,
+                Err(_) => return unavailable(&config, &headers),
+            },
+            email: account.email_key().into(),
+            public_subject: account.public_subject.as_str().into(),
+            authenticated_at: match SystemTime::now().duration_since(UNIX_EPOCH) {
+                Ok(value) => value.as_secs(),
+                Err(_) => return unavailable(&config, &headers),
+            },
+            once: config.provider.cache_key("issued", state),
+            browser_hash: flow.browser_hash,
+            session_hash: flow.session_hash,
+        };
+        if account.has_mfa {
+            let token = opaque();
+            let pending = Pending {
+                proof,
+                next: flow.next,
+            };
+            let now = SystemTime::now();
+            let result = async {
+                config
+                    .login
+                    .cache
+                    .add(
+                        &config.provider.cache_key("mfa", &token),
+                        &CacheValue::String(serde_json::to_string(&pending)?),
+                        Some(now + TTL),
+                        now,
+                    )
+                    .await
+            }
+            .await;
+            if !matches!(result, Ok(true)) {
+                return unavailable(&config, &headers);
+            }
+            let mut response = redirect(
+                json_response(&config, &headers, StatusCode::OK, Value::Null),
+                &format!("/login?provider_mfa={}", config.provider.id()),
+            );
+            flow_cookie(&mut response, config.provider.flow_cookie(), &browser);
+            flow_cookie(&mut response, config.provider.mfa_cookie(), &token);
+            return response;
+        }
+        let response = finish(&config, &headers, &ip, &account, &proof, None).await;
+        if response.status() != StatusCode::OK {
+            return response;
+        }
+        let mut response = redirect(response, &flow.next);
+        flow_cookie(&mut response, config.provider.flow_cookie(), "");
+        flow_cookie(&mut response, config.provider.mfa_cookie(), "");
+        response
     }
-    let response = finish(&config, &headers, &ip, &account, &proof, None).await;
-    if response.status() != StatusCode::OK {
-        return response;
+    .await;
+    if linking {
+        response.extensions_mut().insert(LinkCallback);
     }
-    let mut response = redirect(response, &flow.next);
-    flow_cookie(&mut response, config.provider.flow_cookie(), "");
-    flow_cookie(&mut response, config.provider.mfa_cookie(), "");
     response
 }
 
@@ -1548,6 +1798,7 @@ async fn callback(State(config): State<Arc<ProviderLoginConfig>>, request: Reque
     if response.status() == StatusCode::SEE_OTHER {
         return response;
     }
+    let linking = response.extensions().get::<LinkCallback>().is_some();
     let (parts, body) = response.into_parts();
     let body = to_bytes(body, MAX_BODY)
         .await
@@ -1564,13 +1815,19 @@ async fn callback(State(config): State<Arc<ProviderLoginConfig>>, request: Reque
         | "PROVIDER_UNAVAILABLE"
         | "ACCOUNT_NOT_LINKED"
         | "IDENTITY_CONFLICT"
+        | "AUTHENTICATION_REQUIRED"
+        | "REAUTH_REQUIRED"
         | "INVALID_CREDENTIALS"
         | "LOGIN_RATE_LIMITED" => code,
         _ => "SERVICE_UNAVAILABLE",
     };
     redirect(
         Response::from_parts(parts, Body::empty()),
-        &format!("/login?provider_error={code}"),
+        &if linking {
+            format!("{LINK_RETURN}&provider_link_error={code}")
+        } else {
+            format!("/login?provider_error={code}")
+        },
     )
 }
 
