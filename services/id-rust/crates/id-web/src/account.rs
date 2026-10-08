@@ -245,7 +245,35 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     let cookie = request::headers(cx)
         .get("cookie")
         .and_then(|value| value.to_str().ok());
-    let profile = match profile(api, cookie).await {
+    let has_section = |names: &[&str]| {
+        request::uri(cx).query().is_some_and(|query| {
+            url::form_urlencoded::parse(query.as_bytes())
+                .any(|(key, value)| key == "section" && names.contains(&value.as_ref()))
+        })
+    };
+    let delete_section = has_section(&["delete"]);
+    let session_section = api.sessions_enabled && has_section(&["sessions"]);
+    let privacy_section = api.preferences_enabled && has_section(&["privacy", "settings"]);
+    let apps_section = api.apps_enabled && has_section(&["apps"]);
+    // Preserve the existing section precedence, including repeated query parameters.
+    let security_section = api.security_enabled
+        && has_section(&["security"])
+        && !(delete_section || session_section || privacy_section || apps_section);
+    let profile_request = profile(api, cookie);
+    let security_request = security(api, cookie);
+    tokio::pin!(profile_request, security_request);
+    let mut security_result = None;
+    // Both reads authenticate the same cookie independently. A profile denial must
+    // win over a secondary result and must not wait for a stalled security read.
+    let profile_result = tokio::select! {
+        biased;
+        result = &mut profile_request => result,
+        result = &mut security_request, if security_section => {
+            security_result = Some(result);
+            profile_request.await
+        }
+    };
+    let profile = match profile_result {
         Ok(value) => value,
         Err(_) => {
             return error_page("Не удалось загрузить кабинет. Попробуйте позже.");
@@ -271,10 +299,6 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         }
         Profile::User(user, cookies) => (user, cookies),
     };
-    let delete_section = request::uri(cx).query().is_some_and(|query| {
-        url::form_urlencoded::parse(query.as_bytes())
-            .any(|(key, value)| key == "section" && value == "delete")
-    });
     if delete_section {
         if !api.deletion_enabled {
             return Ok(Response::builder()
@@ -291,11 +315,6 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         .map_err(|error| topcoat::Error::msg(error.to_string()))?;
         return page_response(html, cookies, true);
     }
-    let session_section = api.sessions_enabled
-        && request::uri(cx).query().is_some_and(|query| {
-            url::form_urlencoded::parse(query.as_bytes())
-                .any(|(key, value)| key == "section" && value == "sessions")
-        });
     if session_section {
         let user_agent = request::headers(cx)
             .get("user-agent")
@@ -306,36 +325,29 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         };
         return sessions_page(cx, sessions, cookies).await;
     }
-    let privacy_section = api.preferences_enabled
-        && request::uri(cx).query().is_some_and(|query| {
-            url::form_urlencoded::parse(query.as_bytes()).any(|(key, value)| {
-                key == "section" && matches!(value.as_ref(), "privacy" | "settings")
-            })
-        });
     if privacy_section {
-        let preferences = match preferences(api, cookie).await {
+        let (preferences, timezones, consents) =
+            tokio::join!(preferences(api, cookie), timezones(api), async {
+                if api.consents_enabled {
+                    consents(api, cookie).await
+                } else {
+                    Ok(Vec::new())
+                }
+            });
+        let preferences = match preferences {
             Ok(value) => value,
             Err(_) => return error_page("Не удалось загрузить настройки. Попробуйте позже."),
         };
-        let timezones = match timezones(api).await {
+        let timezones = match timezones {
             Ok(value) => value,
             Err(_) => return error_page("Не удалось загрузить часовые пояса. Попробуйте позже."),
         };
-        let consents = if api.consents_enabled {
-            match consents(api, cookie).await {
-                Ok(value) => value,
-                Err(_) => return error_page("Не удалось загрузить согласия. Попробуйте позже."),
-            }
-        } else {
-            Vec::new()
+        let consents = match consents {
+            Ok(value) => value,
+            Err(_) => return error_page("Не удалось загрузить согласия. Попробуйте позже."),
         };
         return privacy_page(cx, preferences, timezones, consents, cookies).await;
     }
-    let apps_section = api.apps_enabled
-        && request::uri(cx).query().is_some_and(|query| {
-            url::form_urlencoded::parse(query.as_bytes())
-                .any(|(key, value)| key == "section" && value == "apps")
-        });
     if apps_section {
         let apps = match authorized_apps(api, cookie).await {
             Ok(value) => value,
@@ -343,13 +355,11 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         };
         return apps_page(cx, apps, cookies).await;
     }
-    let security_section = api.security_enabled
-        && request::uri(cx).query().is_some_and(|query| {
-            url::form_urlencoded::parse(query.as_bytes())
-                .any(|(key, value)| key == "section" && value == "security")
-        });
     if security_section {
-        let snapshot = match security(api, cookie).await {
+        let snapshot = match match security_result {
+            Some(result) => result,
+            None => security_request.await,
+        } {
             Ok(value) => value,
             Err(_) => {
                 return error_page(

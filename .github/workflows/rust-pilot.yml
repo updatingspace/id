@@ -95,6 +95,8 @@ jobs:
         run: bash services/id-rust/scripts/smoke-web-consent.sh
       - name: Opt-in Topcoat security SSR smoke
         run: bash services/id-rust/scripts/smoke-web-security.sh
+      - name: Topcoat concurrent SSR reads and denial priority
+        run: node services/id-rust/scripts/check-web-ssr-reads.cjs
       - name: Opt-in Topcoat login history SSR smoke
         run: bash services/id-rust/scripts/smoke-web-history.sh
       - name: Durable magic-link issuance and one-time exchange on local YDB
