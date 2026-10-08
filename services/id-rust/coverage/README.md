@@ -232,6 +232,50 @@ ordinary CI lint failure at this revision is also not a successful release gate.
 A diagnosed correction and a complete run of the resulting exact revision are
 still needed before evaluating the expanded profile.
 
+## Incomplete schema replay: 2026-10-08
+
+[Run 37718612866, job 113120816490](https://github.com/updatingspace/id/actions/runs/37718612866/job/113120816490)
+measured immutable commit `a90d967622d7822c1ab789e0c5a5a6b4aeebfed1`.
+This run passed the previously failing TOTP/recovery test, GitHub/Discord
+integration, jobs SIGTERM/SIGINT shutdown, delayed export escrow and isolated
+deletion/export-jobs/admin scenarios. Step 79 then passed
+`password_change_http_ydb` in 21.71 seconds but failed
+`password_mail::tests::sends_once_from_durable_intent` after 0.14 seconds with
+`password mail timer dispatch failed`. The assertion records neither the HTTP
+status nor the underlying error, so that message alone does not establish its
+cause.
+
+The two remaining password-mail tests, email-verification case and six browser
+cases within `remaining-schema` did not run. The following cache-cutover gate
+was skipped. `scenario_completed: false` and `passed: false` correctly preserve
+the incomplete result; no measurement was restarted to replace this failure.
+
+| Partial metric | Covered / total | Measured | Required |
+|---|---:|---:|---:|
+| Lines | 19,210 / 23,779 | 80.79% | 85% |
+| Represented LLVM conditional branches | 3,095 / 5,208 | 59.43% | 80% |
+
+These are diagnostic counters, **not a completed expanded baseline or final
+coverage acceptance**. They must not be compared as a same-source regression
+against earlier revisions. All 94 manifest files, including 70 critical files,
+are present among 147 LLVM files. Independent source-root remapping and the
+strict checker reproduced every file count, total and failure, including the
+mandatory incomplete-scenario failure. The historical completed baselines
+above remain unchanged.
+
+The [artifact, ID 11525332185](https://github.com/updatingspace/id/actions/runs/37718612866/artifacts/11525332185)
+is 3,690,742 bytes with verified SHA-256
+`290bd26e5a892b9caf5406117f672df2d1c3ad3ebc8153891784fb75b9051b9e`.
+Provenance records the exact source revision and the same pinned compiler,
+LLVM, cargo-llvm-cov, Cargo.lock and 94-file manifest hashes as the previous
+combined run. All 56 wrapper starts have matching completion receipts:
+5 API, 21 web, 26 CLI and 4 jobs. The runner validated their nonempty profiles;
+the artifact independently verifies receipt pairing and PID-specific paths,
+but still omits raw profiles and instrumented objects. Direct integration
+children have no exhaustive per-process receipt inventory. Successful signal
+tests establish the exercised local process behavior, not production-platform
+shutdown acceptance.
+
 ## Complete required schema inventory after the expanded baseline
 
 The bounded inventory compared every Rust test and application/browser command
