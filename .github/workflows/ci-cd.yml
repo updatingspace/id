@@ -162,6 +162,9 @@ jobs:
         run: |
           cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
           cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
+          cargo run --locked -p id-runtime --bin idctl -- provider-indexes --apply
+          cargo run --locked -p id-runtime --bin idctl -- provider-indexes --apply
+          cargo run --locked -p id-runtime --bin idctl -- provider-indexes
           cargo run --locked -p id-runtime --bin idctl -- cache-schema
           cargo run --locked -p id-runtime --bin idctl -- cache-schema
 
@@ -292,6 +295,9 @@ jobs:
             YDB_LOCAL_ENDPOINT=grpc://localhost:2137 \
             ../../scripts/ci/wait-for-ydb-local.sh
           cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
+          cargo run --locked -p id-runtime --bin idctl -- provider-indexes --apply
+          cargo run --locked -p id-runtime --bin idctl -- provider-indexes --apply
+          cargo run --locked -p id-runtime --bin idctl -- provider-indexes
           cargo run --locked -p id-runtime --bin idctl -- cache-schema
           cargo test --locked -p id-runtime --test legacy_cutover_reset_ydb -- --ignored
           cargo run --locked -p id-runtime --bin idctl -- data-export-schema
@@ -338,6 +344,9 @@ jobs:
             YDB_LOCAL_ENDPOINT=grpc://localhost:2137 \
             ../../scripts/ci/wait-for-ydb-local.sh
           target/debug/idctl legacy-schema --apply
+          target/debug/idctl provider-indexes --apply
+          target/debug/idctl provider-indexes --apply
+          target/debug/idctl provider-indexes
           target/debug/idctl cache-schema
           cargo test --locked -p id-runtime --test legacy_cutover_reset_ydb -- --ignored
           target/debug/idctl data-export-schema

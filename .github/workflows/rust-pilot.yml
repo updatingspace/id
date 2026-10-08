@@ -56,6 +56,9 @@ jobs:
           target/debug/idctl legacy-schema --apply
           test "$(target/debug/idctl legacy-schema --apply | jq -r .created_indexes)" = 0
           target/debug/idctl legacy-schema
+          target/debug/idctl provider-indexes --apply
+          test "$(target/debug/idctl provider-indexes --apply | jq -r .created_indexes)" = 0
+          target/debug/idctl provider-indexes
           target/debug/idctl cache-schema
           target/debug/idctl cache-schema
       - name: Real YDB transaction and nullable type checks

@@ -152,6 +152,11 @@ enum Command {
         #[arg(long)]
         apply: bool,
     },
+    /// Check provider ownership indexes; --apply adds missing indexes without replacing data.
+    ProviderIndexes {
+        #[arg(long)]
+        apply: bool,
+    },
     /// Verify or record the four legacy migration versions after data audits.
     LegacyLedger {
         #[arg(long)]
@@ -533,6 +538,11 @@ async fn main() -> Result<()> {
             }
             let client = id_runtime::connect_ydb().await?;
             let report = id_runtime::legacy_schema::reconcile(&client, apply).await?;
+            println!("{}", serde_json::to_string(&report)?);
+        }
+        Command::ProviderIndexes { apply } => {
+            let client = id_runtime::connect_ydb().await?;
+            let report = id_runtime::legacy_schema::provider_indexes(&client, apply).await?;
             println!("{}", serde_json::to_string(&report)?);
         }
         Command::LegacyLedger { apply } => {

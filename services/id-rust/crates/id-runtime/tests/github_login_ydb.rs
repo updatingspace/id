@@ -426,12 +426,23 @@ impl Browser {
         provider: &Arc<Mutex<Provider>>,
         subject: u64,
     ) -> Result<String> {
+        self.begin(app, provider, subject, false).await
+    }
+
+    async fn begin(
+        &mut self,
+        app: &Router,
+        provider: &Arc<Mutex<Provider>>,
+        subject: u64,
+        linking: bool,
+    ) -> Result<String> {
         let name = provider
             .lock()
             .map_err(|_| anyhow::anyhow!("provider mutex"))?
             .kind
             .name();
-        let start_path = format!("/api/v1/auth/oauth/login/{name}");
+        let intent = if linking { "link" } else { "login" };
+        let start_path = format!("/api/v1/auth/oauth/{intent}/{name}");
         let callback_path = format!("/api/v1/auth/oauth/callback/{name}");
         let token = self
             .call(
@@ -452,7 +463,11 @@ impl Browser {
                 app,
                 "POST",
                 &start_path,
-                json!({"form_token":token.body["form_token"],"next":"/account"}),
+                if linking {
+                    json!({})
+                } else {
+                    json!({"form_token":token.body["form_token"],"next":"/account"})
+                },
             )
             .await?;
         ensure!(
@@ -1442,6 +1457,377 @@ async fn browser_login_binds_state_identity_and_mfa(kind: Kind) -> Result<()> {
         .exec("DELETE FROM auth_user WHERE id=$id")
         .param("$id", account)
         .await?;
+    client
+        .query_client()
+        .exec(format!("DROP TABLE `{table}`"))
+        .await?;
+    result
+}
+
+#[tokio::test]
+#[ignore = "requires migrated local YDB on localhost:2136 and /local"]
+async fn github_browser_link_requires_fresh_owner_and_reserves_subject() -> Result<()> {
+    browser_link_requires_fresh_owner_and_reserves_subject(Kind::Github).await
+}
+
+#[tokio::test]
+#[ignore = "requires migrated local YDB on localhost:2136 and /local"]
+async fn discord_browser_link_requires_fresh_owner_and_reserves_subject() -> Result<()> {
+    browser_link_requires_fresh_owner_and_reserves_subject(Kind::Discord).await
+}
+
+#[tokio::test]
+#[ignore = "requires migrated local YDB on localhost:2136 and /local"]
+async fn steam_browser_link_requires_fresh_owner_and_reserves_subject() -> Result<()> {
+    browser_link_requires_fresh_owner_and_reserves_subject(Kind::Steam).await
+}
+
+async fn write_link_session(
+    client: &ydb::Client,
+    codec: &SessionCodec,
+    account: i32,
+    token: &str,
+    mfa_age: Option<u64>,
+    primary_age: u64,
+) -> Result<()> {
+    let now = SystemTime::now();
+    let seconds = now.duration_since(UNIX_EPOCH)?.as_secs();
+    let mut data = json!({
+        "_auth_user_id":account.to_string(),
+        "_auth_user_backend":id_runtime::session_store::LEGACY_BACKENDS[0],
+        "_auth_user_hash":codec.auth_hash("!synthetic-unusable-password")?,
+        "account_authentication_methods":[{"method":"password","at":seconds-primary_age}],
+    });
+    if let Some(age) = mfa_age {
+        data["id_mfa_verified_user_id"] = json!(account.to_string());
+        data["account_authentication_methods"] = json!([
+            {"method":"mfa","type":"recovery_codes","at":seconds-age},
+            {"method":"password","at":seconds-primary_age},
+        ]);
+    }
+    client.query_client().exec("UPSERT INTO django_session (session_key, session_data, expire_date) VALUES ($key, $data, CAST($expiry AS Datetime))")
+        .param("$key",token.to_owned())
+        .param("$data",codec.encode(data.as_object().context("session object")?, i64::try_from(seconds)?, true)?)
+        .param("$expiry",now+Duration::from_secs(3600)).await?;
+    Ok(())
+}
+
+async fn browser_link_requires_fresh_owner_and_reserves_subject(kind: Kind) -> Result<()> {
+    ensure!(
+        matches!(
+            std::env::var("YDB_ENDPOINT")?.as_str(),
+            "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
+        ) && std::env::var("YDB_DATABASE")? == "/local",
+        "refuse non-local YDB"
+    );
+    let client = Arc::new(id_runtime::connect_ydb().await?);
+    let nonce = Uuid::new_v4();
+    let first = -i32::try_from(nonce.as_u128() % 1_000_000_000 + 1)?;
+    let accounts = [first, first - 1];
+    let identities = [Uuid::new_v4(), Uuid::new_v4()];
+    let tokens = [
+        Uuid::new_v4().simple().to_string(),
+        Uuid::new_v4().simple().to_string(),
+    ];
+    let alternate_token = Uuid::new_v4().simple().to_string();
+    let subject = u64::try_from(nonce.as_u128() % 9_000_000_000 + 1)? + 76_561_198_000_000_000;
+    let table = format!("id_provider_link_{}", nonce.simple());
+    let cache = CacheStore::new(client.clone(), &table, "", 1)?;
+    let codec = Arc::new(SessionCodec::new(SECRET, &[])?);
+    let provider = Arc::new(Mutex::new(Provider {
+        kind,
+        email: format!("link-{nonce}@example.invalid"),
+        ..Provider::default()
+    }));
+    let (origin, server) = serve_provider(provider.clone()).await?;
+    let login = Arc::new(LoginHttpConfig::new(
+        client.clone(),
+        cache.clone(),
+        codec.clone(),
+        AccountJwtCodec::new(SECRET)?,
+        MediaUrl::new("https://id.example.invalid/media/")?,
+        LoginHttpOptions {
+            session_cookie_name: "sessionid".into(),
+            csrf_cookie_name: "csrftoken".into(),
+            session_cookie_secure: true,
+            csrf_cookie_secure: true,
+            session_same_site: SameSite::Lax,
+            csrf_same_site: SameSite::Lax,
+            session_cookie_domain: None,
+            csrf_cookie_domain: None,
+            session_cookie_age: 3600,
+            login_ip_limit: 1000,
+            trusted_origins: vec![ORIGIN.into()],
+            device_fingerprint_salt: "synthetic-device-salt".into(),
+        },
+    )?);
+    let app = provider_login::router(Arc::new(
+        kind.config(login)?.with_loopback_provider(&origin)?,
+    ))
+    .merge(form_token_http::router(Arc::new(FormTokenConfig::new(
+        cache,
+        "csrftoken".into(),
+        true,
+        SameSite::Lax,
+        None,
+    )?)));
+    client.query_client().exec(format!("CREATE TABLE `{table}` (cache_key Utf8 NOT NULL,value String,expires_at Uint64,PRIMARY KEY(cache_key))")).await?;
+    let mut claimed = Vec::new();
+    let name = kind.name();
+    let link_path = format!("/api/v1/auth/oauth/link/{name}");
+    let linked = format!("/account?section=security&provider_linked={name}");
+    let link_error = |code: &str| format!("/account?section=security&provider_link_error={code}");
+    let result: Result<()> = async {
+        for (index, account) in accounts.iter().copied().enumerate() {
+            client.query_client().exec("INSERT INTO auth_user (id,password,is_active,username,first_name,last_name,email,is_staff,is_superuser,date_joined) VALUES ($id,'!synthetic-unusable-password',true,$name,'','',$email,false,false,CurrentUtcDatetime())")
+                .param("$id",account).param("$name",format!("link-{}",identities[index]))
+                .param("$email",format!("link-{}@example.invalid",identities[index])).await?;
+            claimed.push(index);
+            client.query_client().exec("INSERT INTO accounts_accountemaillookup (user_id,email_key) VALUES ($id,$email)")
+                .param("$id",account).param("$email",format!("link-{}@example.invalid",identities[index])).await?;
+            client.query_client().exec("INSERT INTO account_emailaddress (id,user_id,email,verified,primary) VALUES ($id,$id,$email,true,true)")
+                .param("$id",account).param("$email",format!("link-{}@example.invalid",identities[index])).await?;
+            client.query_client().exec("INSERT INTO usid_user (user_id,username,display_name,email,email_verified,status,system_admin,created_at) VALUES ($id,$name,'',$email,true,'active',false,CurrentUtcDatetime())")
+                .param("$id",identities[index]).param("$name",format!("link-{}",identities[index]))
+                .param("$email",format!("link-{}@example.invalid",identities[index])).await?;
+            client.query_client().exec("INSERT INTO accounts_accountidentity (user_id,identity_id,public_subject,created_at) VALUES ($id,$identity,$subject,CurrentUtcDatetime())")
+                .param("$id",account).param("$identity",identities[index]).param("$subject",format!("link-{}",identities[index])).await?;
+            client.query_client().exec("INSERT INTO mfa_authenticator (id,user_id,type,data,created_at) VALUES ($id,$owner,'recovery_codes',Unwrap(CAST('{\"migrated_codes\":[\"12345678\"]}' AS Json)),CurrentUtcDatetime())")
+                .param("$id",i64::from(account)).param("$owner",account).await?;
+            write_link_session(&client,&codec,account,&tokens[index],Some(0),0).await?;
+        }
+        write_link_session(&client,&codec,first,&alternate_token,Some(0),0).await?;
+        let browser = |index: usize| Browser {cookies:BTreeMap::from([("sessionid".into(),tokens[index].clone())])};
+        let mut owner = browser(0);
+        owner.call(&app,"GET","/api/v1/auth/form_token?purpose=login",Value::Null).await?;
+        let mut anonymous = owner.clone(); anonymous.cookies.remove("sessionid");
+        ensure!(anonymous.call(&app,"POST",&link_path,json!({})).await?.status == StatusCode::UNAUTHORIZED);
+        let missing_csrf = app.clone().oneshot(Request::builder().method("POST").uri(&link_path)
+            .header(header::ORIGIN,ORIGIN).header(header::CONTENT_TYPE,"application/json")
+            .header(header::COOKIE,format!("sessionid={}",tokens[0])).body(Body::from("{}"))?).await?;
+        ensure!(missing_csrf.status()==StatusCode::FORBIDDEN,"link accepted missing CSRF");
+        let csrf = owner.cookies.get("csrftoken").context("csrf")?;
+        let mismatch = app.clone().oneshot(Request::builder().method("POST").uri(&link_path)
+            .header(header::ORIGIN,ORIGIN).header(header::CONTENT_TYPE,"application/json").header("x-csrftoken",csrf)
+            .header("x-session-token","invalid").header(header::COOKIE,format!("sessionid={}; csrftoken={csrf}",tokens[0]))
+            .body(Body::from("{}"))?).await?;
+        ensure!(mismatch.status()==StatusCode::UNAUTHORIZED,"explicit token fell back to cookie");
+        for body in [json!({"intent":"link"}),json!({"target":accounts[1]}),json!({"email":"attacker@example.invalid"}),json!({"next":"/account"})] {
+            ensure!(owner.call(&app,"POST",&link_path,body).await?.status==StatusCode::BAD_REQUEST,"accepted browser-selected link owner/intent");
+        }
+        for (mfa, primary) in [(None,0),(Some(301),0),(Some(0),301)] {
+            write_link_session(&client,&codec,first,&tokens[0],mfa,primary).await?;
+            let reply=owner.call(&app,"POST",&link_path,json!({})).await?;
+            ensure!(reply.status==StatusCode::FORBIDDEN && reply.body["code"]=="REAUTH_REQUIRED","stale authentication started link");
+        }
+        write_link_session(&client,&codec,first,&tokens[0],Some(0),0).await?;
+        // Both another account and another session of this same account are rejected.
+        let path=owner.begin(&app,&provider,subject,true).await?;
+        for token in [&tokens[1],&alternate_token] {
+            let mut substituted=owner.clone(); substituted.cookies.insert("sessionid".into(),token.clone());
+            redirected(&substituted.call(&app,"GET",&path,Value::Null).await?,&link_error("INVALID_STATE"))?;
+        }
+        let mut substituted=owner.clone(); substituted.cookies.insert(format!("__Host-id_{name}_flow"),"a".repeat(64));
+        redirected(&substituted.call(&app,"GET",&path,Value::Null).await?,&link_error("INVALID_STATE"))?;
+        // An attempted intent query cannot convert a login state to a link state.
+        let mut login_browser=browser(0);
+        let login_path=login_browser.start(&app,&provider,subject).await?;
+        redirected(&login_browser.call(&app,"GET",&format!("{login_path}&intent=link"),Value::Null).await?,"/login?provider_error=INVALID_STATE")?;
+        redirected(&login_browser.call(&app,"GET",&login_path,Value::Null).await?,"/login?provider_error=ACCOUNT_NOT_LINKED")?;
+        // Cancel and new begin invalidate copies; neither can install the credential.
+        let mut canceled=owner.clone();
+        ensure!(owner.call(&app,"POST",&format!("/api/v1/auth/oauth/login/{name}/cancel"),json!({})).await?.status==StatusCode::OK);
+        redirected(&canceled.call(&app,"GET",&path,Value::Null).await?,&link_error("INVALID_STATE"))?;
+        let path=owner.begin(&app,&provider,subject,true).await?;
+        let mut previous=owner.clone();
+        let _replacement=owner.begin(&app,&provider,subject,true).await?;
+        redirected(&previous.call(&app,"GET",&path,Value::Null).await?,&link_error("INVALID_STATE"))?;
+        // Recheck after provider begin, not just at the authenticated POST.
+        for condition in ["disabled","deleting","stale mfa","rebound identity","changed subject"] {
+            let path=owner.begin(&app,&provider,subject,true).await?;
+            match condition {
+                "disabled" => {client.query_client().exec("UPDATE auth_user SET is_active=false WHERE id=$id").param("$id",first).await?;}
+                "deleting" => {client.query_client().exec("INSERT INTO accounts_accountdeletionrequest (id,user_id,status,requested_at,reason) VALUES ($row,$id,'pending',CurrentUtcDatetime(),'')").param("$row",i64::from(first)).param("$id",first).await?;}
+                "stale mfa" => {write_link_session(&client,&codec,first,&tokens[0],Some(301),0).await?;}
+                "rebound identity" => {client.query_client().exec("UPDATE accounts_accountidentity SET identity_id=$identity WHERE user_id=$id").param("$identity",identities[1]).param("$id",first).await?;}
+                "changed subject" => {client.query_client().exec("UPDATE accounts_accountidentity SET public_subject='changed' WHERE user_id=$id").param("$id",first).await?;}
+                _ => unreachable!(),
+            }
+            let reply=owner.call(&app,"GET",&path,Value::Null).await?;
+            ensure!(reply.status==StatusCode::SEE_OTHER && reply.headers[header::LOCATION].to_str()?.contains("provider_link_error="),"{condition} linked credentials");
+            ensure!(ids(&client,"SELECT CAST(id AS Utf8) AS value FROM socialaccount_socialaccount WHERE user_id=$id".into(),first).await?.is_empty());
+            client.query_client().exec("UPDATE auth_user SET is_active=true WHERE id=$id").param("$id",first).await?;
+            client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE user_id=$id").param("$id",first).await?;
+            client.query_client().exec("UPDATE accounts_accountidentity SET identity_id=$identity,public_subject=$subject WHERE user_id=$id")
+                .param("$identity",identities[0]).param("$subject",format!("link-{}",identities[0])).param("$id",first).await?;
+            write_link_session(&client,&codec,first,&tokens[0],Some(0),0).await?;
+        }
+        // Raw occupied subjects remain reserved independently of active owner resolution.
+        for legacy in [false,true] {
+            if legacy {
+                client.query_client().exec("INSERT INTO usid_external_identity (id,user_id,provider,subject,created_at) VALUES ($id,$owner,$provider,$subject,CurrentUtcDatetime())")
+                    .param("$id",i64::from(accounts[1])).param("$owner",identities[1]).param("$provider",name).param("$subject",subject.to_string()).await?;
+            } else {
+                client.query_client().exec("INSERT INTO socialaccount_socialaccount (id,user_id,provider,uid,last_login,date_joined,extra_data) VALUES ($id,$id,$provider,$subject,CurrentUtcDatetime(),CurrentUtcDatetime(),Unwrap(CAST('{}' AS Json)))")
+                    .param("$id",accounts[1]).param("$provider",name).param("$subject",subject.to_string()).await?;
+            }
+            client.query_client().exec("UPDATE auth_user SET is_active=false WHERE id=$id").param("$id",accounts[1]).await?;
+            let path=owner.begin(&app,&provider,subject,true).await?;
+            redirected(&owner.call(&app,"GET",&path,Value::Null).await?,&link_error("IDENTITY_CONFLICT"))?;
+            client.query_client().exec("DELETE FROM accounts_accountidentity WHERE user_id=$id").param("$id",accounts[1]).await?;
+            let path=owner.begin(&app,&provider,subject,true).await?;
+            redirected(&owner.call(&app,"GET",&path,Value::Null).await?,&link_error("IDENTITY_CONFLICT"))?;
+            client.query_client().exec("INSERT INTO accounts_accountidentity (user_id,identity_id,public_subject,created_at) VALUES ($id,$identity,$subject,CurrentUtcDatetime())")
+                .param("$id",accounts[1]).param("$identity",identities[1]).param("$subject",format!("link-{}",identities[1])).await?;
+            client.query_client().exec("UPDATE auth_user SET is_active=true WHERE id=$id").param("$id",accounts[1]).await?;
+            client.query_client().exec("INSERT INTO accounts_accountdeletionrequest (id,user_id,status,requested_at,reason) VALUES ($row,$id,'pending',CurrentUtcDatetime(),'')")
+                .param("$row",i64::from(accounts[1])).param("$id",accounts[1]).await?;
+            let path=owner.begin(&app,&provider,subject,true).await?;
+            redirected(&owner.call(&app,"GET",&path,Value::Null).await?,&link_error("IDENTITY_CONFLICT"))?;
+            client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE user_id=$id").param("$id",accounts[1]).await?;
+            client.query_client().exec("DELETE FROM socialaccount_socialaccount WHERE user_id=$id").param("$id",accounts[1]).await?;
+            client.query_client().exec("DELETE FROM usid_external_identity WHERE id=$id AND user_id=$owner")
+                .param("$id",i64::from(accounts[1])).param("$owner",identities[1]).await?;
+        }
+        // Competing callbacks use distinct states and YDB sessions. A scan-based
+        // reservation must prevent phantoms despite the legacy random/serial PK.
+        for round in 0..10u64 {
+            let mut left=browser(0); let mut right=browser(1);
+            let lhs=left.begin(&app,&provider,subject+round,true).await?;
+            let rhs=right.begin(&app,&provider,subject+round,true).await?;
+            let (a,b)=tokio::join!(left.call(&app,"GET",&lhs,Value::Null),right.call(&app,"GET",&rhs,Value::Null));
+            let replies=[a?,b?];
+            ensure!(replies.iter().filter(|r|r.headers.get(header::LOCATION).and_then(|v|v.to_str().ok())==Some(linked.as_str())).count()==1,
+                "concurrent subject claims did not produce one winner: {:?}",replies.iter().map(|r|r.headers.get(header::LOCATION)).collect::<Vec<_>>());
+            let mut count=client.query_client().query_row("SELECT COUNT(*) AS total FROM socialaccount_socialaccount WHERE provider=$provider AND uid=$subject")
+                .param("$provider",name).param("$subject",(subject+round).to_string()).await?;
+            let total:u64=count.remove_field_by_name("total")?.try_into()?;
+            ensure!(total==1,"concurrent callbacks created duplicate provider ownership");
+            for account in accounts {
+                client.query_client().exec("DELETE FROM socialaccount_socialaccount WHERE user_id=$id AND provider=$provider")
+                    .param("$id",account).param("$provider",name).await?;
+            }
+        }
+        // Successful link keeps the original session and never mints account JWTs.
+        let path=owner.begin(&app,&provider,subject,true).await?;
+        let mut replay=owner.clone();
+        let reply=owner.call(&app,"GET",&path,Value::Null).await?;
+        redirected(&reply,&linked)?;
+        ensure!(owner.cookies.get("sessionid")==Some(&tokens[0]) && !reply.headers.contains_key("x-session-token"));
+        ensure!(reply.headers.get_all(header::SET_COOKIE).iter().all(|h|h.to_str().is_ok_and(|v|!v.starts_with("sessionid="))),"link replaced session cookie");
+        redirected(&replay.call(&app,"GET",&path,Value::Null).await?,"/login?provider_error=INVALID_STATE")?;
+        let path=owner.begin(&app,&provider,subject+100,true).await?;
+        redirected(&owner.call(&app,"GET",&path,Value::Null).await?,&link_error("IDENTITY_CONFLICT"))?;
+        let own=ids(&client,"SELECT uid AS value FROM socialaccount_socialaccount WHERE user_id=$id".into(),first).await?;
+        ensure!(own==[subject.to_string()],"existing provider link was replaced");
+        for account in accounts {
+            for table in ["usersessions_usersession","core_usersessionmeta","core_usersessiontoken","token_blacklist_outstandingtoken","accounts_loginevent"] {
+                ensure!(ids(&client,format!("SELECT CAST(id AS Utf8) AS value FROM {table} WHERE user_id=$id"),account).await?.is_empty(),"link minted session/JWT or login effects");
+            }
+            let mut row=client.query_client().query_row("SELECT CAST(data AS Utf8) AS data FROM mfa_authenticator WHERE user_id=$id").param("$id",account).await?;
+            let data:String=row.remove_field_by_name("data")?.try_into()?;
+            ensure!(serde_json::from_str::<Value>(&data)?==json!({"migrated_codes":["12345678"]}),"link consumed recovery credential");
+        }
+        let mut count=client.query_client().query_row("SELECT COUNT(*) AS total FROM usid_audit_log WHERE action='provider.linked' AND (actor_user_id=$left OR actor_user_id=$right)")
+            .param("$left",identities[0]).param("$right",identities[1]).await?;
+        let audit:u64=count.remove_field_by_name("total")?.try_into()?;
+        ensure!(audit==11,"link did not atomically audit each winner exactly once: {audit}");
+        // Prove that the newly stored binding actually participates in the
+        // existing credential path, including its mandatory MFA barrier.
+        let mut returning=Browser::default();
+        let path=returning.start(&app,&provider,subject).await?;
+        redirected(&returning.call(&app,"GET",&path,Value::Null).await?,&format!("/login?provider_mfa={name}"))?;
+        ensure!(!returning.cookies.contains_key("sessionid"),"new provider binding bypassed MFA");
+        let pending=returning.call(&app,"GET",&format!("/api/v1/auth/oauth/login/{name}/pending"),Value::Null).await?;
+        ensure!(pending.status==StatusCode::OK && pending.body["active"]==true && pending.body["methods"]==json!(["recovery_codes"]));
+        let reply=returning.call(&app,"POST",&format!("/api/v1/auth/oauth/login/{name}/complete"),json!({"recovery_code":"12345678"})).await?;
+        ensure!(reply.status==StatusCode::OK,"new binding could not complete MFA login: {} {}",reply.status,reply.body);
+        let token=returning.cookies.get("sessionid").context("new provider login session")?;
+        let principal=id_runtime::session_store::restore_django_principal(
+            &client,codec.clone(),token,id_runtime::session_store::LEGACY_BACKENDS,SystemTime::now()).await?.context("new provider session restore")?;
+        ensure!(principal.account_id.get()==i64::from(first) && principal.identity_id.get()==identities[0]);
+        ensure!(ids(&client,"SELECT CAST(id AS Utf8) AS value FROM usersessions_usersession WHERE user_id=$id".into(),first).await?.len()==1
+            && ids(&client,"SELECT CAST(id AS Utf8) AS value FROM token_blacklist_outstandingtoken WHERE user_id=$id".into(),first).await?.len()==1);
+        Ok(())
+    }.await;
+    server.abort();
+    // Only fixture-owned rows; cleanup also catches credentials from a failed assertion.
+    for index in claimed {
+        let account = accounts[index];
+        for token in ids(
+            &client,
+            "SELECT session_key AS value FROM usersessions_usersession WHERE user_id=$id".into(),
+            account,
+        )
+        .await?
+        {
+            client
+                .query_client()
+                .exec("DELETE FROM django_session WHERE session_key=$key")
+                .param("$key", token)
+                .await?;
+        }
+        for event in ids(
+            &client,
+            "SELECT CAST(id AS Utf8) AS value FROM accounts_loginevent WHERE user_id=$id".into(),
+            account,
+        )
+        .await?
+        {
+            client
+                .query_client()
+                .exec("DELETE FROM accounts_newdevicemailoutbox WHERE event_id=$id")
+                .param("$id", event.parse::<i64>()?)
+                .await?;
+        }
+        for table in [
+            "usersessions_usersession",
+            "core_usersessionmeta",
+            "core_usersessiontoken",
+            "token_blacklist_outstandingtoken",
+            "accounts_loginevent",
+            "accounts_userdevice",
+            "mfa_authenticator",
+            "socialaccount_socialaccount",
+            "accounts_accountdeletionrequest",
+            "accounts_accountidentity",
+            "account_emailaddress",
+            "accounts_accountemaillookup",
+        ] {
+            client
+                .query_client()
+                .exec(format!("DELETE FROM {table} WHERE user_id=$id"))
+                .param("$id", account)
+                .await?;
+        }
+        client
+            .query_client()
+            .exec("DELETE FROM usid_external_identity WHERE user_id=$id")
+            .param("$id", identities[index])
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM usid_audit_log WHERE actor_user_id=$id")
+            .param("$id", identities[index])
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM usid_user WHERE user_id=$id")
+            .param("$id", identities[index])
+            .await?;
+        client
+            .query_client()
+            .exec("DELETE FROM auth_user WHERE id=$id")
+            .param("$id", account)
+            .await?;
+    }
+    for token in tokens.into_iter().chain([alternate_token]) {
+        client
+            .query_client()
+            .exec("DELETE FROM django_session WHERE session_key=$key")
+            .param("$key", token)
+            .await?;
+    }
     client
         .query_client()
         .exec(format!("DROP TABLE `{table}`"))
