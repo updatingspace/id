@@ -264,10 +264,11 @@ async fn latest_email_link_claims_identity_once_and_notifies_both_addresses() ->
             "initial stage failed"
         );
         let first_id = latest_intent(&client, user_id).await?;
+        let other_result =
+            email_change::stage(&client, codec.clone(), &other_token, &new, now).await?;
         ensure!(
-            email_change::stage(&client, codec.clone(), &other_token, &new, now).await?
-                == StageResult::EmailExists,
-            "second account claimed reserved address"
+            other_result == StageResult::EmailExists,
+            "reserved address must return EmailExists, got {other_result:?}"
         );
         ensure!(
             email_change::stage(&client, codec.clone(), &token, &new, now).await?
@@ -662,8 +663,26 @@ async fn confirmation_rechecks_claim_address_account_and_identity_ownership() ->
     )
     .await?;
     let outcome: Result<()> = async {
-        let now = SystemTime::now();
-        ensure!(email_change::stage(&client, codec.clone(), &token, &new, now).await? == StageResult::Staged);
+        // Model the CI fixture's second-boundary race deterministically. Capturing
+        // the operation clock before both seed calls can put the second account's
+        // integer auth timestamp in the future, before the claim check is reached.
+        let fixture_now = UNIX_EPOCH + Duration::from_secs(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
+        let now = fixture_now + Duration::from_secs(1);
+        let mut session = client.query_client().query_row("SELECT session_data FROM django_session WHERE session_key=$key")
+            .param("$key",other_token.clone()).await?;
+        let encoded: String = session.remove_field_by_name("session_data")?.try_into()?;
+        let mut session = codec.decode(&encoded)?;
+        session.data.insert("account_authentication_methods".into(), json!([
+            {"method":"password","at":now.duration_since(UNIX_EPOCH)?.as_secs()}
+        ]));
+        let encoded = codec.encode(&session.data,session.signed_at,true)?;
+        client.query_client().exec("UPDATE django_session SET session_data=$data WHERE session_key=$key")
+            .param("$data",encoded).param("$key",other_token.clone()).await?;
+        ensure!(email_change::stage(&client, codec.clone(), &token, &new, fixture_now).await? == StageResult::Staged);
+        let stale = email_change::stage(&client,codec.clone(),&other_token,&new,fixture_now).await?;
+        ensure!(stale == StageResult::ReauthRequired, "pre-seed clock returned {stale:?}");
+        let current = email_change::stage(&client,codec.clone(),&other_token,&new,now).await?;
+        ensure!(current == StageResult::EmailExists, "post-seed clock returned {current:?}");
         let intent = latest_intent(&client, user_id).await?;
         let key = VerifyKey::new([9;32])?;
         let link = key.issue(Uuid::parse_str(&intent)?)?;
