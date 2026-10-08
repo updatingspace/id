@@ -81,6 +81,42 @@ impl Kind {
     }
 }
 
+// Login fixtures also write a binding for another provider. Reserve distinct
+// subject ranges for all six scenarios, including their offsets through +100.
+// A clock tick between tests must not turn an unknown subject into another
+// fixture's linked account. The shared base also keeps Steam IDs 17 digits.
+fn fixture_subject(seed: u128, kind: Kind, linking: bool) -> Result<u64> {
+    let group = match kind {
+        Kind::Github => 0,
+        Kind::Discord => 1,
+        Kind::Steam => 2,
+    } + if linking { 3 } else { 0 };
+    Ok(76_561_198_000_000_000 + u64::try_from(seed % 9_000_000_000)? * 1024 + group * 128)
+}
+
+#[test]
+fn fixture_subject_ranges_are_disjoint_at_adjacent_seeds_and_wraparound() -> Result<()> {
+    for seed in [0, 8_999_999_998, 8_999_999_999] {
+        let mut subjects = std::collections::HashSet::new();
+        for adjacent in [seed, seed + 1] {
+            for kind in [Kind::Github, Kind::Discord, Kind::Steam] {
+                for linking in [false, true] {
+                    let base = fixture_subject(adjacent, kind, linking)?;
+                    for offset in 0..=100 {
+                        let subject = base + offset;
+                        ensure!(
+                            subject.to_string().len() == 17,
+                            "invalid Steam subject shape"
+                        );
+                        ensure!(subjects.insert(subject), "provider fixture ranges overlap");
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 struct Provider {
     kind: Kind,
@@ -929,12 +965,7 @@ async fn browser_login_binds_state_identity_and_mfa(kind: Kind) -> Result<()> {
     }) + i32::try_from(stamp % 100_000_000)?;
     let identity = Uuid::new_v4();
     let other_identity = Uuid::new_v4();
-    let subject = u64::try_from(stamp % 9_000_000_000 + 1)?
-        + if kind == Kind::Steam {
-            76_561_198_000_000_000
-        } else {
-            0
-        };
+    let subject = fixture_subject(stamp, kind, false)?;
     let table = format!("id_{name}_test_{}", identity.simple());
     let cache = CacheStore::new(client.clone(), &table, "", 1)?;
     let codec = Arc::new(SessionCodec::new(SECRET, &[])?);
@@ -1533,7 +1564,7 @@ async fn browser_link_requires_fresh_owner_and_reserves_subject(kind: Kind) -> R
         Uuid::new_v4().simple().to_string(),
     ];
     let alternate_token = Uuid::new_v4().simple().to_string();
-    let subject = u64::try_from(nonce.as_u128() % 9_000_000_000 + 1)? + 76_561_198_000_000_000;
+    let subject = fixture_subject(nonce.as_u128(), kind, true)?;
     let table = format!("id_provider_link_{}", nonce.simple());
     let cache = CacheStore::new(client.clone(), &table, "", 1)?;
     let codec = Arc::new(SessionCodec::new(SECRET, &[])?);
