@@ -5,10 +5,30 @@ replays the required schema-job scenarios below through their shared
 command source. It does not duplicate their test lists. The default required run still uses Rust
 1.98.1. The optional `coverage=true` run uses a separately pinned nightly to
 measure real branches. **The migration's coverage acceptance is not complete:**
-both baselines below fail the thresholds; completing the measured scenarios,
+the measured revisions below fail the thresholds; measuring the current revision,
 covering remaining paths and promotion to a required job in
 `idctl/tested_revision.rs` remain outstanding. A failed baseline must not be
 made green by lowering thresholds or deleting production files/branches.
+
+## Completed required scenarios: 2026-10-08
+
+[Run 37722383642, job 113132781075](https://github.com/updatingspace/id/actions/runs/37722383642/job/113132781075)
+measured exact revision `61402e7773d09bf0cce2bbf5641549acb3021217`.
+Every required scenario completed; only the coverage threshold step failed.
+Independent recount of artifact `11526269665` matched all exported counters:
+20,053/23,779 lines (**84.33%**) and 3,239/5,208 represented LLVM branches
+(**62.19%**). All 94 profile files, including 70 critical files, were present.
+All 76 child start/completion receipts matched: API 9, jobs 4, UI 28 and idctl 35.
+The archive SHA-256 is
+`a199b0e84433023a76c7c83c4060438eb5f8d52895a8cfe4349ec49f5bbf6731`.
+`scenario_completed=true` and `passed=false` are both intentional. Raw profiles
+are absent from the artifact; this checks exported counters and receipts,
+not a fresh LLVM export.
+
+Later changes add HTTP logout authorization/revocation checks to the existing
+session scenario and include Steam's OpenID verifier in the critical profile.
+The current profile has 95 files, 71 critical; it has not yet been remeasured.
+The older baseline above cannot prove coverage for those changes.
 
 ## First baseline: 2026-10-08
 

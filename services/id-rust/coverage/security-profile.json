@@ -47,6 +47,7 @@
         "crates/id-runtime/src/session_store.rs",
         "crates/id-runtime/src/session_issuer.rs",
         "crates/id-runtime/src/provider_login.rs",
+        "crates/id-runtime/src/steam_openid.rs",
         "crates/id-runtime/src/me_store.rs",
         "crates/id-runtime/src/logout_store.rs",
         "crates/id-runtime/src/session_revoke.rs",
