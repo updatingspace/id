@@ -106,6 +106,7 @@ pub mod profile_http;
 pub mod profile_response;
 pub mod profile_store;
 pub mod profile_update;
+pub mod provider_login;
 pub mod recovery_rotation;
 pub mod security_http;
 pub mod security_mail;

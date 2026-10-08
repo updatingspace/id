@@ -4,7 +4,7 @@
 use crate::{
     cache_store::CacheStore,
     legacy_passkey,
-    login_preflight::{VerifiedAccount, verified_passkey_owner},
+    login_preflight::{VerifiedAccount, verified_credential_owner},
     passkey_index,
     session_issuer::PasskeyProof,
 };
@@ -124,7 +124,7 @@ pub async fn verify(
     }
     record["rust_passkey"] = serde_json::to_value(passkey)?;
     let updated_data = serde_json::to_string(&record)?;
-    let Some(account) = verified_passkey_owner(client, account_id).await? else {
+    let Some(account) = verified_credential_owner(client, account_id).await? else {
         return Ok(None);
     };
     Ok(Some(VerifiedPasskey {
