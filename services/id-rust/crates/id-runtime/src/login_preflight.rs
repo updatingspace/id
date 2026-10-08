@@ -35,6 +35,7 @@ pub struct VerifiedAccount {
     pub public_subject: PublicSubject,
     password_hash: String,
     email_key: String,
+    pub(crate) has_mfa: bool,
 }
 
 impl VerifiedAccount {
@@ -125,6 +126,7 @@ impl LoginPreflight {
             public_subject,
             password_hash: candidate.password_hash,
             email_key: normalized,
+            has_mfa: candidate.has_mfa,
         };
         if candidate.has_mfa {
             return Ok(LoginDecision::MfaRequired(verified));
@@ -147,11 +149,10 @@ async fn read_candidate(client: &Client, normalized_email: &str) -> Result<Optio
         .context("read legacy account for password login")
 }
 
-/// Passkey ownership is established by a verified WebAuthn signature and the
-/// credential-ID index. Resolve the same account policy as password login;
+/// Ownership must already be established by a verified external credential.
+/// Resolve the same account policy as password login;
 /// session issuance repeats every mutable check in its write transaction.
-#[cfg(feature = "passkeys")]
-pub(crate) async fn verified_passkey_owner(
+pub(crate) async fn verified_credential_owner(
     client: &Client,
     account_id: i32,
 ) -> Result<Option<VerifiedAccount>> {
@@ -182,15 +183,16 @@ pub(crate) async fn verified_passkey_owner(
     }
     let (Some(identity_id), Some(subject)) = (candidate.identity_id, candidate.public_subject)
     else {
-        bail!("passkey owner lacks immutable identity binding")
+        bail!("credential owner lacks immutable identity binding")
     };
-    let subject = PublicSubject::parse(subject).context("invalid passkey owner subject")?;
+    let subject = PublicSubject::parse(subject).context("invalid credential owner subject")?;
     Ok(Some(VerifiedAccount {
         account_id: AccountId::new(i64::from(account_id)),
         identity_id: IdentityId::new(identity_id),
         public_subject: subject,
         password_hash: candidate.password_hash,
         email_key: normalized,
+        has_mfa: candidate.has_mfa,
     }))
 }
 

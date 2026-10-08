@@ -73,6 +73,16 @@ pub async fn read_security(
     result.map(assemble).transpose()
 }
 
+/// Internal status for an already established credential owner, before MFA.
+pub(crate) async fn status_tx(
+    tx: &mut Transaction,
+    user_id: i32,
+) -> ydb::YdbResultWithCustomerErr<MfaStatus> {
+    assemble(read_authenticators(tx, user_id).await?)
+        .map(|snapshot| snapshot.status)
+        .map_err(|_| ydb::YdbOrCustomerError::from_err(std::io::Error::other("invalid MFA status")))
+}
+
 #[derive(Debug)]
 struct AuthenticatorRow {
     id: i64,

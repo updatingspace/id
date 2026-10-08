@@ -181,6 +181,11 @@ jobs:
       - name: Sign in with a passkey through two Rust instances on local YDB
         working-directory: services/id-rust
         run: cargo test --locked -p id-runtime --test passkey_login_ydb -- --ignored --nocapture
+      - name: GitHub browser login and MFA through loopback provider and local YDB
+        working-directory: services/id-rust
+        env:
+          ID_MFA_SEAL_KEY_B64: QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=
+        run: cargo test --locked -p id-runtime --test github_login_ydb -- --ignored --nocapture
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22.12.0"

@@ -861,3 +861,45 @@ BCrypt cost ≤16; PBKDF2 ≤10 млн итераций; пароль ≤1 MiB; 
 Повторяющиеся Authorization/X-Session-Token отвергаются как неоднозначные.
 Точное поведение Gateway с такими заголовками ещё нужно проверить. Срок сессии
 определяется записью БД; signed timestamp не заменяет срок или MFA freshness.
+
+## GitHub browser login
+
+`ID_AUTH_GITHUB_LOGIN_ENABLED` по умолчанию выключен. Первый Rust-поток
+поддерживает только вход в уже связанный аккаунт; регистрации, автоматической
+привязки по email, link/unlink, Discord и Steam в нём нет. Нужны существующие
+Rust login/form-token gates, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
+`ID_GITHUB_CALLBACK_URL` и secure session/CSRF cookies. Callback — единственный
+точный HTTPS URL с путём `/api/v1/auth/oauth/callback/github`, без query/fragment;
+его origin должен входить в `CSRF_TRUSTED_ORIGINS`. Адрес регистрируется в GitHub
+OAuth App без изменений. `ID_GITHUB_LOGIN_NEXT_PATHS` — JSON-массив точных локальных
+путей возврата, по умолчанию `["/account"]`; клиент не выбирает callback URL.
+Инвентарь сохраняет `id`/`name` и добавляет GitHub `login_enabled: true` только при
+включённом gate и валидной конфигурации. Отсутствие поля означает скрытую кнопку.
+
+| Endpoint | Контракт |
+| --- | --- |
+| `POST /api/v1/auth/oauth/login/github` | JSON `{form_token,next?}`, trusted Origin и CSRF. Form-token имеет purpose `login`. Ответ `{authorize_url,method:"GET"}`; браузер переходит на GitHub верхним уровнем. Новый begin отменяет предыдущий browser flow. |
+| `GET /api/v1/auth/oauth/callback/github` | Одноразовые `state`/`code`, соответствующий HttpOnly `__Host-id_github_flow`. Без MFA: session cookie и 303 на сохранённый `next`. С MFA: HttpOnly `__Host-id_github_mfa` и 303 `/login?provider_mfa=github`; session/JWT ещё не выдаются. |
+| `GET /api/v1/auth/oauth/login/github/pending` | Обе flow cookies; read-only ответ `{active:true,expires_at,methods,restart_required,next}`. `expires_at` — Unix seconds; методы `totp` и/или `recovery_codes`. Пустой список требует нового способа входа, в том числе для passkey-only аккаунта. Сохранённый `next` повторно проверяется по allowlist и используется при возврате к другому способу входа. Query `provider_mfa` сам по себе не доказывает активный flow. |
+| `POST /api/v1/auth/oauth/login/github/complete` | Обе flow cookies, trusted Origin, CSRF, JSON с одним из `mfa_code`/`recovery_code`. Успех: обычный LoginOut и `next`, session cookie, очистка flow cookies. UI открывает только безопасный сохранённый `next`. |
+| `POST /api/v1/auth/oauth/login/github/cancel` | JSON `{}`, trusted Origin и CSRF; `{ok:true}`, серверная отмена и очистка flow cookies. UI сохраняет `next` из pending, ожидает завершения отмены и затем выбирает другой способ входа. |
+
+State и MFA proof живут пять минут. Неверный MFA возвращает 401 `INVALID_MFA`
+и сохраняет pending до TTL/лимита попыток; missing/expired/canceled/replayed flow —
+401 `PROVIDER_FLOW_EXPIRED` с `active:false,restart_required:true`. Rate limit —
+429 `LOGIN_RATE_LIMITED` и `Retry-After`; ошибки зависимостей — 503
+`SERVICE_UNAVAILABLE`. Callback ошибки всегда дают 303 только на
+`/login?provider_error=<fixed-code>`: `INVALID_STATE`, `PROVIDER_DENIED`,
+`PROVIDER_UNAVAILABLE`, `ACCOUNT_NOT_LINKED`, `IDENTITY_CONFLICT`,
+`INVALID_CREDENTIALS`, `LOGIN_RATE_LIMITED` или `SERVICE_UNAVAILABLE`.
+Тексты GitHub, code, access token и proof в redirect не попадают.
+
+PKCE S256 и проверка `/user.id` обязательны. Две исторические таблицы связей
+сверяются через immutable account identity; дубликаты и разные владельцы
+закрывают вход. Выдающая serializable-транзакция повторяет проверку владельца,
+статуса, удаления, MFA, одноразового proof и отмены browser flow. Recovery/TOTP
+расходуются вместе с session/JWT; неизвестный результат commit не повторяется.
+Политика подтверждённого локального email остаётся общей с password/passkey login.
+Запросы настоящему GitHub и browser/Gateway acceptance требуют отдельной приёмки;
+loopback integration constructor доступен только в debug-сборке, разрешает HTTP
+loopback и YDB `/local`; runtime environment override отсутствует.

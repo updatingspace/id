@@ -39,6 +39,7 @@ pub mod email_verify_http;
 pub mod exchange_http;
 pub mod form_token_consume;
 pub mod form_token_http;
+pub mod github_login;
 pub mod gravatar_job;
 pub mod identity_reconcile;
 pub mod ids;
