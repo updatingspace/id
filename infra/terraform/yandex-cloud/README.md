@@ -44,23 +44,24 @@ For a production plan, initialize the existing remote state with its private
 backend configuration and pass the private runtime variables plus
 `production.performance.tfvars` to `tofu plan`. First inspect current live
 Gateway routes, container revisions, Lockbox secret versions, IAM bindings and
-persistent resources with `yc`. The Terraform state can contain a legacy
-Django backend that was already removed manually; do not recreate it or change
-serving Rust revisions as an incidental effect of state reconciliation.
-The retired blue resource is no longer declared. Before the first apply with
-this revision, compare `tofu state list` with `yc serverless container list`.
-If state still tracks the absent blue container or its invoker binding, remove
-only those stale addresses from state after verifying their cloud IDs are gone.
+persistent resources with `yc`. Compare a fresh `tofu state list` with the live
+cloud inventory before each apply; do not recreate retired Django containers
+or change serving Rust revisions as an incidental effect of reconciliation.
+The retired blue backend and Django Gravatar resources are no longer declared.
+Their six stale container, data-source and invoker addresses were removed from
+remote state on 2026-10-07, advancing its serial from 104 to 105. This completed
+cleanup is recorded in the
+[state reconciliation report](../../../docs/rust-migration/production-state-reconciliation.md#state-cleanup-completed-on-2026-10-07);
+the earlier snapshot and commands in that report are historical evidence,
+not instructions to repeat the removal. Keep the green Rust API resource and
+the Gravatar trigger that invokes Rust jobs.
 Review the planned green Rust container, Gateway, YDB, buckets and Lockbox
 changes separately.
 Review every planned change before applying. Do not apply a plan that replaces
 YDB, buckets, secrets, the Gateway, or live Rust containers unexpectedly.
-There is currently no automated live-state snapshot or plan guard in the
-project; manual review is required until a Rust/Node replacement is built.
+There is currently no automated live-state snapshot or OpenTofu plan guard in
+the project; manual review is required.
 Keep backend configuration and secrets outside Git.
-The [2026-10-07 state reconciliation snapshot](../../../docs/rust-migration/production-state-reconciliation.md)
-lists retired container addresses still present in remote state and the live
-Rust resources that must remain untouched.
 
 The production deploy workflow is triggered only for a SHA whose `ID CI/CD`
 push run passed. `idctl verify-tested-revision` checks the exact repository,
