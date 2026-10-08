@@ -50,7 +50,13 @@ async function main() {
         listenerClosed = await new Promise((resolve, reject) => {
           const probe = net.connect(port, '127.0.0.1');
           probe.once('connect', () => { probe.destroy(); resolve(false); });
-          probe.once('error', error => { if (error.code === 'ECONNREFUSED') resolve(true); else reject(error); });
+          probe.once('error', error => {
+            if (error.code === 'ECONNREFUSED') resolve(true);
+            // The listener can close during this TCP handshake. Probe again
+            // until refusal confirms closure; the in-flight request is separate.
+            else if (error.code === 'ECONNRESET') resolve(false);
+            else reject(new Error(`${signal}: listener probe failed`, { cause: error }));
+          });
         });
         if (listenerClosed) break;
         await delay(20);
