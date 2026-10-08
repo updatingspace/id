@@ -126,6 +126,26 @@ impl CacheStore {
         hex::encode(Sha256::digest(django_key.as_bytes()))
     }
 
+    /// Read a replay marker inside the caller's serializable transaction.
+    pub(crate) async fn contains_live_in_tx(
+        &self,
+        tx: &mut Transaction,
+        key: &str,
+        now: SystemTime,
+    ) -> ydb::YdbResultWithCustomerErr<bool> {
+        let row = tx
+            .query_row(format!(
+                "SELECT expires_at FROM {} WHERE cache_key = $key",
+                self.table
+            ))
+            .param("$key", self.key(key))
+            .optional()
+            .await?;
+        let Some(mut row) = row else { return Ok(false) };
+        let expiry: Option<u64> = row.remove_field_by_name("expires_at")?.try_into()?;
+        Ok(!is_expired(expiry, now).unwrap_or(false))
+    }
+
     /// Claim a one-time key as part of a caller's credential-issuance transaction.
     /// Any live row, including an undecodable one, blocks the claim. Callers must
     /// use a serializable write transaction and must not retry an unknown commit.
@@ -137,20 +157,8 @@ impl CacheStore {
         now: SystemTime,
     ) -> ydb::YdbResultWithCustomerErr<bool> {
         let hashed = self.key(key);
-        let select = format!(
-            "SELECT expires_at FROM {} WHERE cache_key = $key",
-            self.table
-        );
-        if let Some(mut row) = tx
-            .query_row(select)
-            .param("$key", hashed.clone())
-            .optional()
-            .await?
-        {
-            let old_expiry: Option<u64> = row.remove_field_by_name("expires_at")?.try_into()?;
-            if !is_expired(old_expiry, now).unwrap_or(false) {
-                return Ok(false);
-            }
+        if self.contains_live_in_tx(tx, key, now).await? {
+            return Ok(false);
         }
         let encoded = cache::encode(&CacheValue::String("y".into()))
             .map_err(ydb::YdbOrCustomerError::from_err)?;

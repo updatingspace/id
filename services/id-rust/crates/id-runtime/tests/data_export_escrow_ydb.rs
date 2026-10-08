@@ -24,7 +24,10 @@ use id_runtime::{
 use lettre::{AsyncSmtpTransport, Tokio1Executor, message::Mailbox};
 use std::{
     collections::BTreeSet,
-    sync::Arc,
+    sync::{
+        Arc, LazyLock,
+        atomic::{AtomicI32, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -32,6 +35,14 @@ use tokio::sync::Mutex;
 use tower::ServiceExt;
 use uuid::Uuid;
 use ydb::{Transaction, TxMode, closure};
+
+fn fixture_owner() -> i32 {
+    static NEXT_OWNER: LazyLock<AtomicI32> =
+        LazyLock::new(|| AtomicI32::new(rand::random_range(1_100_000_000..2_000_000_000)));
+    // Cleanup is account-wide, so reserve a distinct owner and owner + 1
+    // (the unauthorized caller) for every parallel scenario.
+    NEXT_OWNER.fetch_add(2, Ordering::Relaxed)
+}
 
 #[tokio::test]
 #[ignore = "requires disposable local /local YDB"]
@@ -49,7 +60,7 @@ async fn owner_cancellation_revokes_mail_and_capability_without_cross_account_ac
     ensure_schema(&client).await?;
     data_export_mail::ensure_schema(&client).await?;
     let id = Uuid::new_v4().simple().to_string();
-    let owner = 42;
+    let owner = fixture_owner();
     let now = SystemTime::now();
     let key = ExportEscrowKey::from_base64(&STANDARD.encode([0x63; 32]))?;
     let recipient = key.seal_recipient(&id, "cancel-export@example.invalid")?;
@@ -161,6 +172,7 @@ async fn encrypted_request_has_cooldown_and_repeatable_schema() -> Result<()> {
     data_export_mail::ensure_schema(&client).await?;
     data_export_mail::ensure_schema(&client).await?;
     let id = Uuid::new_v4().simple().to_string();
+    let owner = fixture_owner();
     let key = ExportEscrowKey::from_base64(&STANDARD.encode([0x51; 32]))?;
     let encrypted = key.seal_recipient(&id, "export@example.invalid")?;
     let now = SystemTime::now();
@@ -171,7 +183,7 @@ async fn encrypted_request_has_cooldown_and_repeatable_schema() -> Result<()> {
         .retry_tx(closure!(
             [tx_id, tx_encrypted],
             async |tx: &mut Transaction| {
-                insert_request_tx(tx, tx_id, 42, tx_encrypted, now).await?;
+                insert_request_tx(tx, tx_id, owner, tx_encrypted, now).await?;
                 data_export_mail::insert_request_tx(tx, tx_id, now).await
             }
         ))
@@ -182,12 +194,12 @@ async fn encrypted_request_has_cooldown_and_repeatable_schema() -> Result<()> {
     let mut row = client.query_client().query_row(
         "SELECT user_id, encrypted_email, state, release_at, expires_at FROM id_data_export_escrow WHERE id = $id",
     ).param("$id", id.clone()).await?;
-    let owner: i32 = row.remove_field_by_name("user_id")?.try_into()?;
+    let stored_owner: i32 = row.remove_field_by_name("user_id")?.try_into()?;
     let stored: String = row.remove_field_by_name("encrypted_email")?.try_into()?;
     let state: String = row.remove_field_by_name("state")?.try_into()?;
     let release: SystemTime = row.remove_field_by_name("release_at")?.try_into()?;
     let expiry: SystemTime = row.remove_field_by_name("expires_at")?.try_into()?;
-    ensure!(owner == 42 && state == "accepted");
+    ensure!(stored_owner == owner && state == "accepted");
     ensure!(stored == encrypted && !stored.contains("export@example.invalid"));
     ensure!(key.unseal_recipient(&id, &stored)? == "export@example.invalid");
     ensure!(
@@ -206,7 +218,7 @@ async fn encrypted_request_has_cooldown_and_repeatable_schema() -> Result<()> {
     let sealed_expiry = client
         .query_client()
         .retry_tx(closure!([tx_id, tx_key], async |tx: &mut Transaction| {
-            seal_snapshot_tx(tx, tx_id, 42, tx_key, "{}", now).await
+            seal_snapshot_tx(tx, tx_id, owner, tx_key, "{}", now).await
         }))
         .with_mode(TxMode::SerializableReadWrite)
         .idempotent(false)
@@ -263,12 +275,12 @@ async fn encrypted_request_has_cooldown_and_repeatable_schema() -> Result<()> {
     );
 
     data_export_operation::ensure_schema(&client).await?;
-    client.query_client().exec("INSERT INTO id_data_export_operation (id, user_id, status, attempts, next_attempt_at, claim_token, object_key, manifest, created_at) VALUES ($id, 42, 'pending_delayed', 1, CAST($now AS Datetime), '', $key, '{}', CAST($now AS Datetime))")
-        .param("$id", id.clone()).param("$key", object_key.clone()).param("$now", now).await?;
-    let (storage, s3_server) = empty_owner_s3().await?;
-    ensure!(data_export_operation::has_unsealed_delayed(&client, 42).await?);
+    client.query_client().exec("INSERT INTO id_data_export_operation (id, user_id, status, attempts, next_attempt_at, claim_token, object_key, manifest, created_at) VALUES ($id, $owner, 'pending_delayed', 1, CAST($now AS Datetime), '', $key, '{}', CAST($now AS Datetime))")
+        .param("$id", id.clone()).param("$owner", owner).param("$key", object_key.clone()).param("$now", now).await?;
+    let (storage, s3_server) = empty_owner_s3(owner).await?;
+    ensure!(data_export_operation::has_unsealed_delayed(&client, owner).await?);
     ensure!(
-        !id_runtime::data_export_job::clean_owner(&client, &storage, 42, 100).await?,
+        !id_runtime::data_export_job::clean_owner(&client, &storage, owner, 100).await?,
         "deletion must wait for a pending snapshot"
     );
     client
@@ -276,9 +288,9 @@ async fn encrypted_request_has_cooldown_and_repeatable_schema() -> Result<()> {
         .exec("UPDATE id_data_export_operation SET status = 'cooldown' WHERE id = $id")
         .param("$id", id.clone())
         .await?;
-    ensure!(!data_export_operation::has_unsealed_delayed(&client, 42).await?);
+    ensure!(!data_export_operation::has_unsealed_delayed(&client, owner).await?);
     ensure!(
-        id_runtime::data_export_job::clean_owner(&client, &storage, 42, 100).await?,
+        id_runtime::data_export_job::clean_owner(&client, &storage, owner, 100).await?,
         "deletion should detach a sealed snapshot"
     );
     s3_server.abort();
@@ -435,13 +447,7 @@ async fn exhausted_snapshot_sends_failure_instead_of_download_link() -> Result<(
     ensure_schema(&client).await?;
     data_export_mail::ensure_schema(&client).await?;
     let id = Uuid::new_v4().simple().to_string();
-    let owner = i32::try_from(
-        SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_micros()
-            % 900_000_000
-            + 100_000_000,
-    )?;
+    let owner = fixture_owner();
     let now = SystemTime::now();
     let key = ExportEscrowKey::from_base64(&STANDARD.encode([0x52; 32]))?;
     let recipient = key.seal_recipient(&id, "failed-export@example.invalid")?;
@@ -568,13 +574,7 @@ async fn operator_cancel_revokes_sealed_archive_and_mail() -> Result<()> {
     ensure_schema(&client).await?;
     data_export_mail::ensure_schema(&client).await?;
     let id = Uuid::new_v4().simple().to_string();
-    let owner = i32::try_from(
-        SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_micros()
-            % 900_000_000
-            + 100_000_000,
-    )?;
+    let owner = fixture_owner();
     let now = SystemTime::now();
     let key = ExportEscrowKey::from_base64(&STANDARD.encode([0x53; 32]))?;
     let recipient = key.seal_recipient(&id, "cancel-export@example.invalid")?;
@@ -705,11 +705,13 @@ async fn send_one_mail(
     tokio::time::timeout(Duration::from_secs(5), server).await??
 }
 
-async fn empty_owner_s3() -> Result<(
+async fn empty_owner_s3(
+    owner: i32,
+) -> Result<(
     id_runtime::data_export_s3::S3Export,
     tokio::task::JoinHandle<()>,
 )> {
-    async fn list(request: Request<Body>) -> Response<Body> {
+    async fn list(State(owner): State<i32>, request: Request<Body>) -> Response<Body> {
         assert_eq!(request.method(), Method::GET);
         assert_eq!(request.uri().path(), "/private-exports");
         assert!(
@@ -717,15 +719,15 @@ async fn empty_owner_s3() -> Result<(
                 .uri()
                 .query()
                 .unwrap_or("")
-                .contains("prefix=exports%2Fuser_42%2F")
+                .contains(&format!("prefix=exports%2Fuser_{owner}%2F"))
         );
-        Response::new(Body::from(
-            "<ListBucketResult><Name>private-exports</Name><Prefix>exports/user_42/</Prefix><IsTruncated>false</IsTruncated></ListBucketResult>",
-        ))
+        Response::new(Body::from(format!(
+            "<ListBucketResult><Name>private-exports</Name><Prefix>exports/user_{owner}/</Prefix><IsTruncated>false</IsTruncated></ListBucketResult>"
+        )))
     }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
-    let app = Router::new().fallback(any(list));
+    let app = Router::new().fallback(any(list)).with_state(owner);
     let server = tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
@@ -752,6 +754,7 @@ async fn expired_escrow_removes_unrecorded_upload_attempts_before_forgetting() -
     let client = id_runtime::connect_ydb().await?;
     ensure_schema(&client).await?;
     let id = Uuid::new_v4().simple().to_string();
+    let owner = fixture_owner();
     let now = SystemTime::now();
     let recipient = ExportEscrowKey::from_base64(&STANDARD.encode([0x73; 32]))?
         .seal_recipient(&id, "escrow-cleanup@example.invalid")?;
@@ -760,7 +763,9 @@ async fn expired_escrow_removes_unrecorded_upload_attempts_before_forgetting() -
         .query_client()
         .retry_tx(closure!(
             [tx_id, recipient],
-            async |tx: &mut Transaction| { insert_request_tx(tx, tx_id, 42, recipient, now).await }
+            async |tx: &mut Transaction| {
+                insert_request_tx(tx, tx_id, owner, recipient, now).await
+            }
         ))
         .with_mode(TxMode::SerializableReadWrite)
         .idempotent(false)

@@ -10,6 +10,15 @@
   const mfaMethod = document.getElementById("mfa-method");
   const mfaCode = document.getElementById("mfa-code");
   const passkeyButton = document.getElementById("passkey-login");
+  const providers = [
+    { id: "github", name: "GitHub", authorizeUrl: "https://github.com/login/oauth/authorize" },
+    { id: "discord", name: "Discord", authorizeUrl: "https://discord.com/oauth2/authorize" },
+  ].map(provider => ({ ...provider, enabled: false,
+    button: document.getElementById(`${provider.id}-login`),
+  }));
+  const providerHint = document.getElementById("provider-hint");
+  const loginQuery = new URLSearchParams(window.location.search);
+  const mfaProvider = providers.find(provider => provider.id === loginQuery.get("provider_mfa"));
   if (!form || !submit || !error || !status || !mfaFields || !mfaMethod || !mfaCode) return;
   const email = form.elements.email;
   const password = form.elements.password;
@@ -19,7 +28,25 @@
   let credentialsVersion = 0;
   let activeAttempt = null;
 
+  function alternateDisabled(disabled) {
+    if (passkeyButton) passkeyButton.disabled = disabled;
+    for (const provider of providers) if (provider.button) provider.button.disabled = disabled || performance.now() < providerRetryAt;
+  }
+
+  function showProviderActions() {
+    const hidden = Boolean(mfaProvider) || !mfaFields.hidden ||
+      document.getElementById("session-choice")?.hidden === false;
+    for (const provider of providers) {
+      if (provider.button) {
+        provider.button.hidden = !provider.enabled || hidden;
+        provider.button.disabled = submit.disabled || performance.now() < providerRetryAt;
+      }
+    }
+    if (providerHint) providerHint.hidden = hidden || !providers.some(provider => provider.enabled);
+  }
+
   function credentialsChanged() {
+    if (mfaProvider) return;
     credentialsVersion += 1;
     mfaFields.hidden = true;
     if (credentialFields) credentialFields.hidden = false;
@@ -28,20 +55,24 @@
     mfaCode.value = "";
     error.hidden = true;
     status.hidden = true;
+    showProviderActions();
     // Preparing a form token has no login side effect. A submitted login may
     // already have issued a cookie, so only its result can finish that attempt.
     if (activeAttempt && !activeAttempt.sending) {
       activeAttempt.controller.abort();
       activeAttempt = null;
       submit.disabled = false;
-      if (passkeyButton) passkeyButton.disabled = false;
+      alternateDisabled(false);
     }
   }
-  mfaBack?.addEventListener("click", () => { if (!submit.disabled) { credentialsChanged(); password.focus(); } });
+  mfaBack?.addEventListener("click", () => {
+    if (mfaProvider) { void cancelProvider(); return; }
+    if (!submit.disabled) { credentialsChanged(); password.focus(); }
+  });
   email.addEventListener("input", credentialsChanged);
   password.addEventListener("input", credentialsChanged);
 
-  if (passkeyButton && window.isSecureContext && window.PublicKeyCredential && navigator.credentials?.get) {
+  if (!mfaProvider && passkeyButton && window.isSecureContext && window.PublicKeyCredential && navigator.credentials?.get) {
     passkeyButton.hidden = false;
   }
 
@@ -58,7 +89,7 @@
     }
   }
 
-  const requestedNext = new URLSearchParams(window.location.search).get("next");
+  const requestedNext = loginQuery.get("next");
   const returnPath = safeReturnPath(requestedNext);
   if (authContext && requestedNext && (returnPath.startsWith("/oauth/consent?") || returnPath.startsWith("/authorize?"))) {
     document.getElementById("login-title").textContent = "Войдите, чтобы продолжить";
@@ -86,6 +117,213 @@
     try { return await response.json(); }
     catch { throw new Error("Сервис вернул неожиданный ответ. Попробуйте ещё раз."); }
   }
+
+  async function issueFormToken(signal) {
+    const response = await fetch("/api/v1/auth/form_token?purpose=login", {
+      credentials: "include", cache: "no-store", headers: { Accept: "application/json" }, signal,
+    });
+    const body = await jsonResponse(response);
+    if (!response.ok || typeof body.form_token !== "string") {
+      throw new Error(body.message || "Не удалось подготовить вход. Попробуйте ещё раз.");
+    }
+    return body.form_token;
+  }
+
+  const providerRetry = document.getElementById("provider-retry");
+  const providerAccount = document.getElementById("provider-account");
+  let providerStep = "loading";
+  let providerBusy = false;
+  let providerNext = null;
+  let providerRetryAt = 0;
+  let providerOutcomeUnknown = false;
+
+  function providerControls(busy) {
+    providerBusy = busy;
+    submit.disabled = busy || providerStep !== "ready" || performance.now() < providerRetryAt;
+    mfaCode.disabled = busy || providerStep !== "ready";
+    mfaCode.required = providerStep === "ready";
+    mfaMethod.disabled = busy || providerStep !== "ready";
+    if (mfaBack) mfaBack.disabled = busy;
+    if (providerRetry) providerRetry.disabled = busy;
+    alternateDisabled(true);
+    form.setAttribute("aria-busy", String(busy));
+  }
+
+  async function providerRequest(provider, suffix, payload) {
+    const signal = AbortSignal.timeout(15000);
+    const headers = { Accept: "application/json" };
+    if (payload !== undefined) {
+      if (!csrfCookie()) await issueFormToken(signal);
+      const csrf = csrfCookie();
+      if (!csrf) throw new Error("Не удалось подготовить защиту запроса. Обновите страницу.");
+      headers["Content-Type"] = "application/json";
+      headers["X-CSRFToken"] = csrf;
+    }
+    try {
+      const response = await fetch(`/api/v1/auth/oauth/login/${provider.id}${suffix}`, {
+        method: payload === undefined ? "GET" : "POST", credentials: "include", cache: "no-store",
+        headers, signal, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+      });
+      return { response, body: await jsonResponse(response) };
+    } catch (cause) {
+      if (cause instanceof Error && payload !== undefined) cause.requestSent = true;
+      throw cause;
+    }
+  }
+
+  function providerRestart(message) {
+    providerStep = "restart";
+    if (providerAccount) providerAccount.hidden = false;
+    showError(message);
+  }
+
+  function providerRateLimit(response) {
+    const retry = response.headers.get("Retry-After");
+    const seconds = retry && /^\d+$/u.test(retry) ? Number(retry) : 30;
+    const duration = Math.min(seconds, 86400) * 1000;
+    providerRetryAt = performance.now() + duration;
+    showError(`Слишком много попыток. Повторите после ${new Date(Date.now() + duration).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}.`);
+    setTimeout(function release() {
+      const remaining = providerRetryAt - performance.now();
+      if (remaining > 0) { setTimeout(release, remaining); return; }
+      if (mfaProvider) providerControls(providerBusy);
+      else alternateDisabled(submit.disabled);
+    }, Math.max(0, providerRetryAt - performance.now()));
+  }
+
+  async function loadProviderPending() {
+    if (!mfaProvider || providerBusy) return;
+    providerControls(true);
+    error.hidden = true;
+    status.hidden = false;
+    status.textContent = `Проверяем вход через ${mfaProvider.name}…`;
+    if (providerRetry) providerRetry.hidden = true;
+    try {
+      const { response, body } = await providerRequest(mfaProvider, "/pending");
+      if ((response.status === 401 && body.code === "PROVIDER_FLOW_EXPIRED") || (response.ok && body.active === false)) {
+        providerNext = null;
+        providerRestart("Этот этап входа истёк, отменён или уже завершён. Проверьте аккаунт либо выберите другой способ входа.");
+        return;
+      }
+      if (!response.ok) throw new Error(`Не удалось проверить вход через ${mfaProvider.name}. Повторите проверку.`);
+      if (body.active !== true || !Array.isArray(body.methods) || !Number.isFinite(body.expires_at)) {
+        throw new Error("Сервис вернул неожиданные параметры входа. Повторите проверку.");
+      }
+      providerNext = typeof body.next === "string" ? safeReturnPath(body.next) : null;
+      if (providerOutcomeUnknown) {
+        providerRestart("Результат отправленного кода пока не подтверждён. Проверьте аккаунт или отмените этот вход перед новой попыткой.");
+        return;
+      }
+      const available = [...mfaMethod.options].filter(option => body.methods.includes(option.value === "recovery" ? "recovery_codes" : "totp"));
+      if (body.restart_required === true || !available.length) {
+        providerRestart("Для этого аккаунта нет доступного кода приложения или резервного кода. Выберите другой способ входа, например ключ доступа.");
+        return;
+      }
+      for (const option of mfaMethod.options) option.disabled = option.hidden = !available.includes(option);
+      if (!available.some(option => option.selected)) mfaMethod.value = available[0].value;
+      mfaCode.autocomplete = mfaMethod.value === "recovery" ? "off" : "one-time-code";
+      mfaCode.inputMode = mfaMethod.value === "recovery" ? "text" : "numeric";
+      providerStep = "ready";
+      document.getElementById("login-title").textContent = "Подтвердите вход";
+      document.querySelector(".intro").textContent = "Завершите вход в связанный аккаунт UpdSpace ID.";
+      const hint = document.getElementById("mfa-hint");
+      if (hint) hint.textContent = `${mfaProvider.name} подтвердил связанный аккаунт. Введите код дополнительной защиты UpdSpace ID.`;
+      const expiry = document.getElementById("provider-expiry");
+      const date = new Date(body.expires_at * 1000);
+      if (expiry && !Number.isNaN(date.valueOf())) {
+        expiry.textContent = `Этот шаг действует до ${date.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })} по времени устройства.`;
+        expiry.hidden = false;
+      }
+      status.hidden = true;
+    } catch (cause) {
+      providerStep = "loading";
+      showError(cause instanceof Error ? cause.message : "Не удалось проверить вход. Повторите проверку.");
+      if (providerRetry) providerRetry.hidden = false;
+    } finally { providerControls(false); }
+  }
+
+  async function cancelProvider() {
+    if (!mfaProvider || providerBusy) return;
+    providerControls(true);
+    error.hidden = true;
+    status.hidden = false;
+    status.textContent = `Отменяем вход через ${mfaProvider.name}…`;
+    let leaving = false;
+    try {
+      const { response, body } = await providerRequest(mfaProvider, "/cancel", {});
+      if (!response.ok || body.ok !== true) throw new Error("Не удалось подтвердить отмену. Повторите отмену, прежде чем выбрать другой способ входа.");
+      leaving = true;
+      window.location.replace(providerNext ? `/login?next=${encodeURIComponent(providerNext)}` : "/login");
+    } catch {
+      showError("Не удалось подтвердить отмену. Повторите отмену, прежде чем выбрать другой способ входа.");
+    } finally { if (!leaving) providerControls(false); }
+  }
+
+  async function completeProvider() {
+    if (submit.disabled || providerStep !== "ready") return;
+    const code = mfaCode.value.trim();
+    if (!code) { mfaCode.setAttribute("aria-invalid", "true"); showError("Введите код подтверждения."); return; }
+    const payload = { [mfaMethod.value === "recovery" ? "recovery_code" : "mfa_code"]: code };
+    providerControls(true);
+    error.hidden = true;
+    status.hidden = false;
+    status.textContent = "Подтверждаем вход…";
+    let leaving = false;
+    try {
+      const { response, body } = await providerRequest(mfaProvider, "/complete", payload);
+      if (response.status === 401 && body.code === "INVALID_MFA") {
+        mfaCode.setAttribute("aria-invalid", "true");
+        showError("Неверный код. Проверьте его и попробуйте ещё раз.");
+      } else if (response.status === 401 && body.code === "PROVIDER_FLOW_EXPIRED") {
+        providerRestart("Этот этап входа истёк, отменён или уже завершён. Проверьте аккаунт либо выберите другой способ входа.");
+      } else if (response.status === 429) {
+        providerRateLimit(response);
+      } else if (response.ok && typeof body.next === "string") {
+        clearLegacyToken();
+        leaving = true;
+        window.location.replace(safeReturnPath(body.next));
+      } else if (!response.ok && response.status < 500) {
+        providerRestart("Не удалось подтвердить вход. Выберите другой способ входа или начните заново.");
+      } else { throw Object.assign(new Error("Unknown result"), { requestSent: true }); }
+    } catch (cause) {
+      if (cause?.requestSent) {
+        providerOutcomeUnknown = true;
+        providerRestart("Результат входа неизвестен: запрос мог выполниться. Проверьте аккаунт; не отправляйте код повторно без проверки.");
+        if (providerRetry) providerRetry.hidden = false;
+      } else showError("Не удалось подготовить защиту запроса. Повторите попытку или обновите страницу.");
+    } finally { if (!leaving) providerControls(false); }
+  }
+
+  for (const provider of providers) provider.button?.addEventListener("click", async () => {
+    if (!provider.enabled || mfaProvider || submit.disabled || provider.button.disabled) return;
+    submit.disabled = true;
+    alternateDisabled(true);
+    email.readOnly = password.readOnly = true;
+    error.hidden = true;
+    status.hidden = false;
+    status.textContent = `Открываем ${provider.name}…`;
+    let leaving = false;
+    try {
+      const formToken = await issueFormToken(AbortSignal.timeout(15000));
+      const { response, body } = await providerRequest(provider, "", { form_token: formToken, next: returnPath });
+      if (response.status === 429) { providerRateLimit(response); return; }
+      if (body.code === "INVALID_REDIRECT") throw new Error(`${provider.name} пока не поддерживает этот переход. Войдите с паролем или ключом доступа.`);
+      if (!response.ok) throw new Error(`Вход через ${provider.name} сейчас недоступен. Попробуйте позже или выберите другой способ.`);
+      const target = new URL(body.authorize_url);
+      if (body.method !== "GET" || target.origin + target.pathname !== provider.authorizeUrl || target.username || target.password) {
+        throw new Error(`Сервис вернул неверный адрес ${provider.name}. Вход остановлен.`);
+      }
+      clearLegacyToken();
+      leaving = true;
+      window.location.assign(target.href);
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : `Не удалось начать вход через ${provider.name}.`);
+    } finally {
+      if (!leaving) { submit.disabled = false; alternateDisabled(false); email.readOnly = password.readOnly = false; }
+    }
+  });
+
+  providerRetry?.addEventListener("click", () => { void loadProviderPending(); });
 
   function legacyToken() {
     try { return window.sessionStorage.getItem("id_session_token"); }
@@ -149,7 +387,7 @@
       return;
     }
     submit.disabled = true;
-    if (passkeyButton) passkeyButton.disabled = true;
+    alternateDisabled(true);
     status.hidden = false;
     status.textContent = "Проверяем существующую сессию…";
     const timeout = new AbortController();
@@ -197,7 +435,7 @@
     } finally {
       clearTimeout(timer);
       submit.disabled = false;
-      if (passkeyButton) passkeyButton.disabled = false;
+      alternateDisabled(false);
     }
   }
 
@@ -210,8 +448,8 @@
   });
 
   if (passkeyButton) passkeyButton.addEventListener("click", async () => {
-    if (passkeyButton.disabled || submit.disabled) return;
-    passkeyButton.disabled = true;
+    if (mfaProvider || passkeyButton.disabled || submit.disabled) return;
+    alternateDisabled(true);
     submit.disabled = true;
     error.hidden = true;
     status.hidden = false;
@@ -219,13 +457,7 @@
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), 120000);
     try {
-      const issued = await fetch("/api/v1/auth/form_token?purpose=login", {
-        credentials: "include", cache: "no-store", headers: { Accept: "application/json" }, signal: timeout.signal,
-      });
-      const formToken = await jsonResponse(issued);
-      if (!issued.ok || typeof formToken.form_token !== "string") {
-        throw new Error(formToken.message || "Не удалось подготовить вход. Попробуйте ещё раз.");
-      }
+      await issueFormToken(timeout.signal);
       const csrf = csrfCookie();
       if (!csrf) throw new Error("Не удалось подготовить защиту запроса. Обновите страницу.");
       const headers = { "Content-Type": "application/json", Accept: "application/json", "X-CSRFToken": csrf };
@@ -255,16 +487,17 @@
       }
     } finally {
       clearTimeout(timer);
-      passkeyButton.disabled = false;
+      alternateDisabled(false);
       submit.disabled = false;
     }
   });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (mfaProvider) { await completeProvider(); return; }
     if (submit.disabled) return;
     submit.disabled = true;
-    if (passkeyButton) passkeyButton.disabled = true;
+    alternateDisabled(true);
     error.hidden = true;
     status.hidden = false;
     status.textContent = "Проверяем данные…";
@@ -279,21 +512,12 @@
     activeAttempt = attempt;
     const timer = setTimeout(() => timeout.abort(), 30000);
     try {
-      const issued = await fetch("/api/v1/auth/form_token?purpose=login", {
-        credentials: "include",
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-        signal: timeout.signal,
-      });
-      const formToken = await jsonResponse(issued);
+      const formToken = await issueFormToken(timeout.signal);
       if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
-      if (!issued.ok || typeof formToken.form_token !== "string") {
-        throw new Error(formToken.message || "Не удалось подготовить вход. Попробуйте ещё раз.");
-      }
       const payload = {
         email: attempt.email,
         password: attempt.password,
-        form_token: formToken.form_token,
+        form_token: formToken,
       };
       if (!mfaFields.hidden && mfaCode.value.trim()) {
         payload[mfaMethod.value === "recovery" ? "recovery_code" : "mfa_code"] = mfaCode.value.trim();
@@ -319,6 +543,7 @@
         if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
         if (body.code === "MFA_REQUIRED") {
           mfaFields.hidden = false;
+          showProviderActions();
           if (credentialFields) credentialFields.hidden = true;
           submit.textContent = "Подтвердить вход";
           mfaCode.required = true;
@@ -344,12 +569,48 @@
         email.readOnly = false;
         password.readOnly = false;
         submit.disabled = false;
-        if (passkeyButton) passkeyButton.disabled = false;
+        alternateDisabled(false);
       }
     }
   });
 
-  void restoreLegacySession();
+  if (mfaProvider) {
+    email.disabled = password.disabled = true;
+    email.required = password.required = false;
+    if (credentialFields) credentialFields.hidden = true;
+    if (passkeyButton) passkeyButton.hidden = true;
+    const links = document.querySelector(".auth-links");
+    if (links) links.hidden = true;
+    mfaFields.hidden = false;
+    if (mfaBack) mfaBack.textContent = "Другой способ входа";
+    submit.textContent = "Подтвердить вход";
+    document.getElementById("login-title").textContent = `Вход через ${mfaProvider.name}`;
+    document.querySelector(".intro").textContent = "Проверяем сохранённый шаг входа в этом браузере.";
+    const hint = document.getElementById("mfa-hint");
+    if (hint) hint.textContent = "Дождитесь проверки, прежде чем вводить код.";
+    void loadProviderPending();
+  } else {
+    void restoreLegacySession();
+    const providerErrors = {
+      INVALID_STATE: "Срок входа через внешний сервис истёк или запрос не соответствует этому браузеру. Начните заново.",
+      PROVIDER_DENIED: "Вы отменили вход через внешний сервис. Можно попробовать снова или выбрать другой способ.",
+      ACCOUNT_NOT_LINKED: "К этому внешнему сервису не подключён аккаунт UpdSpace ID. Войдите другим способом.",
+      IDENTITY_CONFLICT: "Не удалось однозначно определить связанный аккаунт. Войдите другим способом.",
+      LOGIN_RATE_LIMITED: "Слишком много попыток. Подождите и начните вход заново.",
+    };
+    if (loginQuery.has("provider_error")) {
+      const code = loginQuery.get("provider_error");
+      showError(Object.hasOwn(providerErrors, code) ? providerErrors[code] : "Вход через внешний сервис сейчас недоступен. Попробуйте позже или выберите другой способ.");
+    }
+    if (providers.some(provider => provider.button)) fetch("/api/v1/auth/oauth/providers", {
+      credentials: "include", cache: "no-store", signal: AbortSignal.timeout(8000),
+    }).then(response => response.ok ? response.json() : null).then(body => {
+      for (const provider of providers) {
+        provider.enabled = Array.isArray(body?.providers) && body.providers.some(item => item?.id === provider.id && item.login_enabled === true);
+      }
+      showProviderActions();
+    }).catch(() => {});
+  }
   if (!window.location.search) {
     let touched = false;
     form.addEventListener("input", () => { touched = true; }, { once: true });
@@ -358,17 +619,19 @@
     fetch("/api/v1/auth/me", { credentials: "include", cache: "no-store", signal: controller.signal })
       .then(response => response.ok ? response.json() : null)
       .then(body => {
-        if (!body?.user || touched || activeAttempt || !mfaFields.hidden) return;
+        if (!body?.user || touched || activeAttempt || submit.disabled || !mfaFields.hidden) return;
         const choice = document.getElementById("session-choice");
         if (!choice) return;
         document.getElementById("session-name").textContent = body.user.email || body.user.username || "Ваш аккаунт";
         choice.hidden = false;
         form.hidden = true;
+        showProviderActions();
         const passkeyVisible = passkeyButton && !passkeyButton.hidden;
         if (passkeyButton) passkeyButton.hidden = true;
         document.getElementById("choose-another").addEventListener("click", () => {
           choice.hidden = true;
           form.hidden = false;
+          showProviderActions();
           if (passkeyButton) passkeyButton.hidden = !passkeyVisible;
           email.focus();
         });

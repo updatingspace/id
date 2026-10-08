@@ -55,13 +55,13 @@ struct PasskeyLoginConfig {
 }
 
 pub struct LoginHttpConfig {
-    client: Arc<Client>,
-    cache: CacheStore,
+    pub(crate) client: Arc<Client>,
+    pub(crate) cache: CacheStore,
     preflight: LoginPreflight,
-    session_codec: Arc<SessionCodec>,
-    jwt_codec: AccountJwtCodec,
+    pub(crate) session_codec: Arc<SessionCodec>,
+    pub(crate) jwt_codec: AccountJwtCodec,
     media: MediaUrl,
-    options: LoginHttpOptions,
+    pub(crate) options: LoginHttpOptions,
     ymq: Option<Arc<YmqPublisher>>,
     #[cfg(feature = "passkeys")]
     passkey: Option<PasskeyLoginConfig>,
@@ -493,6 +493,12 @@ async fn login(State(config): State<Arc<LoginHttpConfig>>, request: Request) -> 
     };
     let now = SystemTime::now();
     let lifetime = Duration::from_secs(config.options.session_cookie_age);
+    if crate::provider_login::cancel_existing(&config.cache, &headers)
+        .await
+        .is_err()
+    {
+        return unavailable(&headers, &config.options, csrf_cookie);
+    }
     let issued_result = if let Some(code) = mfa_code.as_deref() {
         issue_password_login_with_mfa(
             &config.client,
@@ -565,7 +571,7 @@ async fn login(State(config): State<Arc<LoginHttpConfig>>, request: Request) -> 
     response
 }
 
-async fn login_success(
+pub(crate) async fn login_success(
     config: &LoginHttpConfig,
     headers: &HeaderMap,
     verified: &VerifiedAccount,
@@ -836,6 +842,12 @@ async fn passkey_complete(
             .to_owned(),
         device_fingerprint_salt: config.options.device_fingerprint_salt.clone(),
     };
+    if crate::provider_login::cancel_existing(&config.cache, &headers)
+        .await
+        .is_err()
+    {
+        return unavailable(&headers, &config.options, csrf_cookie);
+    }
     let issued = match issue_passkey_login(
         &config.client,
         config.session_codec.clone(),
@@ -882,8 +894,7 @@ async fn passkey_complete(
     response
 }
 
-#[cfg(feature = "passkeys")]
-fn request_ip(request: &Request) -> Option<String> {
+pub(crate) fn request_ip(request: &Request) -> Option<String> {
     request
         .headers()
         .get("x-forwarded-for")
@@ -959,7 +970,11 @@ fn trusted_csrf_token(headers: &HeaderMap, options: &LoginHttpOptions, origin: &
         .unwrap_or(false)
 }
 
-fn make_csrf_cookie(headers: &HeaderMap, options: &LoginHttpOptions, rotate: bool) -> String {
+pub(crate) fn make_csrf_cookie(
+    headers: &HeaderMap,
+    options: &LoginHttpOptions,
+    rotate: bool,
+) -> String {
     let existing = if rotate {
         None
     } else {
@@ -1014,7 +1029,7 @@ fn unavailable(headers: &HeaderMap, options: &LoginHttpOptions, csrf_cookie: Str
     )
 }
 
-fn json_response(
+pub(crate) fn json_response(
     headers: &HeaderMap,
     options: &LoginHttpOptions,
     status: StatusCode,

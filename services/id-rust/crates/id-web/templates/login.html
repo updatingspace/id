@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
   <title>Вход — UpdSpace ID</title>
   <link rel="stylesheet" href="/_id/login.css?v=ui-20261008-1" />
-  <script src="/_id/login.js?v=ui-20261008-1" defer></script>
+  <script src="/_id/login.js?v=ui-20261008-3" defer></script>
   <script src="/_id/ui.js?v=ui-20261008-1"></script>
 </head>
 <body>
@@ -36,19 +36,25 @@
         </div>
         <fieldset id="mfa-fields" hidden>
           <legend>Подтверждение входа</legend>
-          <p>Этот шаг нужен, только если вы включили дополнительную защиту аккаунта. Он не заменяет выбор разрешений для приложения.</p>
+          <p id="mfa-hint">Этот шаг нужен, только если вы включили дополнительную защиту аккаунта. Он не заменяет выбор разрешений для приложения.</p>
+          <p id="provider-expiry" class="muted" hidden></p>
           <label for="mfa-method">Способ подтверждения</label>
           <select id="mfa-method" name="mfa-method">
             <option value="totp">Код приложения</option>
             <option value="recovery">Резервный код</option>
           </select>
           <label for="mfa-code">Код</label>
-          <input id="mfa-code" name="mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" />
+          <input id="mfa-code" name="mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" aria-describedby="error" maxlength="128" />
           <button id="mfa-back" type="button">Вернуться к паролю</button>
+          <button id="provider-retry" type="button" hidden>Проверить ещё раз</button>
+          <a id="provider-account" href="/account" hidden>Проверить аккаунт</a>
         </fieldset>
         <button id="submit" type="submit">{{LOGIN_ACTION}}</button>
       </form>
       {{PASSKEY_ACTION}}
+      <button id="github-login" class="secondary" type="button" aria-describedby="provider-hint" hidden>Войти через GitHub</button>
+      <button id="discord-login" class="secondary" type="button" aria-describedby="provider-hint" hidden>Войти через Discord</button>
+      <p id="provider-hint" class="muted" hidden>Для аккаунтов, к которым уже подключён выбранный сервис.</p>
       <div class="auth-links">
         {{RECOVERY_LINK}}
         {{SIGNUP_LINK}}
