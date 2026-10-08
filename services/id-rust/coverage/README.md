@@ -196,6 +196,42 @@ local reproduction completed its browser, proxy and web-process cleanup in about
 11 seconds. No CI cleanup phase was timed individually, so the cause is unknown;
 no timeout or UI change is justified by this observation alone.
 
+## Incomplete combined run: 2026-10-08
+
+[Run 37716034564, job 113112581842](https://github.com/updatingspace/id/actions/runs/37716034564/job/113112581842)
+measured immutable commit `13d3b272a5f164a3cfdd62fe8ce341da73414e6b` with the
+expanded 94-file, 70-critical profile. This run **did not complete its scenario
+set**. Step 42, `totp_setup_http_ydb`, failed after 3.18 seconds:
+`one_totp_and_one_recovery_set_after_parallel_confirmation` received HTTP 503
+`SERVICE_UNAVAILABLE` during 100 concurrent same-key recovery rotations through
+two application instances. The log contains no underlying runtime error chain;
+the database/readiness cause is not established by that response alone.
+
+Provider integration (step 48), jobs shutdown (68), all shared schema replays
+(75–79), and subsequent acceptance checks were skipped. Their wiring is present
+but this run supplies no execution evidence for them. The reporter correctly
+saved `scenario_completed: false` and `passed: false`. Available partial counters
+are 8,248/23,771 lines (34.70%) and 1,440/5,210 represented LLVM branches (27.64%).
+These are diagnostic partial data, **not a new completed baseline or a coverage
+regression relative to 9dead02**. The historical completed counts are unchanged.
+
+The [artifact, ID 11523299606](https://github.com/updatingspace/id/actions/runs/37716034564/artifacts/11523299606)
+is 3,485,095 bytes with verified SHA-256
+`3fd59e15ccea2bb18f55a832ffbc88824c40e0ae863f0c73d0bd8dfc696d701c`.
+All 94 manifest files are present among 147 LLVM files. Independent recalculation
+reproduced the per-file counts, totals and failures, including the mandatory
+incomplete-scenario failure. The archive has 23 paired child receipts: 1 API,
+8 web and 14 CLI. No jobs child ran. As in prior artifacts, actual raw profiles
+are not archived, and direct-child accounting is not independently complete.
+
+Provenance matches the exact commit, pinned rustc/LLVM/cargo-llvm-cov and unchanged
+Cargo.lock hash above. The new manifest hash is
+`ccdbc34f9507b155500c566d9389be5220b64d6e7228e3f12f7f32a02dd6544e`.
+No measurement was retried or cancelled to conceal this failure. The separate
+ordinary CI lint failure at this revision is also not a successful release gate.
+A diagnosed correction and a complete run of the resulting exact revision are
+still needed before evaluating the expanded profile.
+
 ## Complete required schema inventory after the expanded baseline
 
 The bounded inventory compared every Rust test and application/browser command
@@ -237,8 +273,8 @@ feature flags, measurement environment inheritance, failure propagation, owned
 container cleanup and workflow-to-replay parity. New inline required Rust or
 browser scenarios without a matching measurement invocation fail that check.
 These local command checks do not substitute for the actual combined
-instrumented run. **The final combined run is pending; the immutable 9dead02
-counts above remain unchanged.** No threshold, exclusion or source-profile entry
+instrumented run. **The first combined run stopped early as recorded above;
+the immutable 9dead02 counts remain unchanged.** No threshold or exclusion
 was changed to close these measurement omissions.
 
 ## Run the measurement
