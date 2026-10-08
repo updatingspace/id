@@ -38,7 +38,7 @@ simple_asn1 = "=0.6.4"
 subtle = "2.6"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "signal", "net", "time", "io-util"] }
-topcoat = { version = "=0.9.0", default-features = false, features = ["router", "serve", "view"] }
+topcoat = { version = "=0.10.0", default-features = false, features = ["router", "serve", "view"] }
 askama = "=0.16.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
