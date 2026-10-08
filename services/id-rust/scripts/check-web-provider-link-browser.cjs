@@ -25,6 +25,8 @@ async function main() {
   let resultStatus = 403, result = { code: 'REAUTH_REQUIRED' };
   let cancelStatus = 200;
   let pauseBegin;
+  let unlinkStatus = 200, unlinkResult = { ok: true }, unlinkCommit = true;
+  let pauseUnlink;
   let browserReads = 0;
   const writes = [];
   const reply = (res, status, body, headers = {}) => {
@@ -50,6 +52,22 @@ async function main() {
       const body = JSON.parse(raw);
       writes.push({ route, body });
       if (route === '/api/v1/auth/login') return reply(res, body.mfa_code ? 200 : 401, body.mfa_code ? { ok: true } : { code: 'MFA_REQUIRED' });
+      if (route === '/api/v1/auth/oauth/unlink') {
+        assert.deepEqual(Object.keys(body), ['provider']);
+        assert.ok(providers.some(([id]) => id === body.provider));
+        assert.match(req.headers.cookie || '', /sessionid=synthetic/);
+        if (pauseUnlink) await pauseUnlink;
+        if (unlinkCommit) browserUser = { ...browserUser, oauth_providers: browserUser.oauth_providers.filter(id => id !== body.provider) };
+        if (unlinkStatus === 0) {
+          // Lose the response after headers; closing before headers lets Chromium
+          // retry a stale pooled connection and obscures the UI double-click check.
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.write('{');
+          setTimeout(() => res.destroy(), 10);
+          return;
+        }
+        return reply(res, unlinkStatus, unlinkResult);
+      }
       assert.deepEqual(body, {}, 'link and cancel carry no client-selected owner, intent, email, next or form token');
       if (route.endsWith('/cancel')) return reply(res, cancelStatus, { ok: cancelStatus === 200 });
       assert.ok(providers.some(([id]) => route === `/api/v1/auth/oauth/link/${id}`));
@@ -81,6 +99,7 @@ async function main() {
     }
     browser = await chromium.launch({ headless: true, ...(process.env.ID_CHROMIUM_PATH ? { executablePath: process.env.ID_CHROMIUM_PATH } : {}) });
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.context().addCookies([{ name: 'sessionid', value: 'synthetic', url: origin }]);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const load = async (query = '') => {
@@ -93,9 +112,9 @@ async function main() {
     const idle = () => page.locator('#provider-links[aria-busy=false]').waitFor({ state: 'attached' });
     const row = id => page.locator(`[data-link-provider=${id}]`);
     const begin = async id => {
-      const details = row(id).locator('details');
+      const details = row(id).locator('[data-link-review]');
       if (!await details.evaluate(element => element.open)) await details.locator('summary').press('Enter');
-      await row(id).locator('button').click();
+      await row(id).locator('[data-link-begin]').click();
     };
     await load();
     assert.equal(await page.locator('#provider-links').isVisible(), false, 'inventory is not capability');
@@ -109,7 +128,7 @@ async function main() {
     capabilityStatus = 200;
     browserUser = { ...user, oauth_providers: undefined };
     await load();
-    for (const [id] of providers) assert.equal(await row(id).locator('details').isVisible(), false, 'missing read model is not unlinked');
+    for (const [id] of providers) assert.equal(await row(id).locator('[data-link-review]').isVisible(), false, 'missing read model is not unlinked');
     browserUser = user;
     await load('&provider_linked=github');
     await page.locator('#provider-link-error:visible').waitFor();
@@ -117,14 +136,14 @@ async function main() {
     browserUser = { ...user, oauth_providers: ['github'] };
     await load('&provider_linked=github');
     assert.equal(await row('github').locator('[data-link-state]').textContent(), 'Связан');
-    assert.equal(await row('github').locator('details').isVisible(), false, 'no replace/unlink action');
+    assert.equal(await row('github').locator('[data-link-review]').isVisible(), false, 'linked accounts cannot be replaced');
     const noJs = await browser.newContext({ javaScriptEnabled: false });
     const noJsPage = await noJs.newPage();
     await noJsPage.goto(origin + '/account?section=security');
     assert.equal(await noJsPage.locator('#provider-links').isVisible(), true, 'stored links render without JavaScript');
     assert.equal(await noJsPage.locator('#provider-link-account').textContent(), user.email);
     assert.equal(await noJsPage.locator('[data-link-provider=github] [data-link-state]').textContent(), 'Связан');
-    assert.equal(await noJsPage.locator('[data-link-provider=github] details').isVisible(), false);
+    assert.equal(await noJsPage.locator('[data-link-provider=github] [data-link-review]').isVisible(), false);
     await noJs.close();
     inventory[0].login_enabled = false;
     await load();
@@ -144,8 +163,8 @@ async function main() {
       await page.emulateMedia({ colorScheme: theme });
       await page.evaluate(() => document.documentElement.style.fontSize = '200%');
       for (const [id] of providers) {
-        await row(id).locator('summary').press('Enter');
-        assert.equal(await row(id).locator('details').evaluate(element => element.open), true);
+        await row(id).locator('[data-link-review] > summary').press('Enter');
+        assert.equal(await row(id).locator('[data-link-review]').evaluate(element => element.open), true);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}/${theme} overflow`);
       }
     }
@@ -186,26 +205,26 @@ async function main() {
     await load();
     resultStatus = 429; result = { code: 'LOGIN_RATE_LIMITED' };
     await begin('github'); await idle();
-    for (const [id] of providers) assert.equal(await row(id).locator('button').isEnabled(), false);
-    await row('github').locator('button:enabled').waitFor();
+    for (const [id] of providers) assert.equal(await row(id).locator('[data-link-begin]').isEnabled(), false);
+    await row('github').locator('[data-link-begin]:enabled').waitFor();
     let release;
     pauseBegin = new Promise(resolve => { release = resolve; });
     resultStatus = 0;
     await begin('github');
-    for (const [id] of providers) assert.equal(await row(id).locator('button').isEnabled(), false, 'no parallel begin');
+    for (const [id] of providers) assert.equal(await row(id).locator('[data-link-begin]').isEnabled(), false, 'no parallel begin');
     release(); pauseBegin = null;
     await idle();
     assert.equal(await page.locator('#provider-link-cancel').isVisible(), true);
     const uncertainWrites = writes.length;
     await page.locator('#provider-link-refresh').click(); await idle();
     assert.equal(writes.length, uncertainWrites, 'checking an unknown result is read-only');
-    assert.equal(await row('github').locator('button').isEnabled(), false, 'read does not replay or clear uncertain mutation');
+    assert.equal(await row('github').locator('[data-link-begin]').isEnabled(), false, 'read does not replay or clear uncertain mutation');
     cancelStatus = 503;
     await page.locator('#provider-link-cancel').click(); await idle();
-    assert.equal(await row('github').locator('button').isEnabled(), false, 'failed cancel blocks a new mutation');
+    assert.equal(await row('github').locator('[data-link-begin]').isEnabled(), false, 'failed cancel blocks a new mutation');
     cancelStatus = 200;
     await page.locator('#provider-link-cancel').click(); await idle();
-    assert.equal(await row('github').locator('button').isEnabled(), true);
+    assert.equal(await row('github').locator('[data-link-begin]').isEnabled(), true);
     for (const [id, target] of providers) {
       for (const invalid of ['https://untrusted.example.invalid/', target.replace('?', '/extra?'), target.replace('https:', 'http:'), target.replace('https://', 'https://user@')]) {
         resultStatus = 200; result = { authorize_url: invalid, method: 'GET' };
@@ -223,8 +242,138 @@ async function main() {
       assert.equal(page.url(), target, 'server query is preserved, including Steam OpenID');
       await load();
     }
+
+    const linked = async (ids = ['github']) => {
+      browserUser = { ...user, oauth_providers: ids };
+      await load();
+    };
+    const unlink = id => row(id).locator('[data-unlink-review]');
+    const openUnlink = async id => {
+      if (!await unlink(id).evaluate(element => element.open)) await unlink(id).locator('summary').press('Enter');
+    };
+    const confirmUnlink = async id => { await openUnlink(id); await row(id).locator('[data-unlink-confirm]').click(); await idle(); };
+    inventory = providers.map(([id]) => ({ id, login_enabled: false }));
+    await linked(providers.map(([id]) => id));
+    const beforeCancel = writes.length;
+    for (const width of [320, 390]) for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.evaluate(() => document.documentElement.style.fontSize = '200%');
+      for (const [id] of providers) {
+        await openUnlink(id);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `unlink ${id} ${width}/${theme}`);
+        await row(id).locator('[data-unlink-confirm]').press('Escape');
+        assert.equal(await unlink(id).evaluate(element => element.open), false);
+        assert.equal(await unlink(id).locator('summary').evaluate(element => element === document.activeElement), true);
+        await openUnlink(id);
+        await row(id).locator('[data-unlink-cancel]').click();
+        assert.equal(await unlink(id).evaluate(element => element.open), false);
+      }
+    }
+    assert.equal(writes.length, beforeCancel, 'review/cancel never mutates');
+    await page.evaluate(() => document.documentElement.style.fontSize = '100%');
+    for (const [id] of providers) {
+      await confirmUnlink(id);
+      assert.deepEqual(writes.at(-1), { route: '/api/v1/auth/oauth/unlink', body: { provider: id } });
+      assert.equal(await row(id).isVisible(), false, 'disabled provider removed only after confirmed API success');
+      assert.equal(await page.locator('#provider-link-status').isVisible(), true);
+    }
+    assert.equal(await page.locator('#provider-links').isVisible(), true, 'receipt remains after the last displayed provider');
+    unlinkCommit = false;
+    for (const [code, status, text] of [
+      ['LAST_LOGIN_METHOD', 409, 'Добавьте другой способ входа'],
+      ['IDENTITY_CONFLICT', 409, 'Связь аккаунтов требует проверки'],
+      ['REAUTH_REQUIRED', 403, 'Подтвердите личность'],
+      ['AUTHENTICATION_REQUIRED', 401, 'Сессия завершена'],
+      ['<img src=x onerror=alert(1)>', 409, 'Не удалось проверить связь'],
+    ]) {
+      await linked();
+      unlinkStatus = status; unlinkResult = { code };
+      const before = writes.length;
+      await confirmUnlink('github');
+      assert.equal(writes.length, before + 1);
+      assert.ok((await row('github').locator('[data-unlink-error]').textContent()).includes(text));
+      assert.equal(await row('github').locator('[data-unlink-error]').evaluate(element => element === document.activeElement), true);
+      assert.equal(await row('github').locator('[data-unlink-error] img').count(), 0);
+      assert.match(await row('github').locator('[data-link-state]').textContent(), /Связан/);
+    }
+    await linked();
+    unlinkStatus = 403; unlinkResult = { code: 'REAUTH_REQUIRED' };
+    await confirmUnlink('github');
+    const beforeUnlinkAuth = writes.length;
+    const readsBeforeUnlinkAuth = browserReads;
+    await row('github').locator('[data-unlink-reauth]').click();
+    await page.waitForLoadState('networkidle');
+    assert.equal(browserReads, readsBeforeUnlinkAuth, 'unlink reauth does not restore a stale session');
+    await page.getByRole('heading', { name: 'Подтвердите личность' }).waitFor();
+    await page.locator('#email').fill(user.email);
+    await page.locator('#password').fill('SyntheticPass123!');
+    await page.locator('#submit').click();
+    await page.locator('#mfa-fields:visible').waitFor();
+    await page.locator('#mfa-code').fill('123456');
+    await page.locator('#submit').click();
+    await page.waitForURL(origin + '/account?section=security&review_unlink=github'); await idle();
+    assert.equal(await unlink('github').evaluate(element => element.open), true);
+    assert.equal(writes.length, beforeUnlinkAuth + 2, 'reauth and its return never auto-unlink');
+
+    for (const change of [null, { ...user, email: 'other@example.invalid', oauth_providers: ['github'] }]) {
+      await linked();
+      browserUser = change;
+      const before = writes.length;
+      await confirmUnlink('github');
+      assert.equal(writes.length, before, 'expired/changed account requires new authentication/review');
+      assert.equal(await row('github').locator('[data-unlink-error]').isVisible(), true);
+    }
+    // A lost response blocks every provider mutation. Checking is read-only,
+    // and a still-present binding cannot prove that an in-flight commit failed.
+    inventory[2].login_enabled = true;
+    await linked(['github', 'discord']);
+    unlinkStatus = 0; unlinkCommit = false;
+    const beforeUncertainUnlink = writes.length;
+    let releaseUnlink;
+    pauseUnlink = new Promise(resolve => { releaseUnlink = resolve; });
+    await openUnlink('github');
+    await row('github').locator('[data-unlink-confirm]').click();
+    await row('github').locator('[data-unlink-confirm]').evaluate(element => element.click());
+    assert.equal(await row('github').locator('[data-unlink-cancel]').isEnabled(), false);
+    assert.equal(await row('discord').locator('[data-unlink-confirm]').isEnabled(), false);
+    assert.equal(await row('steam').locator('[data-link-begin]').isEnabled(), false);
+    releaseUnlink(); pauseUnlink = null; await idle();
+    assert.equal(writes.length, beforeUncertainUnlink + 1, 'double click must submit once');
+    const uncertainUnlinkWrites = writes.length;
+    await row('github').locator('[data-unlink-refresh]').click(); await idle();
+    assert.equal(writes.length, uncertainUnlinkWrites);
+    assert.equal(await row('github').locator('[data-unlink-confirm]').isEnabled(), false);
+    assert.equal(await row('steam').locator('[data-link-begin]').isEnabled(), false);
+    assert.equal(await row('github').locator('[data-unlink-error]').isVisible(), true);
+    browserUser = { ...user, email: 'other@example.invalid', oauth_providers: [] };
+    await row('github').locator('[data-unlink-refresh]').click(); await idle();
+    assert.equal(writes.length, uncertainUnlinkWrites);
+    assert.match(await row('github').locator('[data-unlink-error]').textContent(), /аккаунт изменился/);
+    assert.equal(await page.locator('#provider-link-status').isVisible(), false, 'another account without this link is not proof of removal');
+    browserUser = { ...user, oauth_providers: undefined };
+    await row('github').locator('[data-unlink-refresh]').click(); await idle();
+    assert.equal(writes.length, uncertainUnlinkWrites);
+    assert.equal(await row('github').locator('[data-unlink-error]').isVisible(), true, 'read failure keeps recovery available');
+    browserUser = { ...user, oauth_providers: [] }; // A later authoritative read confirms removal.
+    await row('github').locator('[data-unlink-refresh]').click(); await idle();
+    assert.equal(writes.length, uncertainUnlinkWrites);
+    assert.equal(await row('github').isVisible(), false);
+    for (const [status, body] of [[503, { code: 'SERVICE_UNAVAILABLE' }], [200, {}]]) {
+      await linked(); unlinkStatus = status; unlinkResult = body;
+      await confirmUnlink('github');
+      assert.equal(await row('github').locator('[data-unlink-confirm]').isEnabled(), false, 'unknown results cannot be retried');
+    }
+    await linked(); unlinkStatus = 404; unlinkResult = { code: 'NOT_FOUND' }; unlinkCommit = true;
+    const beforeNotFoundRead = browserReads;
+    await confirmUnlink('github');
+    assert.equal(browserReads, beforeNotFoundRead + 2, '404 requires a fresh authoritative binding read');
+    assert.equal(await row('github').isVisible(), false);
+    await linked(); unlinkCommit = false;
+    await confirmUnlink('github');
+    assert.equal(await row('github').locator('[data-unlink-confirm]').isEnabled(), false, '404 with a still-present binding is not confirmed removal');
     assert.deepEqual(errors, []);
-    console.log('PASS provider link: gates, fresh profile, spoofed callback, reauth/MFA, account switch, CSRF, unknown result/cancel, cooldown, exact URLs, keyboard and mobile themes');
+    console.log('PASS provider link/unlink: gates, CSRF, reauth/MFA, account switch, confirmation/cancel, last-method/conflict errors, unknown result/read-only recovery, keyboard and mobile themes');
   } finally {
     if (browser) await browser.close();
     web.kill('SIGTERM');

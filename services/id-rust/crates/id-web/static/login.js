@@ -19,7 +19,9 @@
   }));
   const providerHint = document.getElementById("provider-hint");
   const loginQuery = new URLSearchParams(window.location.search);
-  const reauth = loginQuery.get("reauth") === "provider-link";
+  const reauth = ["provider-link", "provider-unlink"].includes(loginQuery.get("reauth"));
+  const unlinkReview = loginQuery.get("reauth") === "provider-unlink" &&
+    providers.find(provider => provider.id === loginQuery.get("provider"));
   const mfaProvider = providers.find(provider => provider.id === loginQuery.get("provider_mfa"));
   if (!form || !submit || !error || !status || !mfaFields || !mfaMethod || !mfaCode) return;
   const email = form.elements.email;
@@ -92,7 +94,8 @@
   }
 
   const requestedNext = loginQuery.get("next");
-  const returnPath = reauth ? "/account?section=security" : safeReturnPath(requestedNext);
+  const returnPath = reauth ? "/account?section=security" +
+    (unlinkReview ? `&review_unlink=${unlinkReview.id}` : "") : safeReturnPath(requestedNext);
   if (authContext && requestedNext && (returnPath.startsWith("/oauth/consent?") || returnPath.startsWith("/authorize?"))) {
     document.getElementById("login-title").textContent = "Войдите, чтобы продолжить";
     document.querySelector(".intro").textContent = "Вы открываете другой сервис через единый аккаунт UpdSpace ID.";

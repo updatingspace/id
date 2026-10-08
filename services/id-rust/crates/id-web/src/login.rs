@@ -25,7 +25,7 @@ fn render_login(
         .replace(
             "{{LOGIN_INTRO}}",
             if reauth {
-                "Войдите заново перед подключением внешнего аккаунта. После входа вы вернётесь в раздел защиты и сможете выбрать сервис."
+                "Войдите заново перед изменением связей внешних аккаунтов. После входа вы вернётесь в раздел защиты и сможете подтвердить действие."
             } else if from_app {
                 "Вы открываете другой сервис через единый аккаунт UpdSpace ID."
             } else {
@@ -105,7 +105,7 @@ pub(crate) async fn page(cx: &Cx) -> Result<Response> {
     let reauth = request::uri(cx).query().is_some_and(|query| {
         url::form_urlencoded::parse(query.as_bytes())
             .find(|(key, _)| key == "reauth")
-            .is_some_and(|(_, value)| value == "provider-link")
+            .is_some_and(|(_, value)| matches!(value.as_ref(), "provider-link" | "provider-unlink"))
     });
     let html = render_login(
         passkey_enabled,
@@ -194,7 +194,7 @@ mod tests {
     fn reauthentication_explains_explicit_return_without_linking() {
         let html = render_login(true, true, true, false, true);
         assert!(html.contains("Подтвердите личность"));
-        assert!(html.contains("Войдите заново перед подключением внешнего аккаунта"));
+        assert!(html.contains("Войдите заново перед изменением связей внешних аккаунтов"));
         assert!(html.contains("id=\"login-form\""));
         assert!(html.contains("id=\"passkey-login\""));
         assert!(!html.contains("{{"));

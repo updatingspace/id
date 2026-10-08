@@ -18,6 +18,7 @@
   const query = new URLSearchParams(window.location.search);
   const linkedHint = providers.find(provider => provider.id === query.get("provider_linked"));
   const callbackError = query.get("provider_link_error");
+  const unlinkReview = providers.find(provider => provider.id === query.get("review_unlink"));
   const messages = {
     INVALID_STATE: "Попытка подключения истекла или не соответствует этому браузеру. Проверьте связи перед новой попыткой.",
     PROVIDER_DENIED: "Подключение отменено на стороне внешнего сервиса.",
@@ -34,6 +35,7 @@
   } : null;
   let busy = false;
   let pending = null;
+  let unlinkPending = null;
   let retryAt = 0;
   let needsAuth = false;
   refresh.hidden = false;
@@ -48,8 +50,9 @@
   }
 
   function render() {
-    panel.hidden = !linkedHint && !callbackError &&
-      !providers.some(provider => provider.enabled || user?.oauth_providers.includes(provider.id));
+    panel.hidden = status.hidden && !linkedHint && !callbackError &&
+      !providers.some(provider => provider.enabled || user?.oauth_providers.includes(provider.id) ||
+        !provider.row.querySelector("[data-unlink-error]").hidden);
     account.textContent = user?.email || user?.username || "Не удалось определить";
     panel.setAttribute("aria-busy", String(busy));
     refresh.disabled = busy;
@@ -58,13 +61,20 @@
     for (const provider of providers) {
       const linked = user?.oauth_providers.includes(provider.id);
       const review = provider.row.querySelector("[data-link-review]");
-      provider.row.hidden = !provider.enabled && !linked;
+      provider.row.hidden = !provider.enabled && !linked && provider.row.querySelector("[data-unlink-error]").hidden;
       provider.row.querySelector("[data-link-state]").textContent = !user ? "Состояние не подтверждено" :
         linked ? (provider.enabled === false ? "Связан · вход сейчас недоступен" : "Связан") : "Не подключён";
       review.hidden = !user || linked || !provider.enabled;
       if (review.hidden) review.open = false;
       provider.row.querySelector("[data-link-begin]").disabled = busy || !user || linked ||
-        !provider.enabled || needsAuth || Boolean(pending) || performance.now() < retryAt;
+        !provider.enabled || needsAuth || Boolean(pending || unlinkPending) || performance.now() < retryAt;
+      const unlink = provider.row.querySelector("[data-unlink-review]");
+      unlink.hidden = !linked;
+      if (unlink.hidden) unlink.open = false;
+      provider.row.querySelector("[data-unlink-confirm]").disabled = busy || !linked || needsAuth ||
+        Boolean(pending || unlinkPending) || provider.unlinkBlocked || performance.now() < retryAt;
+      provider.row.querySelector("[data-unlink-cancel]").disabled = busy;
+      provider.row.querySelector("[data-unlink-refresh]").disabled = busy;
     }
   }
 
@@ -74,7 +84,7 @@
     catch { return ""; }
   }
 
-  async function request(path, mutation = false) {
+  async function request(path, mutation = false, payload = {}) {
     const signal = AbortSignal.timeout(15000);
     const headers = { Accept: "application/json" };
     if (mutation) {
@@ -87,7 +97,7 @@
     try {
       const response = await fetch(path, {
         method: mutation ? "POST" : "GET", credentials: "include", cache: "no-store",
-        headers, signal, ...(mutation ? { body: "{}" } : {}),
+        headers, signal, ...(mutation ? { body: JSON.stringify(payload) } : {}),
       });
       return { response, body: await response.json() };
     } catch (cause) {
@@ -139,6 +149,13 @@
       }
       if (profile.status === "rejected") throw profile.reason;
       if (!user) throw new Error("Profile unavailable");
+      if (unlinkPending) {
+        const { provider, account: previousAccount } = unlinkPending;
+        if ((user.email || user.username) !== previousAccount) showUnlinkError(provider, "ACCOUNT_CHANGED");
+        else if (user.oauth_providers.includes(provider.id)) showUnlinkError(provider, "UNCERTAIN");
+        else unlinkComplete(provider);
+        return;
+      }
       if (linkedHint && !user.oauth_providers.includes(linkedHint.id)) showError("SERVICE_UNAVAILABLE");
       else if (callbackError) showError(callbackError);
       else if (pending) showError("SERVICE_UNAVAILABLE");
@@ -147,12 +164,15 @@
         status.hidden = false;
       }
       if (capability.status === "rejected" || !capability.value.response.ok) showError("PROVIDER_UNAVAILABLE");
-    } catch (cause) { showError(cause?.code); }
+    } catch (cause) {
+      if (unlinkPending) showUnlinkError(unlinkPending.provider, cause?.code);
+      else showError(cause?.code);
+    }
     finally { busy = false; render(); }
   }
 
   for (const provider of providers) provider.row.querySelector("[data-link-begin]").addEventListener("click", async () => {
-    if (busy || !user || !provider.enabled || needsAuth || pending || performance.now() < retryAt || user.oauth_providers.includes(provider.id)) return;
+    if (busy || !user || !provider.enabled || needsAuth || pending || unlinkPending || performance.now() < retryAt || user.oauth_providers.includes(provider.id)) return;
     busy = true;
     error.hidden = status.hidden = true;
     render();
@@ -185,6 +205,89 @@
     } finally { if (!leaving) { busy = false; render(); } }
   });
 
+  function showUnlinkError(provider, code) {
+    const messages = {
+      LAST_LOGIN_METHOD: "Добавьте другой способ входа, прежде чем отключать этот сервис.",
+      IDENTITY_CONFLICT: "Связь аккаунтов требует проверки. Отключение не выполнено. Обратитесь в поддержку.",
+      REAUTH_REQUIRED: "Подтвердите личность повторным входом. Затем проверьте выбранный сервис и подтвердите отключение ещё раз.",
+      AUTHENTICATION_REQUIRED: "Сессия завершена. Войдите заново перед отключением сервиса.",
+      ACCOUNT_CHANGED: "Текущий аккаунт изменился. Проверьте его и выберите действие заново.",
+      NOT_FOUND: "Сервер не нашёл эту связь. Проверьте список связей перед новым действием.",
+      UNCERTAIN: "Результат отключения пока не подтверждён. Проверьте связь; запрос не будет отправлен повторно.",
+    };
+    const notice = provider.row.querySelector("[data-unlink-error]");
+    notice.textContent = Object.hasOwn(messages, code) ? messages[code] : "Не удалось проверить связь. Обновите сведения и попробуйте позже.";
+    notice.hidden = false;
+    status.hidden = true;
+    needsAuth = code === "REAUTH_REQUIRED" || code === "AUTHENTICATION_REQUIRED";
+    provider.unlinkBlocked = code === "IDENTITY_CONFLICT";
+    provider.row.querySelector("[data-unlink-reauth]").hidden = !needsAuth;
+    provider.row.querySelector("[data-unlink-refresh]").hidden = false;
+    render();
+    notice.focus();
+  }
+
+  function unlinkComplete(provider) {
+    unlinkPending = null;
+    provider.row.querySelector("[data-unlink-review]").open = false;
+    provider.row.querySelector("[data-unlink-error]").hidden = true;
+    provider.row.querySelector("[data-unlink-reauth]").hidden = true;
+    provider.row.querySelector("[data-unlink-refresh]").hidden = true;
+    error.hidden = true;
+    status.textContent = `${provider.row.querySelector("strong").textContent} отключён от текущего аккаунта. Сеанс сохранён.`;
+    status.hidden = false;
+    // Keep the receipt visible even when no provider login is enabled.
+    panel.hidden = false;
+    status.focus();
+  }
+
+  for (const provider of providers) {
+    const review = provider.row.querySelector("[data-unlink-review]");
+    const closeReview = () => {
+      if (busy) return;
+      review.open = false;
+      review.querySelector("summary").focus();
+    };
+    provider.row.querySelector("[data-unlink-cancel]").addEventListener("click", closeReview);
+    review.addEventListener("keydown", event => {
+      if (event.key === "Escape") { event.preventDefault(); closeReview(); }
+    });
+    provider.row.querySelector("[data-unlink-refresh]").addEventListener("click", () => { void load(true); });
+    provider.row.querySelector("[data-unlink-confirm]").addEventListener("click", async () => {
+      if (busy || !user?.oauth_providers.includes(provider.id) || needsAuth || pending || unlinkPending ||
+          provider.unlinkBlocked || performance.now() < retryAt) return;
+      const previousAccount = user.email || user.username;
+      busy = true;
+      error.hidden = status.hidden = true;
+      provider.row.querySelector("[data-unlink-error]").hidden = true;
+      render();
+      try {
+        await readUser();
+        if ((user.email || user.username) !== previousAccount) {
+          review.open = false;
+          showUnlinkError(provider, "ACCOUNT_CHANGED");
+          return;
+        }
+        if (!user.oauth_providers.includes(provider.id)) { unlinkComplete(provider); return; }
+        const { response, body } = await request("/api/v1/auth/oauth/unlink", true, { provider: provider.id });
+        if (response.ok && body.ok === true) {
+          user.oauth_providers = user.oauth_providers.filter(id => id !== provider.id);
+          unlinkComplete(provider);
+        } else if (response.status === 404 && body.code === "NOT_FOUND") {
+          unlinkPending = { provider, account: previousAccount };
+          await readUser();
+          if ((user.email || user.username) === previousAccount && !user.oauth_providers.includes(provider.id)) unlinkComplete(provider);
+          else showUnlinkError(provider, "NOT_FOUND");
+        } else if (!response.ok && response.status < 500) {
+          showUnlinkError(provider, body.code);
+        } else throw Object.assign(new Error("Unknown unlink result"), { requestSent: true });
+      } catch (cause) {
+        if (cause?.requestSent) unlinkPending = { provider, account: previousAccount };
+        showUnlinkError(provider, cause?.code || (unlinkPending ? "UNCERTAIN" : undefined));
+      } finally { busy = false; render(); }
+    });
+  }
+
   cancel.addEventListener("click", async () => {
     if (busy || !pending || performance.now() < retryAt) return;
     busy = true;
@@ -202,5 +305,11 @@
     finally { busy = false; render(); }
   });
   refresh.addEventListener("click", () => { void load(true); });
-  void load();
+  void load().then(() => {
+    if (unlinkReview && user?.oauth_providers.includes(unlinkReview.id)) {
+      const review = unlinkReview.row.querySelector("[data-unlink-review]");
+      review.open = true;
+      review.querySelector("summary").focus();
+    }
+  });
 })();

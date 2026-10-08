@@ -146,6 +146,15 @@ real provider authorization, cookie or Gateway acceptance.
 Steam uses OpenID 2.0; the UI forwards the backend's exact authorization URL
 without constructing or rewriting `state` or `openid.return_to`.
 
+`scripts/check-web-provider-link-browser.cjs` also checks provider removal:
+explicit review/cancel, cookie/CSRF, last-login-method and conflict refusals,
+fresh authentication with MFA and return to the selected review, and read-only
+recovery after an unknown result. Stored links can be removed even when provider
+login is disabled. The frontend sends only `{provider}`; backend owner and
+remaining-login-method checks are authoritative. Reauthentication never repeats
+the removal automatically. These are synthetic browser checks, not production
+provider or YDB acceptance.
+
 
 The user UI shares `static/ui.css` colour/control tokens and `static/ui.js`
 (theme, readable dates, password visibility, error focus and explicit recovery
