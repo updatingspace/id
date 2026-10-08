@@ -118,6 +118,7 @@ pub mod sessions_http;
 pub mod sessions_store;
 pub mod signup;
 pub mod signup_http;
+mod steam_openid;
 pub mod token_cleanup;
 pub mod totp_setup;
 pub mod totp_setup_http;
