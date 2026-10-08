@@ -1,7 +1,7 @@
 # Rust coverage baseline (preparatory, not yet a required release gate)
 
 This iteration measures the existing `rust-pilot.yml` integration scenario and
-replays the selected required schema-job scenarios below through their shared
+replays the required schema-job scenarios below through their shared
 command source. It does not duplicate their test lists. The default required run still uses Rust
 1.98.1. The optional `coverage=true` run uses a separately pinned nightly to
 measure real branches. **The migration's coverage acceptance is not complete:**
@@ -94,9 +94,10 @@ their documented scope; the artifact does not prove complete child accounting.
 
 ## Shared schema scenarios added after the first baseline
 
-`scripts/ci/run-rust-security-scenarios.sh` is the command source for four
-existing required `ydb-schema-check` steps. The coverage run invokes those same
-cases with its instrumented compiler, target and profile environment intact:
+`scripts/ci/run-rust-security-scenarios.sh` is the command source for required
+`ydb-schema-check` steps absent from ordinary `rust-pilot`. The first expansion
+measured the following four cases with its instrumented compiler, target and
+profile environment intact:
 
 | Case | Tests |
 |---|---|
@@ -194,6 +195,51 @@ within cleanup/process exit, and the step eventually succeeded. A single bounded
 local reproduction completed its browser, proxy and web-process cleanup in about
 11 seconds. No CI cleanup phase was timed individually, so the cause is unknown;
 no timeout or UI change is justified by this observation alone.
+
+## Complete required schema inventory after the expanded baseline
+
+The bounded inventory compared every Rust test and application/browser command
+in `ydb-schema-check` with ordinary `rust-pilot` plus the four shared cases. It
+found the following eight remaining groups. Their commands and feature gates
+now live in the same shared script; the required schema job calls each case at
+its original position. Coverage invokes `remaining-schema`, which calls these
+cases in separate subprocesses so flags and the disposable endpoint cannot leak.
+
+| New shared case | Preserved required commands |
+|---|---|
+| `password-change` | Password/security mail schemas; `password_change_http_ydb`; the three `password_mail` durable-delivery, concurrent-claim and deleted-account tests |
+| `email-verification` | Repeated verification schema; `email_verify_http_ydb`; `signup_ydb`; `email_verify` mail-claim/expiry test |
+| `recovery-browser` | `smoke-web-recovery-live.sh` and its real Rust/YDB fixture |
+| `deletion-browser` | Fresh owned YDB on 2137; legacy/cache schemas, cutover test, export schemas and `smoke-web-deletion-live.sh` |
+| `deletion-review-browser` | `smoke-web-deletion.sh`; UI request/gate checks with a synthetic API, not backend acceptance |
+| `admin-browser` | `check-web-admin-suspend-browser.cjs`; UI requests with a synthetic API |
+| `admin-live` | `smoke-web-admin-live.sh` and its real Rust/YDB fixture |
+| `signup-browser` | `smoke-web-signup-live.sh` against the real backend |
+
+The deletion browser case creates a different fresh container from
+`isolated-deletion`, even though they sequentially reuse port 2137. Its trap
+stops only the returned CID and preserves any primary test failure. Neither
+case reuses or resets the primary 2136 DB. Runtime code and browser assertions
+are unchanged. The ordinary schema job retains its binary-build prerequisite;
+coverage has already built the instrumented binaries and uses their launchers.
+
+The remaining schema groups already run in the coverage job: repeated
+legacy/cache bootstrap; passkey index/registration; OIDC authorization; profile;
+magic-link schema/request/consume/mail; the four shared cases; export-link,
+passkey-management, TOTP, login and responsive browser checks; and native
+WebAuthn. Compiler/package installation, the existing binary build and YDB
+readiness are prerequisites, not omitted application scenarios. This inventory
+covers `ydb-schema-check`; it does not claim every unrelated deployment/tooling
+check or every possible product path belongs to the security profile.
+
+The orchestration regression checks preserved test/library/browser invocations,
+feature flags, measurement environment inheritance, failure propagation, owned
+container cleanup and workflow-to-replay parity. New inline required Rust or
+browser scenarios without a matching measurement invocation fail that check.
+These local command checks do not substitute for the actual combined
+instrumented run. **The final combined run is pending; the immutable 9dead02
+counts above remain unchanged.** No threshold, exclusion or source-profile entry
+was changed to close these measurement omissions.
 
 ## Run the measurement
 

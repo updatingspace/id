@@ -335,6 +335,9 @@ jobs:
       - name: Measure isolated deletion, export jobs and admin scenarios
         if: inputs.coverage
         run: bash scripts/ci/run-rust-security-scenarios.sh isolated-deletion
+      - name: Measure all remaining required schema and browser scenarios
+        if: inputs.coverage
+        run: bash scripts/ci/run-rust-security-scenarios.sh remaining-schema
       - name: Verify Rust cache cutover gate on local YDB
         working-directory: services/id-rust
         run: cargo run --locked --bin idctl -- cache-audit --require-portable
