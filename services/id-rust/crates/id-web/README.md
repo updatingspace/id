@@ -27,6 +27,12 @@ replacement for API-provided values.
 
 The account SSR handler calls `id-api` with the request cookie and renders its
 response; it does not implement identity business rules.
+On the security page, profile and security reads overlap, but the profile result
+still controls access: a guest or failed profile returns without waiting for the
+security read. Privacy reads overlap only after the profile succeeds, preserving
+the preferences, timezones, consents error priority. No auth data is cached.
+`scripts/check-web-ssr-reads.cjs` checks overlap with a synthetic API barrier,
+denial priority, cookies and feature/section gates against the real web binary.
 
 Successful authenticator setup updates the visible status without reloading,
 so newly issued recovery codes remain available. The saved-codes action releases

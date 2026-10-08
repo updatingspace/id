@@ -15,6 +15,13 @@
 аккаунта через новый публичный API пока выключено. Открытые условия описаны в
 [контракте интерфейса и экспорта](../../docs/rust-migration/identity-ux-and-export.md).
 
+Ниже сохранены краткие исторические результаты локальных и production-проверок;
+они не подтверждают текущую приёмку. Межверсионные проверки с Python выполнены
+до удаления его исходников 7 октября 2026 года и описывают совместимость данных.
+Текущие локальные сценарии используют Rust `idctl` для подготовки YDB, без
+запуска Django. Форматы credentials, имена таблиц и действующие ключи
+сохраняются независимо от удаления прежнего runtime.
+
 ## Состав
 
 `id-web` — отдельный Topcoat SSR-сервис и область работы над интерфейсом.
@@ -47,10 +54,10 @@ WebAuthn и других интерактивных действий. Веб-с�
   неизменяемый identity binding, статус master identity и отсутствие
   незавершённого удаления, затем читает профиль в той же транзакции YDB.
   Для `/me` аккаунт с MFA принимается только с подписанным session marker,
-  привязанным к Django user ID. Переходный Python пишет marker после успешного
-  headless-входа с TOTP/recovery code. Старые и другие allauth/passkey/social
-  сессии без доказуемого marker пока не проходят этот маршрут; нужна сверка
-  действующих сессий и проверка всех межверсионных сценариев до canary.
+  привязанным к Django user ID. Переходный Python записывал marker после
+  успешного headless-входа с TOTP/recovery code; Rust сохраняет этот формат.
+  Сессии без доказуемого marker не проходят MFA-проверку; удаление прежнего
+  runtime не отменяет необходимость сверять действующие сессии.
   `cache_store` читает, атомарно добавляет/увеличивает счётчики и потребляет
   новый формат кэша в YDB;
   legacy pickle должен быть перекодирован перед переключением.
@@ -63,20 +70,23 @@ WebAuthn и других интерактивных действий. Веб-с�
   `/api/v1/auth/form_token` включается отдельно через
   `ID_AUTH_FORM_TOKEN_ENABLED=true`: выдаёт одноразовый токен в общем YDB-кэше
   (`YDB_CACHE_TABLE`, по умолчанию `id_shared_cache`) и читаемый CSRF cookie.
-  Переходный Python и Rust способны взаимно потребить такой токен ровно один раз.
-  Rust также атомарно обновляет общий с Python login rate-limit budget в YDB;
+  В переходных проверках Python и Rust взаимно потребляли такой токен ровно
+  один раз.
+  Rust также атомарно обновляет login rate-limit budget в прежнем формате YDB;
   100 одновременных обновлений через два SDK-клиента не потеряли счётчики.
   Локальный HTTP login уже использует этот бюджет; для production остаются
   Gateway/CORS-проверки и квалификация поведения при отказах.
   `login_preflight` уже проверяет существующий парольный хеш вне async executor
   через ограниченный blocking pool, а также email verification, MFA, immutable
-  identity, статус и удаление в одном YDB-снимке. Он пока не выпускает сессию.
-  `auth_user.email` не индексирован. Переходный Python поддерживает
-  `accounts_accountemaillookup`; Rust ищет по синхронному индексу и повторно
-  сверяет исходный адрес. N-1 backfill и проверка целостности прошли на
+  identity, статус и удаление в одном YDB-снимке. Сам preflight не выпускает
+  сессию.
+  `auth_user.email` не индексирован. Rust использует
+  `accounts_accountemaillookup`, ищет по синхронному индексу и повторно
+  сверяет исходный адрес; signup и смена email обновляют lookup в транзакции.
+  N-1 backfill и проверка целостности переходной версии прошли на
   локальной YDB; production-данные и все writers ещё не квалифицированы.
-  `session_issuer` повторно проверяет аккаунт без MFA и атомарно записывает
-  Django session, allauth UserSession, revocation metadata, last_login и
+  `session_issuer` повторно проверяет аккаунт и требуемый MFA proof, атомарно
+  записывает Django session, allauth UserSession, revocation metadata, last_login и
   SimpleJWT outstanding/session-token mapping. Сессия и пара account JWT
   выдаются только после подтверждённого commit. Python на локальной YDB
   восстановил сессию, принял Rust refresh и выполнил rotation.
@@ -229,8 +239,8 @@ WebAuthn и других интерактивных действий. Веб-с�
   `ID_RUST_EARLY_ROLLOUT_ENABLED=true`; локальный
   `ID_AUTH_SESSIONS_PILOT_ENABLED=true` также включает чтение и мутации.
   Читает allauth и revocation metadata по индексам, одним запросом получает
-  сроки Django-сессий и обновляет активность текущей сессии. Локальный
-  Axum→YDB→Python тест сравнивает весь JSON с `SessionService.list` до и после
+  сроки Django-сессий и обновляет активность текущей сессии. Переходный локальный
+  Axum→YDB→Python тест сравнивал весь JSON с `SessionService.list` до и после
   отзыва; два конкурентных запроса к legacy-сессии без metadata создают ровно
   одну запись каждого типа. В production read-only GET/OPTIONS направлены
   Gateway в отдельный Rust-контейнер и проверены с действующей сессией;
@@ -243,9 +253,10 @@ WebAuthn и других интерактивных действий. Веб-с�
   среди сессий владельца; metadata, Django-сессия и account refresh меняются
   в одной транзакции YDB. Browser mutations требуют CSRF, а самоотзыв очищает
   cookie. Интеграционный тест проверяет single, оба bulk-варианта, чужой и
-  отсутствующий ID, сохранение текущего устройства и отказ Python принимать
-  каждый отозванный refresh. Mutation-маршруты обновляют активность текущей
-  сессии в той же транзакции, включая создание отсутствующих legacy-записей.
+  отсутствующий ID и сохранение текущего устройства. До удаления Python
+  также проверен его отказ принимать каждый отозванный refresh.
+  Mutation-маршруты обновляют активность текущей сессии в той же транзакции,
+  включая создание отсутствующих legacy-записей.
   Для bulk сверены ошибки пустого и битого body, неверных типов полей и
   совместимость JSON при `text/plain`. Production Gateway направляет эти
   mutation-маршруты в отдельный Rust-контейнер; проверены CSRF, явный неверный
@@ -276,7 +287,7 @@ WebAuthn и других интерактивных действий. Веб-с�
   Readiness здесь проверяет запрос YDB, **не готовность identity-функций**.
 - `idctl`: read-only `ydb-probe`, `cache-audit`, `mfa-session-audit`,
   `login-email-audit` и отчёт `inventory`, синтетический
-  `compat-fixtures` для проверки записей Rust установленным Django.
+  `compat-fixtures` для генерации записей в совместимых с Django форматах.
   `smoke-exchange` создаёт краткоживущий синтетический код в общем YDB-кэше,
   проверяет подписанный обмен и отказ на повтор через HTTPS Gateway, затем
   удаляет тестовый ключ. Команде нужны `BFF_INTERNAL_HMAC_SECRET` и доступ к
@@ -342,8 +353,8 @@ WebAuthn и других интерактивных действий. Веб-с�
   через `ID_LIVE_BASE_URL`, `ID_LIVE_EMAIL`, `ID_LIVE_PASSWORD`,
   `ID_PLAYWRIGHT_MODULE` и при необходимости `ID_CHROMIUM_PATH`. При
   `ID_LIVE_ACCOUNT_SSR=true` smoke дополнительно проверяет гостевой редирект и
-  SSR профиля. Для локальной YDB перед smoke выполните `idctl cache-schema`:
-  Django `migrate_ydb` общую таблицу кэша не создаёт.
+  SSR профиля. Для локальной YDB перед smoke выполните
+  `idctl legacy-schema --apply` и `idctl cache-schema`.
   Topcoat `/login` также переводит действующий старый `id_session_token` из
   sessionStorage в HttpOnly cookie через Rust `/me` при возврате с защищённого
   маршрута. Сначала проверяется существующая cookie; после проверки явного
@@ -377,8 +388,7 @@ WebAuthn и других интерактивных действий. Веб-с�
   отозвать выбранный грант. Отзыв объединяет consent, токены, ожидающие codes и
   requests в одной YDB-транзакции; реальная локальная YDB и Chromium прошли
   проверку. Production-включение запрещено до переноса OIDC выдачи и проверки
-  гонок выдачи против отзыва. Детали —
-  [в отчёте](../../docs/rust-migration/verification-2026-10-04-oauth-apps.md).
+  гонок выдачи против отзыва.
   `POST /oauth/token` с `grant_type=authorization_code`, `POST /oauth/revoke`,
   `GET/POST /oauth/userinfo`, discovery по
   `/.well-known/openid-configuration` и JWKS по
@@ -395,9 +405,10 @@ WebAuthn и других интерактивных действий. Веб-с�
   Расширенные scopes `phone`, `address`, `profile_extended` выдаются только
   после проверки разрешений клиента и согласия пользователя; claims проверены
   на локальной YDB. `offline_access` выдаёт opaque refresh в новом
-  семействе. Rust и переходная Python-версия атомарно ротируют refresh,
-  допускают сужение scope и отзывают активных потомков при replay. Проверена
-  гонка 100 запросов на локальной YDB: одна выдача, потомок отозван.
+  семействе. Rust атомарно ротирует refresh, допускает сужение scope и отзывает
+  активных потомков при replay; совместимость с переходной Python-версией
+  проверена до её удаления. Проверена гонка 100 запросов на локальной YDB:
+  одна выдача, потомок отозван.
   JWKS включает активный и прежние public keys с прежними `kid`; оба HTTP-пути
   и проверка JWT через опубликованные `n`/`e` проверены локально. Discovery
   указывает действующие адреса, но публикует только scopes, для которых Rust
@@ -409,23 +420,18 @@ WebAuthn и других интерактивных действий. Веб-с�
   Отзыв принимает form/JSON и Basic/body client auth, проверяет клиента в
   транзакции и отзывает access JWT либо старый opaque refresh по индексу YDB.
   Отзыв старого refresh после ротации закрывает всю family. Неизвестный токен
-  не раскрывает своё существование. Соль refresh должна
-  совпадать с Python-версией. Межверсионная ротация на общей локальной YDB
-  прошла; Gateway и внешний RP ещё не проверены. Детали — [обмен](../../docs/rust-migration/verification-2026-10-04-oidc-code.md),
-  [refresh](../../docs/rust-migration/verification-2026-10-04-oidc-refresh.md),
-  [отзыв](../../docs/rust-migration/verification-2026-10-04-oidc-revoke.md),
-  [discovery](../../docs/rust-migration/verification-2026-10-04-oidc-discovery.md),
-  [JWKS](../../docs/rust-migration/verification-2026-10-04-oidc-jwks.md) и
-  [UserInfo](../../docs/rust-migration/verification-2026-10-04-oidc-userinfo.md).
+  не раскрывает своё существование. Для действующих refresh нужно сохранять
+  соль, использовавшуюся Python-версией. Межверсионная ротация на общей
+  локальной YDB прошла; Gateway и внешний RP ещё не проверены.
   Отдельный `ID_OIDC_AUTHORIZE_PILOT_ENABLED=true` открывает локальные
   `/oauth/authorize`, `/prepare`, `/approve` и `/deny`: повторный SSO выдаёт
   code напрямую, первый consent проходит через Topcoat
   `ID_WEB_CONSENT_PILOT_ENABLED=true`, затем Rust атомарно создаёт code и
   сохраняет grant. Локальный Chromium E2E с одноразовой YDB запускается
-  `scripts/smoke-web-consent-live.sh` после сборки бинарников и `migrate_ydb`;
+  `scripts/smoke-web-consent-live.sh` после сборки бинарников и подготовки схемы
+  командами `idctl legacy-schema --apply` и `idctl cache-schema`;
   он проверяет реальный SSR, CSRF, PKCE, replay и отказ. Оба флага ограничены
-  пилотом; подробности —
-  [в проверке](../../docs/rust-migration/verification-2026-10-04-oidc-authorize.md).
+  пилотом.
   `ID_AUTH_SECURITY_READ_PILOT_ENABLED=true` открывает чтение
   `/mfa/status`, `/passkeys`, `/email` и единый `/security` в авторизованном
   снимке YDB. При `ID_WEB_SECURITY_PILOT_ENABLED=true` Topcoat показывает
@@ -461,25 +467,24 @@ WebAuthn и других интерактивных действий. Веб-с�
   требуется отдельный `ID_AUTH_PASSKEY_REGISTRATION_ENABLED=true`, общий
   `ID_MFA_SEAL_KEY_B64`, готовый passkey-index и точные Gateway-маршруты
   `/passkeys/begin` и `/passkeys/complete`; одного флага UI недостаточно.
-  Детали прежней проверки чтения —
-  [в отчёте](../../docs/rust-migration/verification-2026-10-04-security-read.md).
   В production TOTP и регенерация резервных кодов доступны через отдельные
   `ID_AUTH_TOTP_ENABLED=true` и `ID_WEB_TOTP_ENABLED=true` с точным Gateway
   переключателем `gateway_rust_totp_management=true`. Нужны общий MFA seal key,
-  HTTPS trusted origin, secure cookies и ранний Rust rollout. Текущее
-  состояние и ограничение по authenticated E2E записаны в
-  [production-отчёте](../../docs/rust-migration/production-totp-management-2026-10-06.md).
+  HTTPS trusted origin, secure cookies и ранний Rust rollout.
+  Аутентифицированный E2E требует отдельной приёмки.
   Для нового TOTP локальный пилот включается отдельно:
   `ID_AUTH_TOTP_PILOT_ENABLED=true` включает `/mfa/totp/begin`,
   `/mfa/totp/confirm`, `/mfa/totp/disable` и `/mfa/recovery/regenerate`,
   а `ID_WEB_TOTP_PILOT_ENABLED=true` показывает управление
   на странице безопасности. Требуются `DJANGO_DEBUG=true`, локальный YDB и
-  `ID_MFA_SEAL_KEY_B64` (32 случайных байта, base64). Ключ должен быть общим
-  для Rust и переходного Django; его отсутствие при чтении зашифрованного
-  credential приводит к отказу, а не обходу MFA. Секрет ожидает подтверждения
+  `ID_MFA_SEAL_KEY_B64` (32 случайных байта, base64). Для существующих credentials
+  сохраняется тот же ключ, которым их зашифровал Rust или переходный Django;
+  его отсутствие при чтении зашифрованного credential приводит к отказу, а не
+  обходу MFA. Секрет ожидает подтверждения
   не более 10 минут в подписанной сессии, затем TOTP и seed резервных кодов
   записываются в YDB в одной транзакции. Перед настройкой нужны недавний вход
-  и подтверждённая почта. Локальный тест выполняется после `migrate_ydb`:
+  и подтверждённая почта. На отдельной локальной YDB подготовьте схему через
+  `idctl legacy-schema --apply` и `idctl cache-schema`, затем выполните тест:
 
   ```sh
   ID_AUTH_TOTP_PILOT_ENABLED=true ID_MFA_SEAL_KEY_B64=<base64-32-bytes> \
@@ -555,8 +560,7 @@ WebAuthn и других интерактивных действий. Веб-с�
   same-origin proxy, Rust API и локальную YDB. Это ещё не допуск в production:
   нужны тест через настоящий Gateway, Firefox/WebKit,
   rollback-проверка на общем YDB и проверка хранения
-  ключа в Lockbox. Результаты записаны
-  [в проверке](../../docs/rust-migration/verification-2026-10-04-totp-enrollment.md).
+  ключа в Lockbox.
 - `id-jobs`: отдельный Rust worker для уведомлений о новом устройстве.
   Забирает ограниченную партию из YDB по lease, отправляет через SMTP и
   фиксирует результат. Повторяется только подтверждённый `ABORTED`; неизвестный
@@ -584,8 +588,7 @@ WebAuthn и других интерактивных действий. Веб-с�
 только согласившиеся профили, проверяет адрес и состояние перед атомарной
 публикацией, ограничивает размер/формат изображения и записывает JPEG в
 Object Storage. Маршрут не запускает восстановление почты или удалений.
-Production-таймер теперь вызывает его на Rust jobs; см.
-[отчёт о переключении](../../docs/rust-migration/production-rust-stack-2026-10-05.md).
+При переключении 5 октября 2026 года production-таймер перевели на Rust jobs.
 
 Для локального запуска `id-jobs` нужны общие `YDB_*` и `EMAIL_HOST`,
 `EMAIL_PORT`, `DEFAULT_FROM_EMAIL`, при необходимости `EMAIL_HOST_USER` и
@@ -597,8 +600,9 @@ Production-таймер теперь вызывает его на Rust jobs; с�
 повторно публикует готовые записи. Пятиминутный timer доставляет их напрямую
 через SMTP, если очередь или процесс публикации недоступны.
 [YMQ требует SQS-совместимую подпись и статический ключ](https://yandex.cloud/en/docs/message-queue/api-ref/).
-Временная Python-версия продолжает отправлять свои уведомления прежним путём;
-Rust-job обрабатывает только durable intents от Rust-входа.
+Отдельная отправка уведомлений Python-версией относилась к переходному периоду
+до удаления её runtime 7 октября 2026 года. Rust-job обрабатывает durable intents
+в YDB.
 
 Terraform отдельно включает постоянную очередь `enable_rust_mail_queue=true`,
 затем приватный worker и три trigger при `enable_rust_mail_job=true`.
@@ -650,9 +654,9 @@ images и селективный timer активны в production. Аутен�
 `ID_WEB_PASSWORD_CHANGE_PILOT_ENABLED=true` Topcoat показывает форму на
 `/account?section=security`. `scripts/smoke-web-security.sh` проверяет SSR и
 выдачу отдельного JS-файла; реальный YDB-тест маршрута запускается в CI.
-Изолированный jobs-маршрут для уведомлений о смене пароля уже развернут в
-production; его таймер и публичный Rust API пока выключены. Ревизия и проверки
-описаны в [отчёте](../../docs/rust-migration/production-password-change-jobs-2026-10-06.md).
+По состоянию на 6 октября 2026 года изолированный jobs-маршрут для уведомлений
+о смене пароля был развернут в production; его таймер и публичный Rust API
+оставались выключены.
 
 `ID_WEB_RECOVERY_PILOT_ENABLED=true` включает Topcoat-страницы
 `/forgot-password` и `/reset-password` и ссылку из формы входа. Ссылка сброса
@@ -670,8 +674,7 @@ production; его таймер и публичный Rust API пока выкл
 ключ HMAC не хранится в YDB. Подтверждение атомарно меняет пароль, закрывает
 старые sessions/tokens и добавляет уведомление в outbox. После успеха intent
 очищает email и password version; истёкшие intents удаляет timer job.
-Локальная проверка HTTP→YDB→SMTP и конкурентного потребления описана в
-[отчёте](../../docs/rust-migration/verification-2026-10-05-password-reset.md).
+Локальная проверка покрыла HTTP→YDB→SMTP и конкурентное потребление.
 Terraform включает API, UI и jobs вместе через `enable_rust_password_reset`,
 по умолчанию `false`; это требует приватного mail worker, YMQ и
 `ID_PASSWORD_RESET_HMAC_KEY` в runtime Lockbox. Django-ссылки, уже отправленные
@@ -691,7 +694,7 @@ Terraform включает API, UI и jobs вместе через `enable_rust_
 `ID_WEB_EMAIL_VERIFY_PILOT_ENABLED=true` включает Topcoat `/verify-email`:
 ключ читается из URL fragment и удаляется из адреса до POST; есть повторный
 запрос письма. Локальный HTTP→YDB→SMTP тест проверяет одноразовость и
-конкурентность. [Отчёт](../../docs/rust-migration/verification-2026-10-05-email-verify.md).
+конкурентность.
 Terraform-флаг `enable_rust_email_verify` выключен по умолчанию; для него нужны
 Rust API/UI, приватный mail worker, очередь и ключ в Lockbox.
 
@@ -727,7 +730,6 @@ Topcoat, Axum и YDB для взрослых и несовершеннолетн
 работает в production через отдельный флаг `gateway_rust_signup_page`; API
 регистрации там пока остаётся прежним. Terraform-флаг `enable_rust_signup` по умолчанию выключен
 и требует включённого mail job через `enable_rust_email_verify`.
-[Отчёт](../../docs/rust-migration/verification-2026-10-05-signup.md).
 
 Rust 1.98.1 закреплён в `rust-toolchain.toml`, зависимости — в `Cargo.lock`.
 Обязательный CI job `Rust dependency audit` проверяет lockfile через

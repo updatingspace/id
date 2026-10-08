@@ -106,6 +106,8 @@ jobs:
         run: ID_RUST_BIN_DIR="$PWD/target/release" node scripts/test-idctl-export-storage-smoke.cjs
       - name: Topcoat security SSR smoke
         run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-security.sh
+      - name: Topcoat concurrent SSR reads and denial priority
+        run: ID_RUST_BIN_DIR="$PWD/target/release" node scripts/check-web-ssr-reads.cjs
       - name: Topcoat operator account SSR smoke
         run: ID_RUST_BIN_DIR="$PWD/target/release" bash scripts/smoke-web-admin.sh
       - name: Topcoat recovery SSR smoke

@@ -166,6 +166,15 @@ pub struct ProviderLoginConfig {
 }
 
 impl ProviderLoginConfig {
+    /// Fail closed exactly as the public inventory: a flag without valid login
+    /// configuration is not an available alternative credential.
+    pub(crate) fn available_from_env(client: Arc<ydb::Client>) -> Vec<Arc<Self>> {
+        Provider::ALL
+            .into_iter()
+            .filter_map(|provider| Self::from_env(client.clone(), provider).ok().flatten())
+            .collect()
+    }
+
     pub fn github_from_env(client: Arc<ydb::Client>) -> Result<Option<Arc<Self>>> {
         Self::from_env(client, Provider::Github)
     }
@@ -825,6 +834,62 @@ async fn resolve_binding(
         social_id: social.first().map(|row| row.0),
         external_id: external.first().map(|row| row.0),
     }))
+}
+
+/// Only a configured provider whose exact subject resolves back to this owner
+/// can preserve login during credential removal. Reuse the login resolver so
+/// orphaned, conflicting and cross-table reservations never count as a backup.
+pub(crate) async fn has_login_binding_tx(
+    tx: &mut Transaction,
+    configs: &[Arc<ProviderLoginConfig>],
+    account_id: i32,
+    identity_id: Uuid,
+) -> ydb::YdbResultWithCustomerErr<bool> {
+    for config in configs {
+        let mut rows = tx.query("SELECT uid AS subject FROM socialaccount_socialaccount VIEW socialaccount_socialaccount_user_id_8146e70c WHERE user_id = $owner AND provider = $provider LIMIT 1001")
+            .param("$owner", account_id).param("$provider", config.provider.id().to_owned()).await?;
+        let mut subjects = std::collections::BTreeSet::<String>::new();
+        let mut count = 0;
+        while let Some(set) = rows.next_result_set().await? {
+            for mut row in set {
+                count += 1;
+                subjects.insert(row.remove_field_by_name("subject")?.try_into()?);
+            }
+        }
+        rows.close().await?;
+        if count > 1000 {
+            return Ok(false);
+        }
+        let mut rows = tx.query("SELECT subject FROM usid_external_identity VIEW usid_external_identity_user_id_b18cc632 WHERE user_id = $owner AND provider = $provider LIMIT 1001")
+            .param("$owner", identity_id).param("$provider", config.provider.id().to_owned()).await?;
+        while let Some(set) = rows.next_result_set().await? {
+            for mut row in set {
+                count += 1;
+                subjects.insert(row.remove_field_by_name("subject")?.try_into()?);
+            }
+        }
+        rows.close().await?;
+        if count > 1000 {
+            return Ok(false);
+        }
+        for subject in subjects {
+            // All supported providers produce a canonical nonzero decimal ID.
+            if !subject
+                .parse::<u64>()
+                .is_ok_and(|id| id > 0 && id.to_string() == subject)
+            {
+                continue;
+            }
+            if let BindingResolution::Linked(binding) =
+                resolve_binding(tx, config.provider, &subject).await?
+                && binding.account_id == account_id
+                && binding.identity_id == identity_id
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 #[derive(Serialize, Deserialize)]
