@@ -871,7 +871,7 @@ BCrypt cost ≤16; PBKDF2 ≤10 млн итераций; пароль ≤1 MiB; 
 
 `ID_AUTH_GITHUB_LOGIN_ENABLED` по умолчанию выключен. Первый Rust-поток
 поддерживает только вход в уже связанный аккаунт; регистрации, автоматической
-привязки по email, link/unlink и Steam в нём нет. Нужны существующие
+привязки по email, link/unlink в нём нет. Steam описан отдельно ниже. Нужны существующие
 Rust login/form-token gates, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `ID_GITHUB_CALLBACK_URL` и secure session/CSRF cookies. Callback — единственный
 точный HTTPS URL с путём `/api/v1/auth/oauth/callback/github`, без query/fragment;
@@ -916,7 +916,7 @@ loopback и YDB `/local`; runtime environment override отсутствует.
 
 `ID_AUTH_DISCORD_LOGIN_ENABLED` по умолчанию выключен. Вход использует тот же
 `provider_login` module и `session_issuer`, что GitHub: общий state/CSRF/MFA
-жизненный цикл имеет два конкретных варианта протокола. Нужны
+жизненный цикл общий для поддержанных провайдеров. Нужны
 `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `ID_DISCORD_CALLBACK_URL` с точным
 HTTPS путём `/api/v1/auth/oauth/callback/discord` и, при необходимости,
 `ID_DISCORD_LOGIN_NEXT_PATHS` (точный JSON allowlist, по умолчанию `["/account"]`).
@@ -932,7 +932,7 @@ cancel сохраняют прежний контракт. Cookies — `__Host-i
 MFA continuation проверяют его вместе с cookies, исходной session и точным
 callback. Выдающая транзакция повторяет поиск по **provider + subject**, проверяет
 namespace одноразового proof и его владельца. Новый begin и password/passkey
-login отменяют предыдущие flow обоих провайдеров, чьи cookies прислал браузер.
+login отменяют предыдущие provider flow, чьи cookies прислал браузер.
 Это покрывает последовательное переключение способов входа; одновременно
 начатые запросы без cookies друг друга не дают гарантии взаимной отмены.
 Старые pending без явного provider после обновления требуют нового входа.
@@ -956,5 +956,64 @@ code_verifier. Затем bearer-запрос `/api/v10/users/@me` возвра�
 без PKCE. Исполнение и принудительная проверка PKCE обычным зарегистрированным
 Discord web application ещё требуют отдельной реальной приёмки: локальный
 loopback её не заменяет. Gates остаются выключенными до этой проверки.
-Topcoat UI в этом slice не меняется и пока поддерживает только GitHub.
-Link/unlink, signup и Steam этим изменением не реализованы.
+Topcoat UI в этом backend slice не меняется. Link/unlink и signup отсутствуют;
+отдельный Steam OpenID 2.0 описан ниже.
+
+
+## Steam OpenID 2.0 browser login
+
+Вход существующего связанного аккаунта реализован через OpenID 2.0 в общем
+`provider_login`; это не OAuth2. Он выключен по умолчанию:
+`ID_AUTH_STEAM_LOGIN_ENABLED=true` требует включённых login/form-token,
+`ID_STEAM_CALLBACK_URL=https://<ID-origin>/api/v1/auth/oauth/callback/steam`
+и secure cookies. `ID_STEAM_LOGIN_NEXT_PATHS` — JSON allowlist, по умолчанию
+`["/account"]`. Client ID, client secret и Steam Web API key не нужны.
+Инвентарь сообщает `steam.login_enabled: true` только при валидной включённой
+конфигурации. Production-настройки и Topcoat в этом изменении не включаются.
+
+HTTP-контракт start/pending/complete/cancel и фиксированные ошибки совпадают
+с таблицей GitHub выше, с `/steam` вместо `/github`. Start требует CSRF и
+одноразовый form-token, возвращает `{authorize_url,method:"GET"}`. UI должен
+разрешать только выбранный Steam endpoint
+`https://steamcommunity.com/openid/login` и переходить верхним уровнем.
+MFA использует `/login?provider_mfa=steam`, отдельные HttpOnly
+`__Host-id_steam_flow` / `__Host-id_steam_mfa`; один query-параметр не подтверждает
+активную попытку. Новый вход любым из трёх провайдеров, парольный или passkey
+вход отменяет прежние provider attempts. Срок state и MFA — 5 минут.
+
+Steam callback проверяет namespace, mode, exact return_to (настроенный callback
+плюс state), op_endpoint, равенство claimed_id/identity и обязательные подписанные
+поля. `realm` формируется из настроенного origin, с завершающим `/`.
+Принимаются только точные HTTP/HTTPS Steam claimed ID с каноническим положительным
+uint64; владельца ищем по `provider=steam` и числовому subject без изменения
+сохранённых идентификаторов. Signup, email linking, link/unlink и получение
+профиля Steam отсутствуют. Старый frozen Python adapter
+`32f22a6^:services/id/src/updspaceid/providers.py` подтверждает числовой формат
+subject; его допущения о подписи и произвольном redirect не перенесены.
+
+Discovery ограничен HTTPS `steamcommunity.com/openid/id/<numeric-subject>`;
+проверяется полученный XRDS signon service и тот же фиксированный OP endpoint.
+Redirects, внешние XML entities и произвольные provider URL запрещены.
+После этого ровно один POST `check_authentication` пересылает исходные OpenID
+поля с заменой только mode. Ответ разбирается как key/value с уникальными ключами:
+только точные namespace и `is_valid:true` подтверждают подпись. Ошибка сети или
+неизвестный результат требует новой попытки, автоматического повтора нет.
+Response nonce допускает возраст менее 300 секунд и clock skew вперёд до 30
+секунд; отдельная атомарная YDB-запись исключает повтор между инстансами до
+окончания всего окна принятия. Browser state, отмена, owner/status binding и MFA
+повторно проверяются существующим issuer перед commit.
+
+Источники: [Steamworks authentication](https://partner.steamgames.com/doc/features/auth?l=english)
+описывает 64-битный SteamID и OpenID; [OpenID 2.0 §§10–11](https://openid.net/specs/openid-authentication-2_0.html)
+определяет assertion/discovery/nonce/direct verification. Steamworks показывает
+исторические HTTP claimed ID и discovery URL `/openid/`; read-only HTTPS XRDS
+8 октября 2026 года подтвердил endpoint `/openid/login` и signon service.
+Поддержка HTTP написания идентификатора не разрешает HTTP transport.
+
+`github_login_ydb` содержит отдельный ignored Steam-сценарий: loopback OP и
+настоящая YDB, успешная сессия, оба хранилища bindings, malformed/duplicate
+assertions, discovery и signature failures, expiry/replay, MFA/recovery/TOTP,
+отмена и переключение провайдеров, деактивация и удаление перед выдачей.
+Обязательный workflow запускает все три named tests. Это проверка локального
+протокола; реальный Steam approval/callback, production Gateway и Topcoat
+потребуют отдельной сквозной приёмки перед включением gate.

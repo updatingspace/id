@@ -78,6 +78,11 @@ async fn main() -> Result<()> {
     {
         app = app.merge(id_runtime::provider_login::router(config));
     }
+    if let Some(config) =
+        id_runtime::provider_login::ProviderLoginConfig::steam_from_env(client.clone())?
+    {
+        app = app.merge(id_runtime::provider_login::router(config));
+    }
     let me_enabled =
         if let Some(config) = id_runtime::me_http::MeHttpConfig::from_env(client.clone())? {
             app = app.merge(id_runtime::me_http::router(config));

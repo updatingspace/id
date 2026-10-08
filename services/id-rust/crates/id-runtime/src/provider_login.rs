@@ -38,21 +38,24 @@ use ydb::{Transaction, TxMode, closure};
 const TTL: Duration = Duration::from_secs(300);
 const MAX_BODY: usize = 16_384;
 
-// The only protocol variation lives here; browser/MFA/issuance policy is shared.
+// Provider selection and browser/MFA/issuance policy are shared. Steam wire
+// verification lives separately because it is OpenID 2.0 rather than OAuth2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Provider {
     Github,
     Discord,
+    Steam,
 }
 
 impl Provider {
-    const ALL: [Self; 2] = [Self::Github, Self::Discord];
+    const ALL: [Self; 3] = [Self::Github, Self::Discord, Self::Steam];
 
     fn id(self) -> &'static str {
         match self {
             Self::Github => "github",
             Self::Discord => "discord",
+            Self::Steam => "steam",
         }
     }
 
@@ -60,6 +63,7 @@ impl Provider {
         match self {
             Self::Github => "GitHub",
             Self::Discord => "Discord",
+            Self::Steam => "Steam",
         }
     }
 
@@ -75,6 +79,7 @@ impl Provider {
         match self {
             Self::Github => "__Host-id_github_flow",
             Self::Discord => "__Host-id_discord_flow",
+            Self::Steam => "__Host-id_steam_flow",
         }
     }
 
@@ -82,6 +87,7 @@ impl Provider {
         match self {
             Self::Github => "__Host-id_github_mfa",
             Self::Discord => "__Host-id_discord_mfa",
+            Self::Steam => "__Host-id_steam_mfa",
         }
     }
 
@@ -96,6 +102,11 @@ impl Provider {
                 "https://github.com/login/oauth/access_token",
                 "https://api.github.com/user",
             ),
+            Self::Steam => (
+                crate::steam_openid::ENDPOINT,
+                crate::steam_openid::ENDPOINT,
+                crate::steam_openid::DISCOVERY,
+            ),
             Self::Discord => (
                 "https://discord.com/oauth2/authorize",
                 "https://discord.com/api/v10/oauth2/token",
@@ -108,11 +119,13 @@ impl Provider {
         match self {
             Self::Github => "read:user",
             Self::Discord => "identify",
+            Self::Steam => "",
         }
     }
 
     fn subject(self, user: &Value) -> Result<String> {
         match self {
+            Self::Steam => anyhow::bail!("Steam uses OpenID assertions, not OAuth user info"),
             Self::Github => user
                 .get("id")
                 .and_then(Value::as_u64)
@@ -159,6 +172,10 @@ impl ProviderLoginConfig {
         Self::from_env(client, Provider::Discord)
     }
 
+    pub fn steam_from_env(client: Arc<ydb::Client>) -> Result<Option<Arc<Self>>> {
+        Self::from_env(client, Provider::Steam)
+    }
+
     fn from_env(client: Arc<ydb::Client>, provider: Provider) -> Result<Option<Arc<Self>>> {
         let env_prefix = provider.id().to_ascii_uppercase();
         if !env_flag(&format!("ID_AUTH_{env_prefix}_LOGIN_ENABLED"), false)? {
@@ -174,8 +191,16 @@ impl ProviderLoginConfig {
         let config = Self::new(
             provider,
             login,
-            env::var(format!("{env_prefix}_CLIENT_ID"))?,
-            env::var(format!("{env_prefix}_CLIENT_SECRET"))?,
+            if provider == Provider::Steam {
+                String::new()
+            } else {
+                env::var(format!("{env_prefix}_CLIENT_ID"))?
+            },
+            if provider == Provider::Steam {
+                String::new()
+            } else {
+                env::var(format!("{env_prefix}_CLIENT_SECRET"))?
+            },
             env::var(format!("ID_{env_prefix}_CALLBACK_URL"))?,
             serde_json::from_str(
                 &env::var(format!("ID_{env_prefix}_LOGIN_NEXT_PATHS"))
@@ -230,6 +255,21 @@ impl ProviderLoginConfig {
         )
     }
 
+    pub fn steam(
+        login: Arc<LoginHttpConfig>,
+        callback_url: String,
+        next_paths: Vec<String>,
+    ) -> Result<Self> {
+        Self::new(
+            Provider::Steam,
+            login,
+            String::new(),
+            String::new(),
+            callback_url,
+            next_paths,
+        )
+    }
+
     fn new(
         provider: Provider,
         login: Arc<LoginHttpConfig>,
@@ -239,10 +279,11 @@ impl ProviderLoginConfig {
         next_paths: Vec<String>,
     ) -> Result<Self> {
         ensure!(
-            !client_id.is_empty()
-                && client_id.len() <= 256
-                && !client_secret.is_empty()
-                && client_secret.len() <= 4096,
+            provider == Provider::Steam
+                || (!client_id.is_empty()
+                    && client_id.len() <= 256
+                    && !client_secret.is_empty()
+                    && client_secret.len() <= 4096),
             "missing or invalid {} credentials",
             provider.name()
         );
@@ -308,6 +349,12 @@ impl ProviderLoginConfig {
                 && url.password().is_none(),
             "loopback provider requires local YDB"
         );
+        if self.provider == Provider::Steam {
+            self.authorize_url = url.join("openid/login")?.to_string();
+            self.token_url = self.authorize_url.clone();
+            self.user_url = url.join("openid/id/")?.to_string();
+            return Ok(self);
+        }
         self.authorize_url = url.join("authorize")?.to_string();
         self.token_url = url.join("token")?.to_string();
         self.user_url = url.join("user")?.to_string();
@@ -371,7 +418,7 @@ enum BindingResolution {
     Linked(Binding),
 }
 
-/// Constructed only after the server exchanges a code and reads the provider user.
+/// Constructed only after server-side OAuth exchange or Steam OpenID verification.
 /// The serializable pending representation contains no password hash or provider token.
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct ProviderProof {
@@ -782,6 +829,13 @@ async fn start(State(config): State<Arc<ProviderLoginConfig>>, request: Request)
                 .await?,
             "state collision"
         );
+        if config.provider == Provider::Steam {
+            return crate::steam_openid::authorize(
+                &config.authorize_url,
+                &config.callback_url,
+                &state,
+            );
+        }
         let mut url = Url::parse(&config.authorize_url)?;
         url.query_pairs_mut()
             .append_pair("client_id", &config.client_id)
@@ -864,6 +918,7 @@ async fn exchange(config: &ProviderLoginConfig, code: &str, verifier: &str) -> R
         .post(&config.token_url)
         .header("accept", "application/json");
     let request = match config.provider {
+        Provider::Steam => anyhow::bail!("Steam is not an OAuth provider"),
         Provider::Github => request.form(&[
             ("client_id", config.client_id.as_str()),
             ("client_secret", config.client_secret.as_str()),
@@ -926,7 +981,13 @@ async fn callback_inner(
     let headers = request.headers().clone();
     let ip = login_http::request_ip(&request).unwrap_or_default();
     let invalid = || error(&config, &headers, StatusCode::BAD_REQUEST, "INVALID_STATE");
-    let Some(params) = callback_params(request.uri().query().unwrap_or_default()) else {
+    let raw = request.uri().query().unwrap_or_default();
+    let params = if config.provider == Provider::Steam {
+        crate::steam_openid::parameters(raw)
+    } else {
+        callback_params(raw)
+    };
+    let Some(params) = params else {
         return invalid();
     };
     let Some(state) = params.get("state").filter(|value| valid_opaque(value)) else {
@@ -977,7 +1038,9 @@ async fn callback_inner(
         Ok(None) => return invalid(),
         Err(_) => return unavailable(&config, &headers),
     }
-    if params.contains_key("error") {
+    if params.contains_key("error")
+        || (config.provider == Provider::Steam && crate::steam_openid::denied(&params))
+    {
         return error(
             &config,
             &headers,
@@ -985,10 +1048,32 @@ async fn callback_inner(
             "PROVIDER_DENIED",
         );
     }
-    let Some(code) = params.get("code") else {
-        return invalid();
+    let verification = if config.provider == Provider::Steam {
+        crate::steam_openid::verify(
+            &config.http,
+            &config.authorize_url,
+            &config.user_url,
+            &config.callback_url,
+            state,
+            &params,
+            now,
+        )
+        .await
+        .map(|assertion| {
+            (
+                assertion.subject,
+                Some((assertion.nonce, assertion.expires)),
+            )
+        })
+    } else {
+        let Some(code) = params.get("code") else {
+            return invalid();
+        };
+        exchange(&config, code, &flow.verifier)
+            .await
+            .map(|subject| (subject, None))
     };
-    let subject = match exchange(&config, code, &flow.verifier).await {
+    let (subject, nonce) = match verification {
         Ok(value) => value,
         Err(_) => {
             return error(
@@ -999,6 +1084,25 @@ async fn callback_inner(
             );
         }
     };
+    if let Some((nonce, expiry)) = nonce {
+        // State and the provider nonce are independent replay barriers. Shared YDB
+        // enforces this even across API instances; ambiguity never permits issuance.
+        match config
+            .login
+            .cache
+            .add(
+                &config.provider.cache_key("nonce", &digest(&nonce)),
+                &CacheValue::Bool(true),
+                Some(expiry),
+                SystemTime::now(),
+            )
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => return invalid(),
+            Err(_) => return unavailable(&config, &headers),
+        }
+    }
     let lookup_subject = subject.clone();
     let provider = config.provider;
     let binding = config

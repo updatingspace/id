@@ -19,6 +19,7 @@ pub struct ProvidersHttpConfig {
     client: Arc<Client>,
     github_login_enabled: bool,
     discord_login_enabled: bool,
+    steam_login_enabled: bool,
 }
 
 impl ProvidersHttpConfig {
@@ -32,10 +33,14 @@ impl ProvidersHttpConfig {
         let discord_login_enabled =
             crate::provider_login::ProviderLoginConfig::discord_from_env(client.clone())
                 .is_ok_and(|config| config.is_some());
+        let steam_login_enabled =
+            crate::provider_login::ProviderLoginConfig::steam_from_env(client.clone())
+                .is_ok_and(|config| config.is_some());
         Ok(Some(Arc::new(Self {
             client,
             github_login_enabled,
             discord_login_enabled,
+            steam_login_enabled,
         })))
     }
 }
@@ -64,6 +69,7 @@ async fn list(State(config): State<Arc<ProvidersHttpConfig>>) -> Response {
         &config.client,
         config.github_login_enabled,
         config.discord_login_enabled,
+        config.steam_login_enabled,
     )
     .await
     {
@@ -85,6 +91,7 @@ async fn read_providers(
     client: &Client,
     github_login_enabled: bool,
     discord_login_enabled: bool,
+    steam_login_enabled: bool,
 ) -> Result<Vec<Provider>> {
     let mut query_client = client.query_client();
     let mut stream = query_client
@@ -103,6 +110,7 @@ async fn read_providers(
         &configured,
         github_login_enabled,
         discord_login_enabled,
+        steam_login_enabled,
     ))
 }
 
@@ -110,11 +118,12 @@ fn assemble(
     configured: &[String],
     github_login_enabled: bool,
     discord_login_enabled: bool,
+    steam_login_enabled: bool,
 ) -> Vec<Provider> {
     [
         ("discord", "Discord", discord_login_enabled),
         ("github", "GitHub", github_login_enabled),
-        ("steam", "Steam", false),
+        ("steam", "Steam", steam_login_enabled),
     ]
     .into_iter()
     .filter(|(id, _, enabled)| configured.iter().any(|value| value == id) || *enabled)
@@ -150,6 +159,7 @@ mod tests {
             ],
             false,
             false,
+            false,
         );
         assert_eq!(
             providers,
@@ -171,13 +181,13 @@ mod tests {
     #[test]
     fn inventory_advertises_only_explicitly_enabled_github_login() -> Result<()> {
         let configured = vec!["github".into(), "discord".into(), "steam".into()];
-        let disabled = serde_json::to_value(assemble(&configured, false, false))?;
+        let disabled = serde_json::to_value(assemble(&configured, false, false, false))?;
         assert!(disabled.as_array().is_some_and(|providers| {
             providers
                 .iter()
                 .all(|provider| provider.get("login_enabled").is_none())
         }));
-        let enabled = serde_json::to_value(assemble(&configured, true, false))?;
+        let enabled = serde_json::to_value(assemble(&configured, true, false, false))?;
         assert_eq!(
             enabled[1],
             serde_json::json!({"id":"github","name":"GitHub","login_enabled":true})
@@ -185,19 +195,19 @@ mod tests {
         assert!(enabled[0].get("login_enabled").is_none());
         assert!(enabled[2].get("login_enabled").is_none());
         assert_eq!(
-            serde_json::to_value(assemble(&[], true, false))?,
+            serde_json::to_value(assemble(&[], true, false, false))?,
             serde_json::json!([
                 {"id":"github","name":"GitHub","login_enabled":true}
             ])
         );
-        assert!(assemble(&[], false, false).is_empty());
+        assert!(assemble(&[], false, false, false).is_empty());
         Ok(())
     }
 
     #[test]
     fn discord_capability_is_independent_of_github_and_socialapp_inventory() -> Result<()> {
         let configured = vec!["github".into(), "discord".into(), "steam".into()];
-        let discord = serde_json::to_value(assemble(&configured, false, true))?;
+        let discord = serde_json::to_value(assemble(&configured, false, true, false))?;
         assert_eq!(
             discord[0],
             serde_json::json!({
@@ -207,14 +217,28 @@ mod tests {
         assert!(discord[1].get("login_enabled").is_none());
         assert!(discord[2].get("login_enabled").is_none());
         assert_eq!(
-            serde_json::to_value(assemble(&[], false, true))?,
+            serde_json::to_value(assemble(&[], false, true, false))?,
             serde_json::json!([{"id":"discord","name":"Discord","login_enabled":true}])
         );
-        let both = serde_json::to_value(assemble(&[], true, true))?;
+        let both = serde_json::to_value(assemble(&[], true, true, false))?;
         assert_eq!(both.as_array().map(Vec::len), Some(2));
         assert!(both.as_array().is_some_and(|providers| {
             providers.iter().all(|entry| entry["login_enabled"] == true)
         }));
+        Ok(())
+    }
+
+    #[test]
+    fn steam_capability_requires_its_own_enabled_configuration() -> Result<()> {
+        assert_eq!(
+            serde_json::to_value(assemble(&[], false, false, true))?,
+            serde_json::json!([{"id":"steam","name":"Steam","login_enabled":true}])
+        );
+        let configured = vec!["steam".into()];
+        assert_eq!(
+            serde_json::to_value(assemble(&configured, false, false, false))?,
+            serde_json::json!([{"id":"steam","name":"Steam"}])
+        );
         Ok(())
     }
 
@@ -226,7 +250,7 @@ mod tests {
             "production YDB is not permitted for this test"
         );
         let client = crate::connect_ydb().await?;
-        let providers = read_providers(&client, false, false).await?;
+        let providers = read_providers(&client, false, false, false).await?;
         assert!(providers.is_empty());
         Ok(())
     }

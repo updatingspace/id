@@ -113,11 +113,13 @@ credential edits, cancellation during form-token preparation, and delayed login
 responses. Credential fields become read-only while a login POST is in flight
 because that request may already have issued a session cookie.
 
-`scripts/check-web-provider-login-browser.cjs` checks GitHub and Discord using a
-synthetic API. Each button requires its own `login_enabled: true` capability.
+`scripts/check-web-provider-login-browser.cjs` checks GitHub, Discord and Steam
+using a synthetic API. Each button requires its own `login_enabled: true` capability.
 The shared UI restores cookie-bound MFA, waits for confirmed cancellation, and
 does not replay codes after an unknown result. These checks do not establish
 real provider authorization, cookie or Gateway acceptance.
+Steam uses OpenID 2.0; the UI forwards the backend's exact authorization URL
+without constructing or rewriting `state` or `openid.return_to`.
 
 
 The user UI shares `static/ui.css` colour/control tokens and `static/ui.js`
