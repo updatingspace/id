@@ -1,6 +1,7 @@
 mod account;
 mod admin;
 mod consent;
+mod csp;
 mod export_redeem;
 mod home;
 mod login;
@@ -13,6 +14,7 @@ use topcoat::router::Router;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut router = Router::builder()
+        .layer(csp::layer())
         .route(home::page)
         .route(home::style)
         .route(ui::style)
