@@ -275,6 +275,7 @@ pub fn parse_authorization_query(raw: &str) -> Option<BTreeMap<String, String>> 
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     #[test]

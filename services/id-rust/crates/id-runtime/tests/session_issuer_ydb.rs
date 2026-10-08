@@ -10,7 +10,10 @@ use axum::{
 use id_compat::{account_jwt::AccountJwtCodec, session::SessionCodec};
 use id_runtime::{
     login_preflight::{LoginDecision, LoginPreflight},
-    session_issuer::{SessionClient, issue_password_login, issue_password_session},
+    session_issuer::{
+        IssueTiming, MfaProof, SessionClient, issue_password_login, issue_password_login_with_mfa,
+        issue_password_session,
+    },
     session_store::LEGACY_BACKENDS,
 };
 use std::{
@@ -26,6 +29,248 @@ const PASSWORD: &str = "Synthetic пароль 🔐 with unicode and more than 7
 const PASSWORD_HASH: &str = "argon2$argon2id$v=19$m=102400,t=2,p=8$U3ludGhldGljR29sZGVuU2FsdDEyMw$Q/uhIlhHnraeVEMP4b/SvQx5Gjb04zC0bEmIq6OPnUo";
 
 #[tokio::test]
+#[ignore = "requires local YDB; creates only owner-scoped synthetic account/session rows"]
+async fn final_issuer_rejects_changed_policy_without_consuming_recovery() -> Result<()> {
+    ensure!(
+        matches!(
+            std::env::var("YDB_ENDPOINT")?.as_str(),
+            "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
+        ) && std::env::var("YDB_DATABASE")? == "/local",
+        "session policy test requires local YDB on port 2136"
+    );
+    let client = Arc::new(id_runtime::connect_ydb().await?);
+    let identity_id = Uuid::new_v4();
+    let alternate_identity = Uuid::new_v4();
+    let account_id = -i32::try_from(identity_id.as_u128() % 2_000_000_000 + 1)?;
+    let email = format!("issuer-policy-{identity_id}@example.invalid");
+    let subject = format!("issuer-policy-{identity_id}");
+    let codec = Arc::new(SessionCodec::new(
+        b"synthetic-session-policy-secret-min-32-characters",
+        &[],
+    )?);
+    let jwt = AccountJwtCodec::new(b"synthetic-session-policy-secret-min-32-characters")?;
+    let recovery = serde_json::json!({"migrated_codes":["12345678", "87654321"]});
+    // Claim the negative fixture ID before enabling cleanup. A collision must
+    // fail without overwriting or deleting another test's account.
+    client.query_client().exec("INSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, $password, true, $name, '', '', $email, false, false, CurrentUtcDatetime())")
+        .param("$id", account_id).param("$password", PASSWORD_HASH)
+        .param("$name", subject.clone()).param("$email", email.clone()).await?;
+    let result: Result<()> = async {
+        client.query_client().exec("INSERT INTO accounts_accountemaillookup (user_id, email_key) VALUES ($id, $email)")
+            .param("$id", account_id).param("$email", email.clone()).await?;
+        client.query_client().exec("INSERT INTO account_emailaddress (id, user_id, email, verified, primary) VALUES ($id, $id, $email, true, true)")
+            .param("$id", account_id).param("$email", email.clone()).await?;
+        for id in [identity_id, alternate_identity] {
+            client.query_client().exec("INSERT INTO usid_user (user_id, username, display_name, email, email_verified, status, system_admin, created_at) VALUES ($id, $name, $name, $email, true, 'active', false, CurrentUtcDatetime())")
+                .param("$id", id).param("$name", format!("issuer-policy-{id}"))
+                .param("$email", format!("issuer-policy-{id}@example.invalid")).await?;
+        }
+        client.query_client().exec("INSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($id, $identity, $subject, CurrentUtcDatetime())")
+            .param("$id", account_id).param("$identity", identity_id).param("$subject", subject.clone()).await?;
+        client.query_client().exec("INSERT INTO mfa_authenticator (id, user_id, type, data, created_at) VALUES ($row_id, $id, 'recovery_codes', Unwrap(CAST($data AS Json)), CurrentUtcDatetime())")
+            .param("$row_id", i64::from(account_id)).param("$id", account_id)
+            .param("$data", recovery.to_string()).await?;
+        let verifier = LoginPreflight::new(client.clone(), 1)?;
+        let LoginDecision::MfaRequired(verified) = verifier.verify(&email, PASSWORD).await? else {
+            anyhow::bail!("eligible synthetic account did not reach pending MFA")
+        };
+        let cache = id_runtime::cache_store::CacheStore::new(
+            client.clone(), "id_shared_cache", &subject, 1,
+        )?;
+        let request = SessionClient {
+            ip: "192.0.2.25".parse()?,
+            user_agent: "synthetic session policy regression".into(),
+            device_fingerprint_salt: subject.clone(),
+        };
+        assert_policy_issuance_rows(&client, account_id, 0).await?;
+        for change in ["disabled account", "changed identity", "changed subject"] {
+            match change {
+                "disabled account" => {
+                    client.query_client().exec("UPDATE auth_user SET is_active = false WHERE id = $id")
+                        .param("$id", account_id).await?;
+                }
+                "changed identity" => {
+                    client.query_client().exec("UPDATE accounts_accountidentity SET identity_id = $identity WHERE user_id = $id")
+                        .param("$identity", alternate_identity).param("$id", account_id).await?;
+                }
+                "changed subject" => {
+                    client.query_client().exec("UPDATE accounts_accountidentity SET public_subject = $subject WHERE user_id = $id")
+                        .param("$subject", format!("changed-{subject}")).param("$id", account_id).await?;
+                }
+                _ => unreachable!(),
+            }
+            ensure!(issue_password_login_with_mfa(
+                &client, codec.clone(), &jwt, &verified, &request,
+                IssueTiming { now: SystemTime::now(), lifetime: Duration::from_secs(3600) },
+                MfaProof { cache: &cache, code: "12345678" },
+            ).await?.is_none(), "{change} issued credentials from stale preflight");
+            assert_policy_issuance_rows(&client, account_id, 0).await
+                .with_context(|| format!("{change} persisted login side effects"))?;
+            let mut row = client.query_client().query_row("SELECT CAST(data AS Utf8) AS data FROM mfa_authenticator WHERE id = $id")
+                .param("$id", i64::from(account_id)).await?;
+            let data: String = row.remove_field_by_name("data")?.try_into()?;
+            ensure!(serde_json::from_str::<serde_json::Value>(&data)? == recovery,
+                "{change} consumed or replaced pending recovery codes");
+            client.query_client().exec("UPDATE auth_user SET is_active = true WHERE id = $id")
+                .param("$id", account_id).await?;
+            client.query_client().exec("UPDATE accounts_accountidentity SET identity_id = $identity, public_subject = $subject WHERE user_id = $id")
+                .param("$identity", identity_id).param("$subject", subject.clone())
+                .param("$id", account_id).await?;
+        }
+        // Reuse the very same preflight and code after restoring eligibility:
+        // the preceding refusals must neither consume MFA nor mint credentials.
+        let login = issue_password_login_with_mfa(
+            &client, codec.clone(), &jwt, &verified, &request,
+            IssueTiming { now: SystemTime::now(), lifetime: Duration::from_secs(3600) },
+            MfaProof { cache: &cache, code: "12345678" },
+        ).await?.context("refused login consumed the recovery code or pending preflight")?;
+        let restored = id_runtime::session_store::restore_django_principal(
+            &client, codec.clone(), &login.session.token, LEGACY_BACKENDS, SystemTime::now(),
+        ).await?.context("eligible MFA session could not be restored")?;
+        ensure!(restored.account_id.get() == i64::from(account_id)
+            && restored.identity_id.get() == identity_id, "issued session has the wrong owner");
+        ensure!(!login.access.is_empty() && !login.refresh.is_empty(), "eligible MFA login omitted JWTs");
+        assert_policy_issuance_rows(&client, account_id, 1).await?;
+        let mut row = client.query_client().query_row("SELECT CAST(data AS Utf8) AS data FROM mfa_authenticator WHERE id = $id")
+            .param("$id", i64::from(account_id)).await?;
+        let data: String = row.remove_field_by_name("data")?.try_into()?;
+        ensure!(serde_json::from_str::<serde_json::Value>(&data)?
+            == serde_json::json!({"migrated_codes":["87654321"]}),
+            "successful login did not consume exactly its recovery code");
+        Ok(())
+    }.await;
+    // Resolve only this account's generated keys, including an unexpected
+    // issuance on an assertion failure. Never sweep shared sessions/outbox.
+    let cleanup: Result<()> = async {
+        let mut query_client = client.query_client();
+        let mut sessions = query_client
+            .query("SELECT session_key FROM usersessions_usersession WHERE user_id = $id")
+            .param("$id", account_id)
+            .await?;
+        let mut keys: Vec<String> = Vec::new();
+        while let Some(rows) = sessions.next_result_set().await? {
+            for mut row in rows {
+                keys.push(row.remove_field_by_name("session_key")?.try_into()?);
+            }
+        }
+        sessions.close().await?;
+        for key in keys {
+            client
+                .query_client()
+                .exec("DELETE FROM django_session WHERE session_key = $key")
+                .param("$key", key)
+                .await?;
+        }
+        let mut events = query_client
+            .query("SELECT id FROM accounts_loginevent WHERE user_id = $id")
+            .param("$id", account_id)
+            .await?;
+        let mut ids: Vec<i64> = Vec::new();
+        while let Some(rows) = events.next_result_set().await? {
+            for mut row in rows {
+                ids.push(row.remove_field_by_name("id")?.try_into()?);
+            }
+        }
+        events.close().await?;
+        for id in ids {
+            client
+                .query_client()
+                .exec("DELETE FROM accounts_newdevicemailoutbox WHERE event_id = $id")
+                .param("$id", id)
+                .await?;
+        }
+        for table in [
+            "usersessions_usersession",
+            "core_usersessionmeta",
+            "core_usersessiontoken",
+            "token_blacklist_outstandingtoken",
+            "accounts_loginevent",
+            "accounts_userdevice",
+            "mfa_authenticator",
+            "account_emailaddress",
+            "accounts_accountidentity",
+            "accounts_accountemaillookup",
+        ] {
+            client
+                .query_client()
+                .exec(format!("DELETE FROM {table} WHERE user_id = $id"))
+                .param("$id", account_id)
+                .await?;
+        }
+        for id in [identity_id, alternate_identity] {
+            client
+                .query_client()
+                .exec("DELETE FROM usid_user WHERE user_id = $id")
+                .param("$id", id)
+                .await?;
+        }
+        client
+            .query_client()
+            .exec("DELETE FROM auth_user WHERE id = $id")
+            .param("$id", account_id)
+            .await?;
+        Ok(())
+    }
+    .await;
+    result?;
+    cleanup
+}
+
+async fn assert_policy_issuance_rows(
+    client: &ydb::Client,
+    account_id: i32,
+    expected: u64,
+) -> Result<()> {
+    for table in [
+        "usersessions_usersession",
+        "core_usersessionmeta",
+        "core_usersessiontoken",
+        "token_blacklist_outstandingtoken",
+        "accounts_loginevent",
+        "accounts_userdevice",
+    ] {
+        let mut row = client
+            .query_client()
+            .query_row(format!(
+                "SELECT COUNT(*) AS total FROM {table} WHERE user_id = $id"
+            ))
+            .param("$id", account_id)
+            .await?;
+        let count: u64 = row.remove_field_by_name("total")?.try_into()?;
+        ensure!(
+            count == expected,
+            "unexpected {table} row count: {count}, expected {expected}"
+        );
+    }
+    for (name, sql) in [
+        (
+            "Django sessions",
+            "SELECT COUNT(*) AS total FROM django_session AS d INNER JOIN usersessions_usersession AS s ON d.session_key = s.session_key WHERE s.user_id = $id",
+        ),
+        (
+            "new-device mail intents",
+            "SELECT COUNT(*) AS total FROM accounts_newdevicemailoutbox AS o INNER JOIN accounts_loginevent AS e ON o.event_id = e.id WHERE e.user_id = $id",
+        ),
+        (
+            "last-login timestamp",
+            "SELECT COUNT(*) AS total FROM auth_user WHERE id = $id AND last_login IS NOT NULL",
+        ),
+    ] {
+        let mut row = client
+            .query_client()
+            .query_row(sql)
+            .param("$id", account_id)
+            .await?;
+        let count: u64 = row.remove_field_by_name("total")?.try_into()?;
+        ensure!(
+            count == expected,
+            "unexpected {name} row count: {count}, expected {expected}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 #[ignore = "requires local YDB after migrate_ydb; creates synthetic account/session"]
 async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
     ensure!(
@@ -36,6 +281,10 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         "session issuer test requires local YDB on port 2136"
     );
     let client = Arc::new(id_runtime::connect_ydb().await?);
+    let logout_app = id_runtime::logout_http::router(
+        id_runtime::logout_http::LogoutHttpConfig::from_env(client.clone())?
+            .context("session issuer acceptance requires ID_AUTH_LOGOUT_PILOT_ENABLED=true")?,
+    );
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
     let account_id = i32::try_from(stamp % 1_000_000_000 + 1)?;
     let identity_id = Uuid::from_u128((stamp << 32) | u128::from(std::process::id()));
@@ -531,6 +780,56 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
             .param("$key", race_session.session.token.clone()).await?;
         let active: u64 = active.remove_field_by_name("count")?.try_into()?;
         ensure!(active == 0, "refresh race replay left descendants active");
+
+        // Exercise the HTTP boundary with two independently issued sessions.
+        // Read-only state checks must not rotate refresh tokens between denials.
+        let logout_cookie = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
+            &request, SystemTime::now(), lifetime).await?
+            .context("cookie logout session was not issued")?;
+        tokens_to_clean.push((logout_cookie.session.token.clone(), logout_cookie.refresh.clone()));
+        let logout_header = issue_password_login(&client, codec.clone(), &jwt_codec, &verified,
+            &request, SystemTime::now(), lifetime).await?
+            .context("header logout session was not issued")?;
+        tokens_to_clean.push((logout_header.session.token.clone(), logout_header.refresh.clone()));
+        for login in [&logout_cookie, &logout_header] {
+            assert_logout_state(&client, codec.clone(), &jwt_codec, login, false).await?;
+        }
+        for (header_token, csrf, expected_status, expected_code) in [
+            (None, None, StatusCode::FORBIDDEN, "CSRF_FAILED"),
+            (Some("invalid-explicit-session"), Some("abcdefghijklmnopqrstuvwxyzABCDEF"),
+                StatusCode::UNAUTHORIZED, "INVALID_OR_EXPIRED_TOKEN"),
+        ] {
+            let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+                Some(&logout_cookie.session.token), header_token, csrf, None).await?;
+            ensure!(status == expected_status && body["code"] == expected_code,
+                "logout authorization did not reject the request: {status} {body}");
+            for login in [&logout_cookie, &logout_header] {
+                assert_logout_state(&client, codec.clone(), &jwt_codec, login, false).await?;
+            }
+        }
+        let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+            Some(&logout_cookie.session.token), None, Some("abcdefghijklmnopqrstuvwxyzABCDEF"), None).await?;
+        ensure!(status == StatusCode::OK && body["ok"] == true,
+            "CSRF-protected cookie logout failed: {status} {body}");
+        assert_logout_state(&client, codec.clone(), &jwt_codec, &logout_cookie, true).await?;
+        assert_logout_state(&client, codec.clone(), &jwt_codec, &logout_header, false).await?;
+        let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+            Some(&logout_cookie.session.token), None, Some("abcdefghijklmnopqrstuvwxyzABCDEF"), None).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED && body["code"] == "INVALID_OR_EXPIRED_TOKEN",
+            "revoked cookie session logged out again: {status} {body}");
+        assert_logout_state(&client, codec.clone(), &jwt_codec, &logout_header, false).await?;
+        let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+            Some(&logout_cookie.session.token), Some(&logout_header.session.token), None, None).await?;
+        ensure!(status == StatusCode::OK && body["ok"] == true,
+            "valid explicit logout did not take priority over a revoked cookie: {status} {body}");
+        for login in [&logout_cookie, &logout_header] {
+            assert_logout_state(&client, codec.clone(), &jwt_codec, login, true).await?;
+        }
+        let (status, body) = sessions_http_mutate(&logout_app, "POST", "/api/v1/auth/logout",
+            None, Some(&logout_header.session.token), None, None).await?;
+        ensure!(status == StatusCode::UNAUTHORIZED && body["code"] == "INVALID_OR_EXPIRED_TOKEN",
+            "revoked explicit session logged out again: {status} {body}");
+
         client.query_client().exec("UPSERT INTO mfa_authenticator (id, user_id, type, data, created_at) VALUES ($id, $user_id, 'recovery_codes', Unwrap(CAST($data AS Json)), CurrentUtcDatetime())")
             .param("$id", i64::from(account_id)).param("$user_id", account_id)
             .param("$data", serde_json::json!({"migrated_codes":["87654321","12345678"]}).to_string()).await?;
@@ -991,6 +1290,63 @@ async fn issue_session_rechecks_policy_and_restores_in_rust() -> Result<()> {
         .param("$id", account_id)
         .await?;
     result
+}
+
+async fn assert_logout_state(
+    client: &ydb::Client,
+    codec: Arc<SessionCodec>,
+    jwt_codec: &AccountJwtCodec,
+    login: &id_runtime::session_issuer::IssuedPasswordLogin,
+    revoked: bool,
+) -> Result<()> {
+    let now = SystemTime::now();
+    let refresh = jwt_codec.verify_refresh(
+        &login.refresh,
+        i64::try_from(now.duration_since(UNIX_EPOCH)?.as_secs())?,
+    )?;
+    ensure!(refresh.session_key == login.session.token);
+    let restored = id_runtime::session_store::restore_django_principal(
+        client,
+        codec,
+        &login.session.token,
+        LEGACY_BACKENDS,
+        now,
+    )
+    .await?;
+    ensure!(
+        restored.is_some() != revoked,
+        "unexpected logout session state"
+    );
+    let mut mapping = client.query_client().query_row(
+        "SELECT revoked_at FROM core_usersessiontoken WHERE user_id = $owner AND session_key = $key AND refresh_jti = $jti")
+        .param("$owner", refresh.account_id).param("$key", login.session.token.clone())
+        .param("$jti", refresh.jti.clone()).await?;
+    let revoked_at: Option<SystemTime> = mapping.remove_field_by_name("revoked_at")?.try_into()?;
+    ensure!(
+        revoked_at.is_some() == revoked,
+        "unexpected logout refresh mapping state"
+    );
+    let mut outstanding = client.query_client().query_row(
+        "SELECT id, token FROM token_blacklist_outstandingtoken VIEW token_blacklist_outstandingtoken_user_id_83bc629a WHERE user_id = $owner AND jti = $jti")
+        .param("$owner", refresh.account_id).param("$jti", refresh.jti).await?;
+    let outstanding_id: i64 = outstanding.remove_field_by_name("id")?.try_into()?;
+    let saved: String = outstanding.remove_field_by_name("token")?.try_into()?;
+    ensure!(
+        saved == login.refresh,
+        "logout changed the saved refresh credential"
+    );
+    let blacklisted = client
+        .query_client()
+        .query_row("SELECT id FROM token_blacklist_blacklistedtoken WHERE token_id = $id LIMIT 1")
+        .param("$id", outstanding_id)
+        .optional()
+        .await?
+        .is_some();
+    ensure!(
+        blacklisted == revoked,
+        "unexpected logout refresh blacklist state"
+    );
+    Ok(())
 }
 
 async fn sessions_http_call(

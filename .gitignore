@@ -167,6 +167,13 @@ node_modules/
 dist/
 .vite/
 coverage/
+!services/id-rust/coverage/
+services/id-rust/coverage/*
+!services/id-rust/coverage/README.md
+!services/id-rust/coverage/security-profile.json
+!services/id-rust/coverage/toolchain.env
+!services/id-rust/coverage/branch-semantics.md
+!services/id-rust/coverage/branch-semantics-probe/
 *.tsbuildinfo
 web/id-frontend/playwright-report/
 web/id-frontend/test-results/

@@ -1,0 +1,178 @@
+{
+  "version": 1,
+  "name": "ID production authentication and authorization (review proposal)",
+  "review_status": "proposed; not an accepted baseline or migration PASS",
+  "thresholds": {
+    "lines": 85,
+    "branches": 80,
+    "critical_lines": 100,
+    "critical_branches": 100
+  },
+  "groups": [
+    {
+      "name": "Credential verification and wire formats",
+      "critical": true,
+      "files": [
+        "crates/id-compat/src/account_jwt.rs",
+        "crates/id-compat/src/cache.rs",
+        "crates/id-compat/src/csrf.rs",
+        "crates/id-compat/src/headers.rs",
+        "crates/id-compat/src/internal_hmac.rs",
+        "crates/id-compat/src/mfa_seal.rs",
+        "crates/id-compat/src/password.rs",
+        "crates/id-compat/src/recovery.rs",
+        "crates/id-compat/src/session.rs",
+        "crates/id-compat/src/session_auth.rs",
+        "crates/id-compat/src/totp.rs"
+      ]
+    },
+    {
+      "name": "Shared authorization, one-time state and retries",
+      "critical": true,
+      "files": [
+        "crates/id-runtime/src/ids.rs",
+        "crates/id-runtime/src/tx_retry.rs",
+        "crates/id-runtime/src/cache_store.rs",
+        "crates/id-runtime/src/form_token_consume.rs",
+        "crates/id-runtime/src/login_rate_limit.rs",
+        "crates/id-runtime/src/logout_http.rs",
+        "crates/id-runtime/src/login_http.rs"
+      ]
+    },
+    {
+      "name": "Session, identity and account JWT decisions",
+      "critical": true,
+      "files": [
+        "crates/id-runtime/src/login_preflight.rs",
+        "crates/id-runtime/src/session_store.rs",
+        "crates/id-runtime/src/session_issuer.rs",
+        "crates/id-runtime/src/provider_login.rs",
+        "crates/id-runtime/src/steam_openid.rs",
+        "crates/id-runtime/src/me_store.rs",
+        "crates/id-runtime/src/logout_store.rs",
+        "crates/id-runtime/src/session_revoke.rs",
+        "crates/id-runtime/src/sessions_store.rs",
+        "crates/id-runtime/src/account_jwt_session.rs",
+        "crates/id-runtime/src/account_jwt_refresh.rs"
+      ]
+    },
+    {
+      "name": "MFA and passkey decisions",
+      "critical": true,
+      "files": [
+        "crates/id-runtime/src/mfa_secret.rs",
+        "crates/id-runtime/src/totp_setup.rs",
+        "crates/id-runtime/src/recovery_rotation.rs",
+        "crates/id-runtime/src/legacy_passkey.rs",
+        "crates/id-runtime/src/passkey_index.rs",
+        "crates/id-runtime/src/passkey_login.rs",
+        "crates/id-runtime/src/passkey_registration.rs",
+        "crates/id-runtime/src/passkey_management.rs"
+      ]
+    },
+    {
+      "name": "OIDC decisions and protocol boundary",
+      "critical": true,
+      "files": [
+        "crates/id-runtime/src/oidc_protocol.rs",
+        "crates/id-runtime/src/oidc_client.rs",
+        "crates/id-runtime/src/oidc_keys.rs",
+        "crates/id-runtime/src/oidc_authorize.rs",
+        "crates/id-runtime/src/oidc_consent.rs",
+        "crates/id-runtime/src/oidc_code_exchange.rs",
+        "crates/id-runtime/src/oidc_refresh.rs",
+        "crates/id-runtime/src/oidc_revoke.rs",
+        "crates/id-runtime/src/oidc_userinfo.rs",
+        "crates/id-runtime/src/oidc_id_claims.rs",
+        "crates/id-runtime/src/authorized_apps_store.rs",
+        "crates/id-runtime/src/oidc_authorize_http.rs",
+        "crates/id-runtime/src/oidc_token_http.rs"
+      ]
+    },
+    {
+      "name": "Signed inter-service authentication and context",
+      "critical": true,
+      "files": [
+        "crates/id-runtime/src/exchange_http.rs",
+        "crates/id-runtime/src/internal_identity_http.rs"
+      ]
+    },
+    {
+      "name": "Operator authorization and credential mutations",
+      "critical": true,
+      "files": [
+        "crates/id-runtime/src/admin_http.rs",
+        "crates/id-runtime/src/admin_suspend.rs",
+        "crates/id-runtime/src/admin_oidc_client_edit.rs",
+        "crates/id-runtime/src/oidc_client_operator.rs",
+        "crates/id-runtime/src/bin/idctl/oidc_clients.rs"
+      ]
+    },
+    {
+      "name": "Export capability and deletion authorization",
+      "critical": true,
+      "files": [
+        "crates/id-runtime/src/account_deletion_http.rs",
+        "crates/id-runtime/src/account_deletion.rs",
+        "crates/id-runtime/src/password_change.rs",
+        "crates/id-runtime/src/data_export_http.rs",
+        "crates/id-runtime/src/data_export_operation.rs",
+        "crates/id-runtime/src/data_export_escrow.rs"
+      ]
+    },
+    {
+      "name": "Recovery and identity credential changes",
+      "critical": true,
+      "files": [
+        "crates/id-runtime/src/password_policy.rs",
+        "crates/id-runtime/src/password_reset.rs",
+        "crates/id-runtime/src/email_change.rs",
+        "crates/id-runtime/src/email_verify.rs",
+        "crates/id-runtime/src/email_cancel.rs",
+        "crates/id-runtime/src/signup.rs",
+        "crates/id-runtime/src/magic_link_request.rs",
+        "crates/id-runtime/src/magic_link_consume.rs"
+      ]
+    },
+    {
+      "name": "HTTP boundaries, response policy and discovery",
+      "critical": false,
+      "files": [
+        "crates/id-runtime/src/form_token_http.rs",
+        "crates/id-runtime/src/me_http.rs",
+        "crates/id-runtime/src/account_jwt_http.rs",
+        "crates/id-runtime/src/sessions_http.rs",
+        "crates/id-runtime/src/totp_setup_http.rs",
+        "crates/id-runtime/src/security_http.rs",
+        "crates/id-runtime/src/security_read.rs",
+        "crates/id-runtime/src/authorized_apps_http.rs",
+        "crates/id-runtime/src/oidc_discovery.rs",
+        "crates/id-runtime/src/oidc_jwks_http.rs",
+        "crates/id-runtime/src/admin_oidc_client.rs",
+        "crates/id-runtime/src/profile_response.rs",
+        "crates/id-runtime/src/profile_store.rs",
+        "crates/id-runtime/src/media_url.rs",
+        "crates/id-runtime/src/oauth_providers_http.rs",
+        "crates/id-runtime/src/password_change_http.rs",
+        "crates/id-runtime/src/password_reset_http.rs",
+        "crates/id-runtime/src/email_verify_http.rs",
+        "crates/id-runtime/src/email_cancel_http.rs",
+        "crates/id-runtime/src/signup_http.rs",
+        "crates/id-runtime/src/magic_link_http.rs"
+      ]
+    },
+    {
+      "name": "Backend startup and logging configuration",
+      "critical": false,
+      "files": [
+        "crates/id-runtime/src/lib.rs",
+        "crates/id-runtime/src/bin/id-api.rs",
+        "crates/id-runtime/src/bin/id-jobs.rs"
+      ]
+    }
+  ],
+  "known_gaps": [
+    "Linked-account GitHub/Discord login and callbacks are implemented in provider_login and included as critical. Real provider/Gateway acceptance, Steam, link/unlink and provider signup remain incomplete.",
+    "No one-to-one Rust replacement for old exception/logging/middleware modules: relevant checks remain in the listed HTTP handlers and binary startup. Retired Portal tenant responsibilities are outside this ID profile."
+  ]
+}

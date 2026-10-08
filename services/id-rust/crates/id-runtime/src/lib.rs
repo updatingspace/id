@@ -1,3 +1,4 @@
+#![cfg_attr(all(coverage_nightly, test), feature(coverage_attribute))]
 #![recursion_limit = "256"]
 //! Infrastructure pilot with an opt-in `/auth/me` compatibility route.
 pub mod account_deletion;
@@ -235,6 +236,7 @@ pub async fn probe(client: &Client) -> Result<()> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

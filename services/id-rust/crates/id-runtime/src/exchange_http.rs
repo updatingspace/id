@@ -204,6 +204,7 @@ fn error(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;

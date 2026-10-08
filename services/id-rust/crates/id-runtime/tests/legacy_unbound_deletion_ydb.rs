@@ -6,14 +6,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 #[tokio::test]
-#[ignore = "requires disposable local YDB with frozen legacy schema"]
+#[ignore = "requires explicitly disposable local YDB on port 2137 with frozen legacy schema"]
 async fn deletes_inactive_unbound_account_without_cutover_seal() -> Result<()> {
     ensure!(
         matches!(
             std::env::var("YDB_ENDPOINT")?.as_str(),
-            "grpc://localhost:2136" | "grpc://127.0.0.1:2136"
-        ) && std::env::var("YDB_DATABASE")? == "/local",
-        "test requires local YDB"
+            "grpc://localhost:2137" | "grpc://127.0.0.1:2137"
+        ) && std::env::var("YDB_DATABASE")? == "/local"
+            && std::env::var("ID_DISPOSABLE_YDB").as_deref() == Ok("true"),
+        "test requires explicitly disposable local YDB on port 2137"
     );
     let client = id_runtime::connect_ydb().await?;
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();

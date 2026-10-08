@@ -20,7 +20,8 @@ use id_runtime::{
     data_export_s3::S3Export,
 };
 use std::{
-    process::{Child, Command, Stdio},
+    path::PathBuf,
+    process::{Child, Command, ExitStatus, Stdio},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -30,10 +31,69 @@ use uuid::Uuid;
 
 struct JobsProcess(Child);
 
+impl JobsProcess {
+    fn command() -> Command {
+        let binary = std::env::var_os("ID_RUST_BIN_DIR")
+            .map(|directory| PathBuf::from(directory).join("id-jobs"))
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_id-jobs")));
+        Command::new(binary)
+    }
+
+    fn interrupt(&mut self) -> Result<()> {
+        ensure!(
+            Command::new("kill")
+                .args(["-INT", &self.0.id().to_string()])
+                .status()?
+                .success(),
+            "could not interrupt own jobs child"
+        );
+        Ok(())
+    }
+
+    fn wait_for_exit(&mut self) -> Result<ExitStatus> {
+        for _ in 0..100 {
+            if let Some(status) = self.0.try_wait()? {
+                return Ok(status);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        anyhow::bail!("jobs child did not stop within five seconds")
+    }
+
+    fn stop(mut self) -> Result<()> {
+        // id-jobs already handles ctrl_c/SIGINT. SIGKILL loses its LLVM profile.
+        self.interrupt()?;
+        ensure!(
+            self.wait_for_exit()?.success(),
+            "jobs child exited with failure"
+        );
+        if let Some(directory) = std::env::var_os("ID_COVERAGE_RECEIPTS") {
+            let receipt =
+                PathBuf::from(directory).join(format!("id-jobs-{}.completed", self.0.id()));
+            let profiles = std::fs::read_to_string(receipt)
+                .context("jobs wrapper did not confirm profile flush")?;
+            ensure!(!profiles.trim().is_empty(), "jobs child receipt was empty");
+            for profile in profiles.lines() {
+                ensure!(
+                    std::fs::metadata(profile)?.len() > 0,
+                    "jobs child profile was empty"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Drop for JobsProcess {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        if matches!(self.0.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        let _ = self.interrupt();
+        if self.wait_for_exit().is_err() {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
     }
 }
 
@@ -377,7 +437,7 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
     let jobs_port = timer.local_addr()?.port();
     drop(timer);
     let jobs = JobsProcess(
-        Command::new(env!("CARGO_BIN_EXE_id-jobs"))
+        JobsProcess::command()
             .args(["--serve"])
             .env("PORT", jobs_port.to_string())
             .env("ID_JOBS_HTTP_ENABLED", "true")
@@ -478,7 +538,7 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
         replay["exports_completed"] == 0 && replay["exports_deferred"] == 0,
         "replayed timer attempted a second snapshot: {replay}"
     );
-    drop(jobs);
+    jobs.stop()?;
     if !real_s3 {
         let archive = receiver.recv().await.context("no archive uploaded")?;
         ensure!(archive.contains("export-delete-") && !archive.contains(&hash));
@@ -608,7 +668,7 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
     let mail_jobs_port = mail_timer.local_addr()?.port();
     drop(mail_timer);
     let mail_jobs = JobsProcess(
-        Command::new(env!("CARGO_BIN_EXE_id-jobs"))
+        JobsProcess::command()
             .args(["--serve"])
             .env("PORT", mail_jobs_port.to_string())
             .env("ID_JOBS_HTTP_ENABLED", "true")
@@ -661,7 +721,7 @@ async fn accepted_export_survives_http_deletion_and_redeems_after_cooldown() -> 
         "private timer did not deliver both export mails: {mail_report}"
     );
     let mail_bodies = tokio::time::timeout(Duration::from_secs(5), smtp).await???;
-    drop(mail_jobs);
+    mail_jobs.stop()?;
     // The SMTP fixture captures wire bytes; lettre folds quoted-printable
     // lines, while a mail client shows the unfolded links to the recipient.
     let readable_mail_bodies = mail_bodies

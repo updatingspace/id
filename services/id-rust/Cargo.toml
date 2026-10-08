@@ -50,6 +50,7 @@ url = "2.5"
 webauthn-rs = { version = "=0.5.5", default-features = false, features = ["danger-allow-state-serialisation", "conditional-ui"] }
 
 [workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage_nightly)"] }
 unsafe_code = "forbid"
 
 [patch.crates-io]

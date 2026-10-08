@@ -1,3 +1,4 @@
+#![cfg_attr(all(coverage_nightly, test), feature(coverage_attribute))]
 //! Legacy wire/storage formats. These primitives do not authorize a request.
 //! Callers must check live identity, MFA, expiry and revocation in the database.
 

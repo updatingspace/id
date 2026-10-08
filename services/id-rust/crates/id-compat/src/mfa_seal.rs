@@ -129,6 +129,7 @@ fn associated_data(account_id: i64, kind: SecretKind) -> Vec<u8> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

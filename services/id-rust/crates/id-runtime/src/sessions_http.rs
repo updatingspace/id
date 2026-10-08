@@ -584,6 +584,7 @@ fn add_cors(output: &mut HeaderMap, input: &HeaderMap, trusted_origins: &[String
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use anyhow::anyhow;

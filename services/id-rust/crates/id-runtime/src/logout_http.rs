@@ -275,6 +275,7 @@ fn error(status: StatusCode, code: &str, csrf_cookie: String) -> Response {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

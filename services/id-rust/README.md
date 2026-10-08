@@ -221,7 +221,9 @@ WebAuthn и других интерактивных действий. Веб-с�
   Отзыв текущей Django-сессии, metadata, UserSession и связанного account
   refresh выполняется в одной YDB-транзакции. Проверка на локальной YDB
   подтверждает, что выбранная сессия и её действующий refresh отозваны,
-  а другая сессия сохранена.
+  а другая сессия сохранена. `session_issuer_ydb` вызывает настоящий HTTP
+  обработчик: отказ без CSRF и неверный явный токен не изменяют обе активные
+  сессии и refresh, а повторный выход с отозванным токеном возвращает 401.
   В production маршрут открывается только после отдельной проверки
   HTTP/Gateway и межверсионных сценариев на тестовых credentials.
   `GET /api/v1/auth/sessions` включается отдельно через
@@ -784,7 +786,7 @@ cargo run --locked --bin idctl -- cleanup-tokens
 cargo test --locked -p id-runtime --test session_store_ydb -- --ignored --nocapture
 cargo test --locked -p id-runtime --test profile_store_ydb -- --ignored --nocapture
 cargo test --locked -p id-runtime --test login_preflight_ydb -- --ignored --nocapture
-ID_AUTH_SESSIONS_PILOT_ENABLED=true DJANGO_DEBUG=true DJANGO_SECRET_KEY=synthetic-local-secret-min-32-characters cargo test --locked -p id-runtime --test session_issuer_ydb -- --ignored --nocapture
+ID_AUTH_SESSIONS_PILOT_ENABLED=true ID_AUTH_LOGOUT_PILOT_ENABLED=true DJANGO_DEBUG=true DJANGO_SECRET_KEY=synthetic-local-secret-min-32-characters cargo test --locked -p id-runtime --test session_issuer_ydb -- --ignored --nocapture
 ID_AUTH_ME_ENABLED=true DJANGO_SECRET_KEY=synthetic-local-secret-min-32-characters MEDIA_PUBLIC_BASE_URL=https://storage.yandexcloud.net/synthetic-id-media cargo test --locked -p id-runtime --test me_http_ydb -- --ignored --nocapture
 ```
 

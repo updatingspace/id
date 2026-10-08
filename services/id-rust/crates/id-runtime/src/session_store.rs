@@ -294,6 +294,7 @@ fn has_bound_mfa_proof(data: &serde_json::Map<String, serde_json::Value>, accoun
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use serde_json::json;
