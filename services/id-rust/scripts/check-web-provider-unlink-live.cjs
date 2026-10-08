@@ -58,8 +58,9 @@ async function main() {
         page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/auth/oauth/unlink'),
         row.locator('[data-unlink-confirm]').click(),
       ]);
-      assert.equal(response.status(), 200, `Unlink ${provider} must succeed`);
-      assert.equal((await response.json()).ok, true);
+      const result = await response.json();
+      assert.equal(response.status(), 200, `Unlink ${provider} must succeed (${result.code || 'no error code'})`);
+      assert.equal(result.ok, true);
       assert.deepEqual(response.request().postDataJSON(), { provider });
       const headers = await response.request().allHeaders();
       assert.ok(!headers['x-session-token'], 'Unlink must use the cookie session');
