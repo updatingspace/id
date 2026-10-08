@@ -1,5 +1,5 @@
 // Real Topcoat UI with a synthetic API. This does not validate GitHub/Discord OAuth,
-// provider cookies or credential verification; those need separate live checks.
+// Steam OpenID 2.0, provider cookies or credentials; those need separate live checks.
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
@@ -24,9 +24,12 @@ async function main(provider, otherProvider) {
   const loginPath = `/api/v1/auth/oauth/login/${provider.id}`;
   const button = `#${provider.id}-login`;
   const otherButton = `#${otherProvider.id}-login`;
-  const authorizeTarget = `${provider.authorizeUrl}?client_id=synthetic&state=synthetic`;
+  const otherProviders = providers.filter(item => item !== provider);
+  const otherLoginPath = `/api/v1/auth/oauth/login/${otherProvider.id}`;
+  const authorizeTarget = `${provider.authorizeUrl}?${provider.query || 'client_id=synthetic&state=synthetic'}`;
+  const otherTarget = `${otherProvider.authorizeUrl}?${otherProvider.query || 'client_id=synthetic&state=synthetic'}`;
   const webPort = await freePort();
-  let inventory = { providers: [{ id: provider.id, name: provider.name }, { id: otherProvider.id, login_enabled: true }] };
+  let inventory = { providers: [{ id: provider.id, name: provider.name }, ...otherProviders.map(item => ({ id: item.id, login_enabled: true }))] };
   let inventoryStatus = 200;
   let authenticated = false;
   let pending = { active: true, expires_at: Math.floor(Date.now() / 1000) + 300, methods: ['totp', 'recovery_codes'], restart_required: false, next: '/account?section=security' };
@@ -36,6 +39,7 @@ async function main(provider, otherProvider) {
   let cancelStatus = 200;
   let beginStatus = 200;
   let authorizeUrl = authorizeTarget;
+  let authorizeMethod = 'GET';
   let beginGate, cancelGate, meGate;
   let meCalls = 0, pendingCalls = 0;
   const writes = [];
@@ -59,7 +63,7 @@ async function main(provider, otherProvider) {
       assert.equal(req.headers['x-session-token'], undefined);
       return reply(res, pendingStatus, pending);
     }
-    if (route.startsWith(loginPath)) {
+    if (route.startsWith(loginPath) || route === otherLoginPath) {
       assert.equal(req.method, 'POST');
       assert.equal(req.headers['x-csrftoken'], csrf);
       assert.equal(req.headers.origin, origin);
@@ -79,8 +83,9 @@ async function main(provider, otherProvider) {
       }
       assert.deepEqual(Object.keys(body).sort(), ['form_token', 'next']);
       assert.equal(body.form_token, 'synthetic-form-token');
+      if (route === otherLoginPath) return reply(res, 200, { authorize_url: otherTarget, method: 'GET' });
       if (beginGate) await beginGate.wait();
-      return reply(res, beginStatus, beginStatus === 400 ? { code: 'INVALID_REDIRECT' } : { authorize_url: authorizeUrl, method: 'GET' }, { 'Retry-After': '1' });
+      return reply(res, beginStatus, beginStatus === 400 ? { code: 'INVALID_REDIRECT' } : { authorize_url: authorizeUrl, method: authorizeMethod }, { 'Retry-After': '1' });
     }
     if (route.startsWith('/api/')) return reply(res, 404, {});
     const forwarded = http.request({ hostname: '127.0.0.1', port: webPort, path: req.url, method: req.method,
@@ -126,19 +131,21 @@ async function main(provider, otherProvider) {
     inventory.providers[0].login_enabled = false;
     await ordinary();
     assert.equal(await page.locator(button).isVisible(), false);
-    assert.equal(await page.locator(otherButton).isVisible(), true, 'provider capabilities are independent');
+    for (const other of otherProviders) assert.equal(await page.locator(`#${other.id}-login`).isVisible(), true, 'provider capabilities are independent');
     inventoryStatus = 503;
     inventory.providers[0].login_enabled = true;
     await ordinary();
     assert.equal(await page.locator(button).isVisible(), false);
-    assert.equal(await page.locator(otherButton).isVisible(), false);
+    for (const other of otherProviders) assert.equal(await page.locator(`#${other.id}-login`).isVisible(), false);
     assert.equal(await page.locator('#provider-hint').isVisible(), false);
     inventoryStatus = 200;
     await ordinary();
     assert.equal(await page.locator(button).isVisible(), true);
-    assert.equal(await page.locator(otherButton).isVisible(), true);
+    for (const other of otherProviders) assert.equal(await page.locator(`#${other.id}-login`).isVisible(), true);
     assert.equal(await page.locator('#provider-hint').isVisible(), true);
-    assert.ok(await page.evaluate(() => document.getElementById('discord-login').getBoundingClientRect().top - document.getElementById('github-login').getBoundingClientRect().bottom >= 10), 'provider buttons have distinct touch areas');
+    assert.ok(await page.locator('#github-login, #discord-login, #steam-login').evaluateAll(buttons =>
+      buttons.every((button, i) => !i || button.getBoundingClientRect().top - buttons[i - 1].getBoundingClientRect().bottom >= 10)
+    ), 'provider buttons have distinct touch areas');
     for (const width of [320, 390]) for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 844 });
       await page.emulateMedia({ colorScheme: theme });
@@ -149,12 +156,17 @@ async function main(provider, otherProvider) {
 
     // Each known provider accepts only its own exact HTTPS authorization endpoint.
     for (const invalid of ['https://untrusted.example.invalid/login', otherProvider.authorizeUrl,
-      provider.authorizeUrl.replace('https:', 'http:'), provider.authorizeUrl + '/extra']) {
+      provider.authorizeUrl.replace('https:', 'http:'), provider.authorizeUrl + '/extra',
+      provider.authorizeUrl.replace('https://', 'https://user@')]) {
       authorizeUrl = invalid;
       await page.locator(button).click();
       await page.getByText(`Сервис вернул неверный адрес ${provider.name}. Вход остановлен.`).waitFor();
       assert.equal(new URL(page.url()).origin, origin);
     }
+    authorizeUrl = authorizeTarget; authorizeMethod = 'POST';
+    await page.locator(button).click();
+    await page.getByText(`Сервис вернул неверный адрес ${provider.name}. Вход остановлен.`).waitFor();
+    authorizeMethod = 'GET';
     beginStatus = 400;
     await page.locator(button).click();
     await page.getByText(`${provider.name} пока не поддерживает этот переход.`, { exact: false }).waitFor();
@@ -181,10 +193,11 @@ async function main(provider, otherProvider) {
     await page.evaluate(() => new Promise(requestAnimationFrame));
     assert.equal(await page.locator('#submit').isEnabled(), false);
     assert.equal(await page.locator('#passkey-login').isEnabled(), false);
-    assert.equal(await page.locator(otherButton).isEnabled(), false, 'no parallel provider begin in this page');
+    for (const other of otherProviders) assert.equal(await page.locator(`#${other.id}-login`).isEnabled(), false, 'no parallel provider begin in this page');
     assert.equal(await page.locator('#session-choice').isVisible(), false, 'late /me cannot replace a provider attempt');
     beginGate.release(); beginGate = null;
     await page.waitForURL(`${provider.authorizeUrl}?*`);
+    assert.equal(page.url(), authorizeTarget, 'server query, including OpenID return_to, is preserved');
     assert.equal(writes.at(-1).body.next, '/account');
     authenticated = false;
 
@@ -198,7 +211,7 @@ async function main(provider, otherProvider) {
     assert.equal(await page.locator('#email').evaluate(input => input.disabled && !input.required), true);
     assert.equal(await page.locator('#password').evaluate(input => input.disabled && !input.required), true);
     assert.equal(await page.locator(button).isVisible(), false);
-    assert.equal(await page.locator(otherButton).isVisible(), false);
+    for (const other of otherProviders) assert.equal(await page.locator(`#${other.id}-login`).isVisible(), false);
     assert.equal(await page.locator('#provider-hint').isVisible(), false);
     await page.getByText(`${provider.name} подтвердил связанный аккаунт.`, { exact: false }).waitFor();
     assert.equal(await page.locator('#passkey-login').isVisible(), false);
@@ -260,6 +273,7 @@ async function main(provider, otherProvider) {
     await page.locator('#mfa-back').click();
     await page.getByText(/Не удалось подтвердить отмену/).waitFor();
     assert.equal(await page.locator('#credential-fields').isVisible(), false);
+    for (const other of otherProviders) assert.equal(await page.locator(`#${other.id}-login`).isVisible(), false, 'failed cancel cannot expose another provider');
     cancelStatus = 200; cancelGate = gate();
     await page.locator('#mfa-back').click();
     await cancelGate.received;
@@ -269,6 +283,13 @@ async function main(provider, otherProvider) {
     await page.waitForURL(origin + '/login?next=%2Faccount%3Fsection%3Dsecurity');
     assert.equal(await page.locator('#password').evaluate(input => !input.disabled && input.required), true);
     await page.locator(`${otherButton}:visible:enabled`).waitFor();
+    await page.route(`${otherProvider.authorizeUrl}?*`, route => route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>Switched provider fixture</h1>' }));
+    await page.locator(otherButton).click();
+    await page.waitForURL(`${otherProvider.authorizeUrl}?*`);
+    assert.equal(page.url(), otherTarget);
+    assert.equal(writes.at(-2).route, loginPath + '/cancel');
+    assert.equal(writes.at(-1).route, otherLoginPath, 'other provider begins only after confirmed cancellation');
+    assert.equal(writes.at(-1).body.next, '/account?section=security', 'switch uses saved API next, not query next');
 
     pending.methods = []; pending.restart_required = true;
     await mfa();
@@ -297,7 +318,7 @@ async function main(provider, otherProvider) {
       assert.ok(message.length > 20);
       assert.equal(message.includes('<script>'), false);
       assert.equal(message.includes('[object'), false);
-      assert.equal(/GitHub|Discord/.test(message), false, 'callback does not identify its provider');
+      assert.equal(/GitHub|Discord|Steam/.test(message), false, 'callback does not identify its provider');
       assert.equal(await page.locator('#credential-fields').isVisible(), true);
     }
     const pendingBeforeUnknown = pendingCalls;
@@ -318,8 +339,10 @@ async function main(provider, otherProvider) {
 const providers = [
   { id: 'github', name: 'GitHub', authorizeUrl: 'https://github.com/login/oauth/authorize' },
   { id: 'discord', name: 'Discord', authorizeUrl: 'https://discord.com/oauth2/authorize' },
+  { id: 'steam', name: 'Steam', authorizeUrl: 'https://steamcommunity.com/openid/login',
+    query: new URLSearchParams({ 'openid.ns': 'http://specs.openid.net/auth/2.0', 'openid.mode': 'checkid_setup',
+      'openid.return_to': 'https://id.example.invalid/api/v1/auth/oauth/callback/steam?state=synthetic%2Fproof' }).toString() },
 ];
 (async () => {
-  await main(providers[0], providers[1]);
-  await main(providers[1], providers[0]);
+  for (let i = 0; i < providers.length; i++) await main(providers[i], providers[(i + 1) % providers.length]);
 })().catch(error => { console.error(error); process.exitCode = 1; });
