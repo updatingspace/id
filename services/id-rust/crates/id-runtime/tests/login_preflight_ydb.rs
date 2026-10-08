@@ -1,7 +1,7 @@
 #![recursion_limit = "256"]
 //! Synthetic account rows only, in an explicitly local YDB with Rust schema.
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use id_runtime::login_preflight::{LoginDecision, LoginPreflight};
 use std::{
     sync::Arc,
@@ -79,6 +79,29 @@ async fn password_preflight_preserves_login_gates() -> Result<()> {
         ensure!(matches!(verifier.verify(&other_email, PASSWORD).await?, LoginDecision::InvalidCredentials), "unknown account was accepted");
         ensure!(matches!(verifier.verify(&login_email, "wrong-password").await?, LoginDecision::InvalidCredentials), "wrong password was accepted");
 
+        // A lookup without an account produces five empty policy result sets.
+        client.query_client().exec("INSERT INTO accounts_accountemaillookup (user_id, email_key) VALUES ($id, $email)")
+            .param("$id", second_id).param("$email", other_email.clone()).await?;
+        let error = verifier.verify(&other_email, PASSWORD).await.err()
+            .context("orphan email lookup was accepted")?;
+        ensure!(format!("{error:#}").contains("email lookup points to a missing account"), "empty account result lost its ownership failure: {error:#}");
+        client.query_client().exec("DELETE FROM accounts_accountemaillookup WHERE user_id = $id")
+            .param("$id", second_id).await?;
+
+        // Account only: all four trailing sets are empty. A correct password
+        // must still fail closed on the absent immutable binding.
+        let error = verifier.verify(&login_email, PASSWORD).await.err()
+            .context("missing identity binding was accepted")?;
+        ensure!(error.to_string().contains("lacks an immutable identity binding"), "empty trailing results changed the binding failure: {error:#}");
+
+        // A populated last set after three empty middle sets must remain the
+        // deletion gate, even before this fixture receives an identity binding.
+        client.query_client().exec("INSERT INTO accounts_accountdeletionrequest (id, user_id, status, requested_at, reason) VALUES ($id, $user_id, 'pending', CurrentUtcDatetime(), '')")
+            .param("$id", i64::from(user_id)).param("$user_id", user_id).await?;
+        ensure!(matches!(verifier.verify(&login_email, PASSWORD).await?, LoginDecision::InvalidCredentials), "empty middle results hid a pending deletion");
+        client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
+            .param("$id", i64::from(user_id)).await?;
+
         client.query_client().exec("UPSERT INTO usid_user (user_id, username, display_name, email, email_verified, status, system_admin, created_at) VALUES ($identity_id, $name, $name, $email, true, 'active', false, CurrentUtcDatetime())")
             .param("$identity_id", identity_id)
             .param("$name", format!("rust-login-{stamp}"))
@@ -90,7 +113,10 @@ async fn password_preflight_preserves_login_gates() -> Result<()> {
         ensure!(matches!(verifier.verify(&login_email, PASSWORD).await?, LoginDecision::EmailVerificationRequired), "unverified email was accepted");
         client.query_client().exec("UPSERT INTO account_emailaddress (id, user_id, email, verified, primary) VALUES ($row_id, $user_id, $email, true, true)")
             .param("$row_id", user_id).param("$user_id", user_id)
-            .param("$email", email.clone()).await?;
+            .param("$email", format!(" {email} ")).await?;
+        ensure!(matches!(verifier.verify(&login_email, PASSWORD).await?, LoginDecision::EmailVerificationRequired), "verified email comparison unexpectedly trimmed whitespace");
+        client.query_client().exec("UPDATE account_emailaddress SET email = $email WHERE id = $id")
+            .param("$email", email.clone()).param("$id", user_id).await?;
         let LoginDecision::Ready(ready) = verifier.verify(&login_email, PASSWORD).await? else {
             anyhow::bail!("verified password/account was not ready")
         };
@@ -151,6 +177,9 @@ async fn password_preflight_preserves_login_gates() -> Result<()> {
         client.query_client().exec("UPSERT INTO accounts_accountdeletionrequest (id, user_id, status, requested_at, reason) VALUES ($row_id, $user_id, 'pending', CurrentUtcDatetime(), '')")
             .param("$row_id", i64::from(user_id)).param("$user_id", user_id).await?;
         ensure!(matches!(verifier.verify(&login_email, PASSWORD).await?, LoginDecision::InvalidCredentials), "deleting account was accepted");
+        client.query_client().exec("UPDATE accounts_accountdeletionrequest SET status = 'canceled' WHERE id = $id")
+            .param("$id", i64::from(user_id)).await?;
+        ensure!(matches!(verifier.verify(&login_email, PASSWORD).await?, LoginDecision::Ready(_)), "canceled deletion blocked login");
         client.query_client().exec("DELETE FROM accounts_accountdeletionrequest WHERE id = $id")
             .param("$id", i64::from(user_id)).await?;
         client.query_client().exec("UPDATE auth_user SET is_active = false WHERE id = $id")

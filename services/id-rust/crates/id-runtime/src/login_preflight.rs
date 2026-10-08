@@ -219,12 +219,39 @@ async fn read_candidate_tx(
     let Some(account_id): Option<i32> = account_ids.pop() else {
         return Ok(None);
     };
-    let Some(mut row) = tx
-        .query_row("SELECT email, password, is_active FROM auth_user WHERE id = $user_id")
+    // Keep all policy reads in the caller's snapshot. QueryStream preserves
+    // SELECT order, including empty result sets, and assembles streamed chunks.
+    let mut stream = tx
+        .query(
+            "SELECT email, password, is_active FROM auth_user WHERE id = $user_id;
+             SELECT id FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id AND Unicode::ToLower(email) = $email AND verified = true LIMIT 1;
+             SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $user_id LIMIT 1;
+             SELECT identity_id, public_subject FROM accounts_accountidentity WHERE user_id = $user_id;
+             SELECT id FROM accounts_accountdeletionrequest VIEW accounts_accountdeletionrequest_user_id_6a166c52 WHERE user_id = $user_id AND status != 'canceled' LIMIT 1;",
+        )
         .param("$user_id", account_id)
-        .optional()
-        .await?
-    else {
+        .param("$email", normalized_email.to_owned())
+        .await?;
+    let mut sets = Vec::with_capacity(5);
+    while let Some(rows) = stream.next_result_set().await? {
+        sets.push(rows);
+    }
+    stream.close().await?;
+    let [
+        account_rows,
+        email_rows,
+        mfa_rows,
+        binding_rows,
+        deletion_rows,
+    ]: [ydb::ResultSet; 5] = sets
+        .try_into()
+        .map_err(|_| ydb::YdbError::Custom("expected five login policy result sets".into()))?;
+    let mut account_rows = account_rows.into_iter();
+    let account = account_rows.next();
+    if account_rows.next().is_some() {
+        return Err(ydb::YdbError::Custom("expected at most one account row".into()).into());
+    }
+    let Some(mut row) = account else {
         return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other(
             "email lookup points to a missing account",
         )));
@@ -238,24 +265,15 @@ async fn read_candidate_tx(
     let password_hash: String = row.remove_field_by_name("password")?.try_into()?;
     let is_active: bool = row.remove_field_by_name("is_active")?.try_into()?;
 
-    let verified_email = tx
-        .query_row("SELECT id FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $user_id AND Unicode::ToLower(email) = $email AND verified = true LIMIT 1")
-        .param("$user_id", account_id)
-        .param("$email", normalized_email.to_owned())
-        .optional()
-        .await?
-        .is_some();
-    let has_mfa = tx
-        .query_row("SELECT id FROM mfa_authenticator VIEW mfa_authenticator_user_id_0c3a50c0 WHERE user_id = $user_id LIMIT 1")
-        .param("$user_id", account_id)
-        .optional()
-        .await?
-        .is_some();
-    let binding = tx
-        .query_row("SELECT identity_id, public_subject FROM accounts_accountidentity WHERE user_id = $user_id")
-        .param("$user_id", account_id)
-        .optional()
-        .await?;
+    let verified_email = email_rows.into_iter().next().is_some();
+    let has_mfa = mfa_rows.into_iter().next().is_some();
+    let mut binding_rows = binding_rows.into_iter();
+    let binding = binding_rows.next();
+    if binding_rows.next().is_some() {
+        return Err(
+            ydb::YdbError::Custom("expected at most one identity binding row".into()).into(),
+        );
+    }
     let (identity_id, public_subject) = if let Some(mut row) = binding {
         (
             row.remove_field_by_name("identity_id")?.try_into()?,
@@ -279,12 +297,7 @@ async fn read_candidate_tx(
     } else {
         false
     };
-    let deleting = tx
-        .query_row("SELECT id FROM accounts_accountdeletionrequest VIEW accounts_accountdeletionrequest_user_id_6a166c52 WHERE user_id = $user_id AND status != 'canceled' LIMIT 1")
-        .param("$user_id", account_id)
-        .optional()
-        .await?
-        .is_some();
+    let deleting = deletion_rows.into_iter().next().is_some();
     Ok(Some(Candidate {
         account_id,
         password_hash,
