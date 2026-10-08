@@ -42,6 +42,16 @@ pub fn valid_idempotency_key(key: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+fn replay_window_active(rotated_at: u64, observed_at: SystemTime) -> std::io::Result<bool> {
+    let age = observed_at
+        .duration_since(UNIX_EPOCH)
+        .map_err(std::io::Error::other)?
+        .as_secs()
+        .checked_sub(rotated_at)
+        .ok_or_else(|| std::io::Error::other("future recovery rotation marker"))?;
+    Ok(age < REPLAY_TTL)
+}
+
 pub async fn regenerate(
     client: &Client,
     codec: Arc<SessionCodec>,
@@ -89,10 +99,11 @@ pub async fn regenerate(
                     if let Some(previous_hash) = existing.get("rotation_id").and_then(Value::as_str) {
                         let rotated_at = existing.get("rotated_at").and_then(Value::as_u64)
                             .ok_or_else(|| ydb::YdbOrCustomerError::from_err(std::io::Error::other("invalid recovery rotation marker")))?;
-                        if rotated_at > now_secs {
-                            return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("future recovery rotation marker")))
-                        }
-                        if now_secs - rotated_at < REPLAY_TTL {
+                        // A later request can commit before this request reads
+                        // the row. Compare with the observation time, not the
+                        // request's earlier authorization time.
+                        if replay_window_active(rotated_at, SystemTime::now())
+                            .map_err(ydb::YdbOrCustomerError::from_err)? {
                             if previous_hash != request_hash { return Ok(RotationOutcome::Conflict) }
                             if existing.get("used_mask").and_then(Value::as_u64) != Some(0) {
                                 return Ok(RotationOutcome::ReplayUnavailable)
@@ -137,5 +148,14 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(!first.contains(key));
         assert_ne!(first, rotation_hash(43, key));
+    }
+
+    #[test]
+    fn replay_window_expires_at_600_seconds_and_rejects_future_markers() -> Result<()> {
+        let observed_at = UNIX_EPOCH + Duration::from_secs(2_000);
+        assert!(replay_window_active(1_401, observed_at)?);
+        assert!(!replay_window_active(1_400, observed_at)?);
+        assert!(replay_window_active(2_001, observed_at).is_err());
+        Ok(())
     }
 }
