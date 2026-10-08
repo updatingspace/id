@@ -7,7 +7,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header},
 };
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_compat::{
     mfa_seal::{MfaSealKey, SecretKind},
     session::SessionCodec,

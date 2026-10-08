@@ -734,6 +734,23 @@ Rust 1.98.1 закреплён в `rust-toolchain.toml`, зависимости 
 `cargo-audit 0.22.2` по актуальной базе RustSec; неуспешный аудит блокирует
 production deploy. Временный dependency-only patch YDB SDK описан вместе
 с происхождением и лицензией в [vendor/README.md](vendor/README.md).
+
+При обновлении backend crypto dependencies `sha2 0.11`, `pbkdf2 0.13`,
+`hmac 0.13` и `sha1 0.11` переходят вместе на совместимые digest traits;
+HMAC-SHA1 остаётся только существующим legacy/TOTP-контрактом.
+[HMAC 0.13](https://docs.rs/hmac/0.13.0/hmac/) отделяет создание ключа в
+`KeyInit`, а [Rand 0.10](https://docs.rs/rand/0.10.3/rand/) — операции
+выборки в `RngExt`; генератор остаётся системно инициализированным
+ChaCha12 `ThreadRng`. Форматы Django hashes, стоимость Argon2, signed sessions,
+MFA envelopes и export capabilities не меняются. Golden tests читают прежний
+AES-GCM MFA ciphertext; export escrow проверяет ciphertext и обе capability,
+полученные до обновления на `83b6f0b` с aes-gcm 0.10.3/hmac 0.12.1.
+JWT API использует jsonwebtoken 11.1.0 с `aws_lc_rs`; неизменённый vendored
+YDB SDK отдельно закрепляет 10.3.0 с тем же provider для IAM PS256. Поэтому
+две версии jsonwebtoken в lockfile ожидаемы. JWT regression проверяет
+runtime RS256/PS256 через OpenSSL и HS256 через account codec; он не подменяет
+живую проверку получения IAM-токена.
+
 Из этой директории:
 
 ```sh

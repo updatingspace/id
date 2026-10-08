@@ -9,7 +9,7 @@ use axum::{
     routing::post,
 };
 use cookie::SameSite;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_compat::{
     account_jwt::AccountJwtCodec,
     cache::CacheValue,

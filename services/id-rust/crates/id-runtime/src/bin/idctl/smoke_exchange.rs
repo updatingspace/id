@@ -2,10 +2,10 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_compat::cache::CacheValue;
 use id_runtime::cache_store::CacheStore;
-use rand::RngCore;
+use rand::Rng;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{

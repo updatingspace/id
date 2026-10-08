@@ -16,7 +16,7 @@ use axum::{
 };
 use cookie::{Cookie, SameSite};
 use id_compat::{csrf, headers::session_token, session::SessionCodec};
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use serde::Serialize;
 use serde_json::json;
 use std::{env, sync::Arc, time::SystemTime};

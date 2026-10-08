@@ -3,7 +3,7 @@
 use crate::{cache_store::CacheStore, tx_retry::retry_known_abort};
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_compat::cache::CacheValue;
 use serde_json::json;
 use sha2::{Digest, Sha256};

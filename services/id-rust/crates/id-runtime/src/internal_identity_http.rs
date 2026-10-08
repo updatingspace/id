@@ -679,7 +679,7 @@ mod tests {
     use crate::profile_store::{AccountFields, ProfileFields};
     use anyhow::Result;
     use axum::{body::Body, http::Request};
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::{Digest, Sha256};
     use tower::ServiceExt;
 

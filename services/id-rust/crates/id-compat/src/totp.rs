@@ -3,7 +3,7 @@
 //! replay key and recheck MFA policy in the session write transaction.
 
 use crate::{Error, Result};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 use subtle::ConstantTimeEq;
 

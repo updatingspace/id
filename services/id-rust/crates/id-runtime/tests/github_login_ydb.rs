@@ -14,7 +14,7 @@ use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 use cookie::SameSite;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_compat::{account_jwt::AccountJwtCodec, cache::CacheValue, session::SessionCodec};
 use id_runtime::{
     cache_store::CacheStore,
@@ -819,7 +819,10 @@ async fn steam_negative_assertions(
     ensure!(
         cache
             .get(
-                &format!("steam-nonce:{:x}", Sha256::digest(nonce.as_bytes())),
+                &format!(
+                    "steam-nonce:{}",
+                    hex::encode(Sha256::digest(nonce.as_bytes()))
+                ),
                 SystemTime::now()
             )
             .await?

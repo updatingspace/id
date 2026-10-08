@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 use std::{env, fmt, sync::Arc};
 use url::Url;
