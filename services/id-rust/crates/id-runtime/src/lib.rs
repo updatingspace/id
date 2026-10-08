@@ -129,7 +129,7 @@ use anyhow::{Context, Result, bail};
 use std::{env, time::Duration};
 use ydb::{
     AccessTokenCredentials, AnonymousCredentials, Client, ClientBuilder, HasGrpcOptions,
-    MetadataUrlCredentials,
+    MetadataUrlCredentials, SessionPoolSettings,
 };
 
 /// Finish in-flight HTTP requests when the process is asked to stop.
@@ -181,10 +181,19 @@ pub async fn connect_ydb() -> Result<Client> {
         builder = builder.load_certificate(path)?;
     }
     // Bound discovery/connection too, not just subsequent query execution.
-    tokio::time::timeout(Duration::from_secs(15), builder.build())
-        .await
-        .context("YDB connection timed out")?
-        .context("YDB connection failed")
+    tokio::time::timeout(Duration::from_secs(15), async {
+        let client = builder.build().await?;
+        // The SDK applies this separately to CreateSession and AttachSession.
+        // Keep the default zero warm-up so idle containers create no sessions.
+        client
+            .with_session_pool(
+                SessionPoolSettings::default().with_session_create_timeout(Duration::from_secs(2)),
+            )
+            .await
+    })
+    .await
+    .context("YDB connection timed out")?
+    .context("YDB connection failed")
 }
 
 pub fn validate_endpoint(endpoint: &str, database: &str) -> Result<()> {

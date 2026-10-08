@@ -61,8 +61,17 @@ async fn nullable_values_timestamps_and_single_winner_across_two_clients() -> Re
     );
     let first = Arc::new(id_runtime::connect_ydb().await?);
     let second = Arc::new(id_runtime::connect_ydb().await?);
-    id_runtime::probe(&first).await?;
-    id_runtime::probe(&second).await?;
+    for client in [&first, &second] {
+        ensure!(
+            client.session_pool_stats().sessions_created == 0,
+            "connecting must not eagerly create YDB sessions"
+        );
+        id_runtime::probe(client).await?;
+        ensure!(
+            client.session_pool_stats().sessions_created > 0,
+            "readiness must exercise lazy session creation"
+        );
+    }
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
     let table = format!("id_rust_pilot_{}_{}", std::process::id(), stamp);
     first.query_client().exec(format!("CREATE TABLE {table} (key Utf8, consumed Bool, payload Utf8, expires Timestamp, PRIMARY KEY(key))"))

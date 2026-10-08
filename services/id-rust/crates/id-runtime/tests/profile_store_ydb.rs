@@ -35,6 +35,10 @@ async fn reads_indexed_profile_and_rejects_ambiguous_one_to_one_rows() -> Result
             .param("$email", format!("rust-profile-{stamp}@example.invalid"))
             .await?;
 
+        let account_only = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
+        ensure!(account_only.account.is_some() && account_only.profile.is_none() && account_only.preferences.is_none());
+        ensure!(!account_only.has_mfa && !account_only.email_verified && account_only.oauth_providers.is_empty());
+
         client.query_client().exec("UPSERT INTO accounts_userprofile (id, user_id, avatar, avatar_source, gravatar_enabled, phone_number, phone_verified, birth_date, created_at, updated_at) VALUES ($row_id, $user_id, CAST('avatars/saved.jpg' AS String), 'upload', false, '+123456789', true, CAST('2001-02-03' AS Date), CurrentUtcDatetime(), CurrentUtcDatetime())")
             .param("$row_id", first_row).param("$user_id", id).await?;
         client.query_client().exec("UPSERT INTO accounts_userpreferences (id, user_id, language, timezone, marketing_opt_in, privacy_scope_defaults, created_at, updated_at) VALUES ($row_id, $user_id, 'ru', 'Europe/Moscow', false, Unwrap(CAST('{}' AS Json)), CurrentUtcDatetime(), CurrentUtcDatetime())")
@@ -96,6 +100,24 @@ async fn reads_indexed_profile_and_rejects_ambiguous_one_to_one_rows() -> Result
             .err()
             .context("duplicate preference ownership must be rejected")?;
         ensure!(error.to_string().contains("multiple preference rows"));
+
+        // Empty middle result sets must not shift MFA, providers or email into
+        // the profile/preferences slots of the combined query.
+        client.query_client().exec("DELETE FROM accounts_userpreferences WHERE id = $row_id")
+            .param("$row_id", second_row).await?;
+        client.query_client().exec("DELETE FROM accounts_userprofile WHERE id = $row_id")
+            .param("$row_id", first_row).await?;
+        let without_profile = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
+        ensure!(without_profile.account.is_some() && without_profile.profile.is_none());
+        ensure!(without_profile.preferences.context("empty profile hid preferences")?.language == "ru");
+        ensure!(without_profile.has_mfa && without_profile.email_verified);
+        ensure!(without_profile.oauth_providers == ["discord", "github"]);
+        client.query_client().exec("DELETE FROM accounts_userpreferences WHERE id = $row_id")
+            .param("$row_id", first_row).await?;
+        let without_preferences = read_profile_details(&client, AccountId::new(i64::from(id))).await?;
+        ensure!(without_preferences.profile.is_none() && without_preferences.preferences.is_none());
+        ensure!(without_preferences.has_mfa && without_preferences.email_verified);
+        ensure!(without_preferences.oauth_providers == ["discord", "github"]);
         Ok(())
     }.await;
 
