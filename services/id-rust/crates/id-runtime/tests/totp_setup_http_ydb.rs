@@ -132,7 +132,10 @@ async fn one_totp_and_one_recovery_set_after_parallel_confirmation() -> Result<(
     let identity_id = Uuid::from_u128((stamp << 32) | u128::from(std::process::id()));
     let session_token = format!("rusttotp{stamp:032x}session");
     let now = SystemTime::now();
-    let codec = SessionCodec::new(std::env::var("DJANGO_SECRET_KEY")?.as_bytes(), &[])?;
+    let codec = Arc::new(SessionCodec::new(
+        std::env::var("DJANGO_SECRET_KEY")?.as_bytes(),
+        &[],
+    )?);
     let password = "pbkdf2_sha256$1000000$synthetic$synthetic";
     let data = json!({"_auth_user_id":user_id.to_string(),
         "_auth_user_backend":"django.contrib.auth.backends.ModelBackend",
@@ -235,6 +238,11 @@ async fn one_totp_and_one_recovery_set_after_parallel_confirmation() -> Result<(
         ensure!(status == StatusCode::FORBIDDEN, "recovery rotation ignored CSRF");
         let (status, _) = call_recovery(&app, &cookie, true, None).await?;
         ensure!(status == StatusCode::UNPROCESSABLE_ENTITY, "recovery rotation accepted no idempotency key");
+        // A request can capture its authorization time before a later request
+        // commits first. Put the winner in the next second deterministically.
+        let delayed_request_now = SystemTime::now();
+        let fraction = delayed_request_now.duration_since(UNIX_EPOCH)?.subsec_nanos();
+        tokio::time::sleep(Duration::from_secs(1) - Duration::from_nanos(u64::from(fraction))).await;
         let mut rotations = tokio::task::JoinSet::new();
         for attempt in 0..100 {
             let app = if attempt % 2 == 0 { app.clone() } else { second_app.clone() };
@@ -254,6 +262,15 @@ async fn one_totp_and_one_recovery_set_after_parallel_confirmation() -> Result<(
             }
         }
         let rotated_codes = rotated_codes.context("no recovery rotation result")?;
+        let delayed = id_runtime::recovery_rotation::regenerate(
+            &client, codec.clone(), &session_token, &rotation_key, delayed_request_now,
+        ).await.context("delayed same-key request after later commit")?;
+        match delayed {
+            id_runtime::recovery_rotation::RotationOutcome::Replayed(codes) => {
+                ensure!(codes == rotated_codes, "delayed request returned different recovery codes");
+            }
+            _ => anyhow::bail!("delayed same-key request did not replay the committed rotation"),
+        }
         let (status, body) = call_recovery(&app, &cookie, true, Some(&"s".repeat(32))).await?;
         ensure!(status == StatusCode::CONFLICT && body["code"] == "ROTATION_IN_PROGRESS",
             "different key replaced fresh codes: {body}");
@@ -278,6 +295,17 @@ async fn one_totp_and_one_recovery_set_after_parallel_confirmation() -> Result<(
         let seed = seal_key.unseal(i64::from(user_id), SecretKind::RecoverySeed,
             recovery_data["seed"].as_str().context("sealed seed missing")?)?;
         ensure!(id_compat::recovery::codes(&seed)? == rotated_codes, "persisted seed does not match response");
+        let mut future_data = recovery_data.clone();
+        future_data["rotated_at"] = json!(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + 3600);
+        client.query_client().exec("UPDATE mfa_authenticator SET data = Unwrap(CAST($data AS Json)) WHERE id = $id")
+            .param("$data", future_data.to_string()).param("$id", recovery_id).await?;
+        let future = id_runtime::recovery_rotation::regenerate(
+            &client, codec.clone(), &session_token, &rotation_key, SystemTime::now(),
+        ).await;
+        client.query_client().exec("UPDATE mfa_authenticator SET data = Unwrap(CAST($data AS Json)) WHERE id = $id")
+            .param("$data", recovery_data.to_string()).param("$id", recovery_id).await?;
+        ensure!(future.is_err_and(|error| error.to_string().contains("future recovery rotation marker")),
+            "future rotation marker was accepted");
         let mut query = client.query_client();
         let mut events = query.query("SELECT action FROM accounts_accountevent VIEW acct_event_user_idx WHERE user_id = $id")
             .param("$id", user_id).await?;

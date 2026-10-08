@@ -212,12 +212,9 @@ mod tests {
         );
         let both = serde_json::to_value(assemble(&[], true, true))?;
         assert_eq!(both.as_array().map(Vec::len), Some(2));
-        assert!(
-            both.as_array()
-                .unwrap()
-                .iter()
-                .all(|entry| entry["login_enabled"] == true)
-        );
+        assert!(both.as_array().is_some_and(|providers| {
+            providers.iter().all(|entry| entry["login_enabled"] == true)
+        }));
         Ok(())
     }
 

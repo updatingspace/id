@@ -1,4 +1,4 @@
-// Real Topcoat UI with a synthetic API. This does not validate GitHub OAuth,
+// Real Topcoat UI with a synthetic API. This does not validate GitHub/Discord OAuth,
 // provider cookies or credential verification; those need separate live checks.
 const assert = require('node:assert/strict');
 const http = require('node:http');
@@ -20,9 +20,13 @@ function gate() {
   const released = new Promise(resolve => { release = resolve; });
   return { received, release, wait: () => { start(); return released; } };
 }
-async function main() {
+async function main(provider, otherProvider) {
+  const loginPath = `/api/v1/auth/oauth/login/${provider.id}`;
+  const button = `#${provider.id}-login`;
+  const otherButton = `#${otherProvider.id}-login`;
+  const authorizeTarget = `${provider.authorizeUrl}?client_id=synthetic&state=synthetic`;
   const webPort = await freePort();
-  let inventory = { providers: [{ id: 'github', name: 'GitHub' }] };
+  let inventory = { providers: [{ id: provider.id, name: provider.name }, { id: otherProvider.id, login_enabled: true }] };
   let inventoryStatus = 200;
   let authenticated = false;
   let pending = { active: true, expires_at: Math.floor(Date.now() / 1000) + 300, methods: ['totp', 'recovery_codes'], restart_required: false, next: '/account?section=security' };
@@ -31,7 +35,7 @@ async function main() {
   let completeBody = { code: 'INVALID_MFA' };
   let cancelStatus = 200;
   let beginStatus = 200;
-  let authorizeUrl = 'https://github.com/login/oauth/authorize?client_id=synthetic&state=synthetic';
+  let authorizeUrl = authorizeTarget;
   let beginGate, cancelGate, meGate;
   let meCalls = 0, pendingCalls = 0;
   const writes = [];
@@ -49,13 +53,13 @@ async function main() {
     }
     if (route === '/api/v1/auth/security') return reply(res, 200, { mfa: { has_totp: true, has_webauthn: false, has_recovery_codes: true, recovery_codes_left: 3 }, authenticators: [] });
     if (route === '/api/v1/auth/form_token') return reply(res, 200, { form_token: 'synthetic-form-token' }, { 'set-cookie': `csrftoken=${csrf}; Path=/; SameSite=Lax` });
-    if (route === '/api/v1/auth/oauth/login/github/pending') {
+    if (route === loginPath + '/pending') {
       pendingCalls++;
       assert.equal(req.method, 'GET');
       assert.equal(req.headers['x-session-token'], undefined);
       return reply(res, pendingStatus, pending);
     }
-    if (route.startsWith('/api/v1/auth/oauth/login/github')) {
+    if (route.startsWith(loginPath)) {
       assert.equal(req.method, 'POST');
       assert.equal(req.headers['x-csrftoken'], csrf);
       assert.equal(req.headers.origin, origin);
@@ -100,6 +104,7 @@ async function main() {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     await context.addCookies([{ name: 'provider_fixture', value: 'opaque', url: origin, httpOnly: true }]);
     const page = await context.newPage();
+    await page.clock.install();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const ordinary = async () => {
@@ -107,7 +112,7 @@ async function main() {
       await page.waitForLoadState('networkidle');
     };
     const mfa = async () => {
-      await page.goto(origin + '/login?provider_mfa=github');
+      await page.goto(`${origin}/login?provider_mfa=${provider.id}&next=%2Faccount%3Fsection%3Dapps`);
       await page.waitForFunction(() => document.getElementById('login-form').getAttribute('aria-busy') === 'false');
     };
     const postCode = async code => {
@@ -117,41 +122,57 @@ async function main() {
     };
 
     await ordinary();
-    assert.equal(await page.locator('#github-login').isVisible(), false, 'SocialApp inventory is not a login capability');
-    inventory = { providers: [{ id: 'github', name: 'GitHub', login_enabled: false }] };
+    assert.equal(await page.locator(button).isVisible(), false, 'SocialApp inventory is not a login capability');
+    inventory.providers[0].login_enabled = false;
     await ordinary();
-    assert.equal(await page.locator('#github-login').isVisible(), false);
+    assert.equal(await page.locator(button).isVisible(), false);
+    assert.equal(await page.locator(otherButton).isVisible(), true, 'provider capabilities are independent');
     inventoryStatus = 503;
     inventory.providers[0].login_enabled = true;
     await ordinary();
-    assert.equal(await page.locator('#github-login').isVisible(), false);
+    assert.equal(await page.locator(button).isVisible(), false);
+    assert.equal(await page.locator(otherButton).isVisible(), false);
+    assert.equal(await page.locator('#provider-hint').isVisible(), false);
     inventoryStatus = 200;
     await ordinary();
-    assert.equal(await page.locator('#github-login').isVisible(), true);
+    assert.equal(await page.locator(button).isVisible(), true);
+    assert.equal(await page.locator(otherButton).isVisible(), true);
+    assert.equal(await page.locator('#provider-hint').isVisible(), true);
+    assert.ok(await page.evaluate(() => document.getElementById('discord-login').getBoundingClientRect().top - document.getElementById('github-login').getBoundingClientRect().bottom >= 10), 'provider buttons have distinct touch areas');
+    for (const width of [320, 390]) for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.evaluate(() => document.documentElement.style.fontSize = '200%');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Provider actions overflow ${width}/${theme}`);
+    }
+    await page.evaluate(() => document.documentElement.style.fontSize = '100%');
 
-    // No redirect to a URL merely because an API response contains it.
-    authorizeUrl = 'https://untrusted.example.invalid/login';
-    await page.locator('#github-login').click();
-    await page.getByText('Сервис вернул неверный адрес GitHub. Вход остановлен.').waitFor();
-    assert.equal(new URL(page.url()).origin, origin);
+    // Each known provider accepts only its own exact HTTPS authorization endpoint.
+    for (const invalid of ['https://untrusted.example.invalid/login', otherProvider.authorizeUrl,
+      provider.authorizeUrl.replace('https:', 'http:'), provider.authorizeUrl + '/extra']) {
+      authorizeUrl = invalid;
+      await page.locator(button).click();
+      await page.getByText(`Сервис вернул неверный адрес ${provider.name}. Вход остановлен.`).waitFor();
+      assert.equal(new URL(page.url()).origin, origin);
+    }
     beginStatus = 400;
-    await page.locator('#github-login').click();
-    await page.getByText(/GitHub пока не поддерживает этот переход/).waitFor();
+    await page.locator(button).click();
+    await page.getByText(`${provider.name} пока не поддерживает этот переход.`, { exact: false }).waitFor();
     beginStatus = 429;
-    await page.locator('#github-login').click();
+    await page.locator(button).click();
     await page.getByText(/Слишком много попыток/).waitFor();
-    assert.equal(await page.locator('#github-login').isEnabled(), false);
-    await page.waitForFunction(() => !document.getElementById('github-login').disabled);
+    assert.equal(await page.locator(button).isEnabled(), false);
+    await page.locator(`${button}:enabled`).waitFor();
 
     beginStatus = 200;
-    authorizeUrl = 'https://github.com/login/oauth/authorize?client_id=synthetic&state=synthetic';
-    await page.route('https://github.com/login/oauth/authorize?*', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>Synthetic GitHub destination</h1>' }));
+    authorizeUrl = authorizeTarget;
+    await page.route(`${provider.authorizeUrl}?*`, route => route.fulfill({ status: 200, contentType: 'text/html', body: `<h1>Synthetic ${provider.name} destination</h1>` }));
     meGate = gate();
     await page.goto(origin + '/login');
     await meGate.received;
-    await page.locator('#github-login:visible').waitFor();
+    await page.locator(`${button}:visible`).waitFor();
     beginGate = gate();
-    await page.locator('#github-login').click();
+    await page.locator(button).click();
     await beginGate.received;
     authenticated = true;
     const meResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/me');
@@ -160,22 +181,26 @@ async function main() {
     await page.evaluate(() => new Promise(requestAnimationFrame));
     assert.equal(await page.locator('#submit').isEnabled(), false);
     assert.equal(await page.locator('#passkey-login').isEnabled(), false);
+    assert.equal(await page.locator(otherButton).isEnabled(), false, 'no parallel provider begin in this page');
     assert.equal(await page.locator('#session-choice').isVisible(), false, 'late /me cannot replace a provider attempt');
     beginGate.release(); beginGate = null;
-    await page.waitForURL('https://github.com/login/oauth/authorize?*');
+    await page.waitForURL(`${provider.authorizeUrl}?*`);
     assert.equal(writes.at(-1).body.next, '/account');
     authenticated = false;
 
-    await page.addInitScript(() => {
-      if (new URLSearchParams(location.search).get('provider_mfa') === 'github') sessionStorage.setItem('id_session_token', 'synthetic-legacy-token');
-    });
+    await page.addInitScript(id => {
+      if (new URLSearchParams(location.search).get('provider_mfa') === id) sessionStorage.setItem('id_session_token', 'synthetic-legacy-token');
+    }, provider.id);
     const readsBeforeMfa = meCalls;
     await mfa();
     assert.equal(meCalls, readsBeforeMfa, 'provider MFA must not restore or continue another session');
     assert.equal(await page.locator('#credential-fields').isVisible(), false);
     assert.equal(await page.locator('#email').evaluate(input => input.disabled && !input.required), true);
     assert.equal(await page.locator('#password').evaluate(input => input.disabled && !input.required), true);
-    assert.equal(await page.locator('#github-login').isVisible(), false);
+    assert.equal(await page.locator(button).isVisible(), false);
+    assert.equal(await page.locator(otherButton).isVisible(), false);
+    assert.equal(await page.locator('#provider-hint').isVisible(), false);
+    await page.getByText(`${provider.name} подтвердил связанный аккаунт.`, { exact: false }).waitFor();
     assert.equal(await page.locator('#passkey-login').isVisible(), false);
     assert.equal(await page.evaluate(() => document.cookie.includes('opaque')), false, 'opaque proof is not readable by UI');
     const reads = pendingCalls;
@@ -189,9 +214,16 @@ async function main() {
     assert.equal(await page.locator('#submit').isEnabled(), true);
 
     completeStatus = 429; completeBody = { code: 'LOGIN_RATE_LIMITED' };
+    await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
     await postCode('222222');
     assert.equal(await page.locator('#submit').isEnabled(), false);
-    await page.waitForFunction(() => !document.getElementById('submit').disabled);
+    // A wall-clock correction must neither release early nor strand the button.
+    await page.clock.setSystemTime(await page.evaluate(() => Date.now()) - 500);
+    await page.clock.runFor(999);
+    assert.equal(await page.locator('#submit').isEnabled(), false);
+    await page.clock.runFor(1);
+    assert.equal(await page.locator('#submit').isEnabled(), true, 'rate limit eventually releases after a clock correction');
+    await page.clock.resume();
     completeStatus = 200; completeBody = { user: {}, next: '/account?section=security' };
     await page.locator('#mfa-method').selectOption('recovery');
     await page.locator('#mfa-code').fill('synthetic-recovery-code');
@@ -236,6 +268,7 @@ async function main() {
     cancelGate.release(); cancelGate = null;
     await page.waitForURL(origin + '/login?next=%2Faccount%3Fsection%3Dsecurity');
     assert.equal(await page.locator('#password').evaluate(input => !input.disabled && input.required), true);
+    await page.locator(`${otherButton}:visible:enabled`).waitFor();
 
     pending.methods = []; pending.restart_required = true;
     await mfa();
@@ -264,10 +297,16 @@ async function main() {
       assert.ok(message.length > 20);
       assert.equal(message.includes('<script>'), false);
       assert.equal(message.includes('[object'), false);
+      assert.equal(/GitHub|Discord/.test(message), false, 'callback does not identify its provider');
       assert.equal(await page.locator('#credential-fields').isVisible(), true);
     }
+    const pendingBeforeUnknown = pendingCalls;
+    await page.goto(origin + '/login?provider_mfa=__proto__');
+    await page.waitForLoadState('networkidle');
+    assert.equal(pendingCalls, pendingBeforeUnknown, 'query cannot choose an arbitrary provider endpoint');
+    assert.equal(await page.locator('#credential-fields').isVisible(), true);
     assert.deepEqual(errors, []);
-    console.log('PASS: GitHub capability gate, safe redirect, MFA reload/methods, CSRF, expiry, rate limit, cancellation and unknown-result handling');
+    console.log(`PASS: ${provider.name} capability gate, safe redirect, MFA reload/methods, CSRF, expiry, rate limit, cancellation and unknown-result handling`);
   } finally {
     beginGate?.release(); cancelGate?.release(); meGate?.release();
     if (browser) await browser.close();
@@ -276,4 +315,11 @@ async function main() {
     if (web.exitCode === null) { web.kill('SIGTERM'); await new Promise(resolve => web.once('exit', resolve)); }
   }
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+const providers = [
+  { id: 'github', name: 'GitHub', authorizeUrl: 'https://github.com/login/oauth/authorize' },
+  { id: 'discord', name: 'Discord', authorizeUrl: 'https://discord.com/oauth2/authorize' },
+];
+(async () => {
+  await main(providers[0], providers[1]);
+  await main(providers[1], providers[0]);
+})().catch(error => { console.error(error); process.exitCode = 1; });

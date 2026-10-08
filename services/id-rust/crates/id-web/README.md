@@ -113,6 +113,12 @@ credential edits, cancellation during form-token preparation, and delayed login
 responses. Credential fields become read-only while a login POST is in flight
 because that request may already have issued a session cookie.
 
+`scripts/check-web-provider-login-browser.cjs` checks GitHub and Discord using a
+synthetic API. Each button requires its own `login_enabled: true` capability.
+The shared UI restores cookie-bound MFA, waits for confirmed cancellation, and
+does not replay codes after an unknown result. These checks do not establish
+real provider authorization, cookie or Gateway acceptance.
+
 
 The user UI shares `static/ui.css` colour/control tokens and `static/ui.js`
 (theme, readable dates, password visibility, error focus and explicit recovery
