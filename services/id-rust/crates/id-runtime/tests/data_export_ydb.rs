@@ -416,7 +416,9 @@ async fn accepted_escrow_snapshots_after_account_access_is_revoked() -> Result<(
     );
     let client = Arc::new(id_runtime::connect_ydb().await?);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros();
-    let owner = i32::try_from(stamp % 900_000_000 + 100_000_000)?;
+    // Concurrent tests can observe the same clock tick. Keep this account's
+    // positive ID range disjoint from the owner/other IDs of the stream test.
+    let owner = i32::try_from(stamp % 900_000_000 + 1_100_000_000)?;
     let identity = Uuid::new_v4();
     let deletion_id = i64::try_from(stamp)?;
     client.query_client().exec("INSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, 'secret-hash', true, 'deleted-export-owner', '', '', 'deleted@example.invalid', false, false, CurrentUtcDatetime())")
