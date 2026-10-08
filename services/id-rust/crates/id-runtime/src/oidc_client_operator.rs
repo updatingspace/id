@@ -526,12 +526,14 @@ async fn commit(
                 Ok(())
             })).with_mode(TxMode::SerializableReadWrite).idempotent(false).timeout(Duration::from_secs(30)).await
         }
-    }).await.map_err(|_| anyhow!("client mutation rejected or commit result uncertain; retain the secret file and re-run dry-run to compare its revision; do not repeat apply blindly"))
+    }).await.map_err(|_| anyhow!("client mutation rejected or commit result uncertain; for a confidential client, retain the secret file and run oidc-client-rotate-secret with the same --client-id and operator files, without --apply or --expected-revision, to compare revisions; for a public client, inspect its read-only configuration; do not repeat apply blindly"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    include!("oidc_client_operator_tests.rs");
 
     fn spec() -> ClientSpec {
         ClientSpec {

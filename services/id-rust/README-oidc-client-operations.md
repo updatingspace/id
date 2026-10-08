@@ -139,5 +139,12 @@ CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 \
 cargo test --locked -p id-runtime --test oidc_client_operator_ydb -- --ignored --nocapture
 ```
 
+The required CI also runs `cargo test --locked -p id-runtime --lib
+oidc_client_operator::tests::commit_guards_ydb -- --ignored --exact --nocapture` with
+the same local YDB environment. This test changes the operator's role, session
+and client revision after review, then checks the committing transaction
+rejects each stale proof without changing the client or audit. It also checks
+two creations whose reviews both observed the client ID as unused.
+
 The local legacy schema must already exist. This test is not production
 acceptance and never authorizes running these mutations against production.

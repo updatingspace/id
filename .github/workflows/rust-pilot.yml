@@ -133,7 +133,9 @@ jobs:
         run: cargo test --locked -p id-runtime --test oidc_code_exchange_ydb -- --ignored --nocapture
       - name: Create and rotate OIDC clients through the operator CLI on local YDB
         working-directory: services/id-rust
-        run: cargo test --locked -p id-runtime --test oidc_client_operator_ydb -- --ignored --nocapture
+        run: |
+          cargo test --locked -p id-runtime --test oidc_client_operator_ydb -- --ignored --nocapture
+          cargo test --locked -p id-runtime --lib oidc_client_operator::tests::commit_guards_ydb -- --ignored --exact --nocapture
       - name: Verify remembered-consent authorization through code exchange on local YDB
         working-directory: services/id-rust
         env:
