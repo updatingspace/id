@@ -10,7 +10,7 @@ const commands = [
   'cache-schema', 'password-mail-schema', 'security-mail-schema',
   'password-reset-schema', 'email-verify-schema', 'magic-link-schema',
   'email-change-schema', 'data-export-schema', 'data-export-escrow-schema',
-  'data-export-mail-schema', 'passkey-index',
+  'data-export-mail-schema', 'passkey-index', 'provider-indexes',
 ];
 const files = [
   'services/id-rust/crates/id-runtime/src/bin/idctl.rs',
@@ -18,7 +18,7 @@ const files = [
     'cache_store', 'password_mail', 'security_mail', 'password_reset',
     'email_verify', 'magic_link_request', 'email_change',
     'data_export_operation', 'data_export_escrow', 'data_export_mail',
-    'passkey_index',
+    'passkey_index', 'legacy_schema',
   ].map((name) => `services/id-rust/crates/id-runtime/src/${name}.rs`),
 ].sort();
 

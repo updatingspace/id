@@ -49,7 +49,7 @@ impl MfaSealKey {
         let cipher = Aes256Gcm::new_from_slice(&self.0).map_err(|_| Error::Invalid)?;
         let ciphertext = cipher
             .encrypt(
-                Nonce::from_slice(&nonce),
+                &Nonce::from(nonce),
                 Payload {
                     msg: plaintext.as_bytes(),
                     aad: &associated_data(account_id, kind),
@@ -91,7 +91,7 @@ impl MfaSealKey {
         let cipher = Aes256Gcm::new_from_slice(&self.0).map_err(|_| Error::Invalid)?;
         let plaintext = cipher
             .decrypt(
-                Nonce::from_slice(nonce),
+                &Nonce::try_from(nonce).map_err(|_| Error::Invalid)?,
                 Payload {
                     msg: ciphertext,
                     aad: &associated_data(account_id, kind),

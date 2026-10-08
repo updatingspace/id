@@ -19,6 +19,7 @@
   }));
   const providerHint = document.getElementById("provider-hint");
   const loginQuery = new URLSearchParams(window.location.search);
+  const reauth = loginQuery.get("reauth") === "provider-link";
   const mfaProvider = providers.find(provider => provider.id === loginQuery.get("provider_mfa"));
   if (!form || !submit || !error || !status || !mfaFields || !mfaMethod || !mfaCode) return;
   const email = form.elements.email;
@@ -91,7 +92,7 @@
   }
 
   const requestedNext = loginQuery.get("next");
-  const returnPath = safeReturnPath(requestedNext);
+  const returnPath = reauth ? "/account?section=security" : safeReturnPath(requestedNext);
   if (authContext && requestedNext && (returnPath.startsWith("/oauth/consent?") || returnPath.startsWith("/authorize?"))) {
     document.getElementById("login-title").textContent = "Войдите, чтобы продолжить";
     document.querySelector(".intro").textContent = "Вы открываете другой сервис через единый аккаунт UpdSpace ID.";
@@ -380,6 +381,7 @@
   }
 
   async function restoreLegacySession() {
+    if (reauth) return;
     const next = new URLSearchParams(window.location.search).get("next");
     const token = legacyToken();
     if (!next || !token) return;
@@ -479,7 +481,7 @@
       const result = await jsonResponse(completed);
       if (!completed.ok) throw new Error(result.message || "Не удалось войти с ключом доступа.");
       clearLegacyToken();
-      window.location.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
+      window.location.replace(returnPath);
     } catch (cause) {
       if (cause instanceof DOMException && ["NotAllowedError", "AbortError"].includes(cause.name)) {
         status.hidden = true;
@@ -557,7 +559,7 @@
       // The transitional React account client gives an old explicit header
       // precedence over a newly issued cookie. Remove only its stale token.
       clearLegacyToken();
-      window.location.replace(safeReturnPath(new URLSearchParams(window.location.search).get("next")));
+      window.location.replace(returnPath);
     } catch (cause) {
       if (activeAttempt !== attempt || attempt.version !== credentialsVersion) return;
       showError(cause && cause.name === "AbortError"

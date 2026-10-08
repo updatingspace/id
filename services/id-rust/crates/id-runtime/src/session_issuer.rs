@@ -11,7 +11,7 @@ use id_compat::{
     mfa_seal::{self, MfaSealKey, SecretKind},
     session::SessionCodec,
 };
-use rand::Rng;
+use rand::RngExt;
 use serde_json::{Value, json};
 use std::{
     net::IpAddr,

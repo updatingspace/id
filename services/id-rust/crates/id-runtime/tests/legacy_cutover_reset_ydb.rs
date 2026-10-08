@@ -1,7 +1,7 @@
 //! Explicit legacy-state reset on a dedicated disposable local YDB only.
 
 use anyhow::{Result, ensure};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_compat::session::SessionCodec;
 use sha2::Sha256;
 use std::sync::Arc;

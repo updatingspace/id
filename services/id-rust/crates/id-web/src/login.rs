@@ -10,15 +10,23 @@ use url::Url;
 
 const LOGIN_HTML: &str = include_str!("../templates/login.html");
 
-fn render_login(passkey: bool, recovery: bool, signup: bool, from_app: bool) -> String {
+fn render_login(
+    passkey: bool,
+    recovery: bool,
+    signup: bool,
+    from_app: bool,
+    reauth: bool,
+) -> String {
     LOGIN_HTML
         .replace(
             "{{LOGIN_TITLE}}",
-            if from_app { "Войдите, чтобы продолжить" } else { "Войти в аккаунт" },
+            if reauth { "Подтвердите личность" } else if from_app { "Войдите, чтобы продолжить" } else { "Войти в аккаунт" },
         )
         .replace(
             "{{LOGIN_INTRO}}",
-            if from_app {
+            if reauth {
+                "Войдите заново перед подключением внешнего аккаунта. После входа вы вернётесь в раздел защиты и сможете выбрать сервис."
+            } else if from_app {
                 "Вы открываете другой сервис через единый аккаунт UpdSpace ID."
             } else {
                 "Продолжите работу с вашим аккаунтом UpdSpace."
@@ -35,7 +43,7 @@ fn render_login(passkey: bool, recovery: bool, signup: bool, from_app: bool) -> 
         )
         .replace(
             "{{LOGIN_ACTION}}",
-            if from_app { "Войти и продолжить" } else { "Войти" },
+            if reauth { "Подтвердить личность" } else if from_app { "Войти и продолжить" } else { "Войти" },
         )
         .replace(
             "{{PASSKEY_ACTION}}",
@@ -94,11 +102,17 @@ pub(crate) async fn page(cx: &Cx) -> Result<Response> {
     let passkey_enabled = std::env::var("ID_WEB_PASSKEY_PILOT_ENABLED").as_deref() == Ok("true");
     let recovery_enabled = std::env::var("ID_WEB_RECOVERY_PILOT_ENABLED").as_deref() == Ok("true");
     let signup_enabled = std::env::var("ID_WEB_SIGNUP_PILOT_ENABLED").as_deref() == Ok("true");
+    let reauth = request::uri(cx).query().is_some_and(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(key, _)| key == "reauth")
+            .is_some_and(|(_, value)| value == "provider-link")
+    });
     let html = render_login(
         passkey_enabled,
         recovery_enabled,
         signup_enabled,
-        app_return(request::uri(cx).query()),
+        !reauth && app_return(request::uri(cx).query()),
+        reauth,
     );
     Ok(Response::builder()
         .header("Content-Type", "text/html; charset=utf-8")
@@ -136,7 +150,7 @@ mod tests {
 
     #[test]
     fn login_template_keeps_required_form_and_enabled_actions() {
-        let html = render_login(true, true, true, false);
+        let html = render_login(true, true, true, false, false);
         assert!(html.contains("id=\"login-form\""));
         assert!(html.contains("id=\"passkey-login\""));
         assert!(html.contains("href=\"/forgot-password\""));
@@ -146,7 +160,7 @@ mod tests {
 
     #[test]
     fn disabled_actions_are_absent_from_html() {
-        let html = render_login(false, false, false, false);
+        let html = render_login(false, false, false, false, false);
         assert!(!html.contains("id=\"passkey-login\""));
         assert!(!html.contains("href=\"/forgot-password\""));
         assert!(!html.contains("href=\"/signup\""));
@@ -154,7 +168,7 @@ mod tests {
 
     #[test]
     fn app_sign_in_explains_separate_consent_before_javascript() {
-        let html = render_login(false, false, false, true);
+        let html = render_login(false, false, false, true, false);
         assert!(html.contains("Войдите, чтобы продолжить"));
         assert!(html.contains("Здесь вы ещё не даёте приложению доступ"));
         assert!(html.contains("Войти и продолжить"));
@@ -174,5 +188,15 @@ mod tests {
             "next=%2F%2Fevil.example%2Foauth%2Fconsent%3Fx%3D1"
         )));
         assert!(!app_return(Some("next=%2Faccount")));
+    }
+
+    #[test]
+    fn reauthentication_explains_explicit_return_without_linking() {
+        let html = render_login(true, true, true, false, true);
+        assert!(html.contains("Подтвердите личность"));
+        assert!(html.contains("Войдите заново перед подключением внешнего аккаунта"));
+        assert!(html.contains("id=\"login-form\""));
+        assert!(html.contains("id=\"passkey-login\""));
+        assert!(!html.contains("{{"));
     }
 }

@@ -90,7 +90,7 @@ fn hs256_remains_compatible_with_account_refresh_codec() -> Result<()> {
 }
 
 #[test]
-fn oidc_rs256_and_ydb_iam_ps256_signatures_verify_with_openssl() -> Result<()> {
+fn rs256_and_ps256_signatures_verify_with_openssl() -> Result<()> {
     let key = PKey::from_rsa(Rsa::generate(2048)?)?;
     let signer = EncodingKey::from_rsa_pem(&key.private_key_to_pem_pkcs8()?)?;
     let verifier = DecodingKey::from_rsa_pem(&key.public_key_to_pem()?)?;

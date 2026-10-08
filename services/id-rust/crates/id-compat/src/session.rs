@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;

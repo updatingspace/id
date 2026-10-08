@@ -8,7 +8,7 @@ use crate::{
     tx_retry::retry_known_abort,
 };
 use anyhow::{Context, Result, ensure};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_compat::{mfa_seal::MfaSealKey, session::SessionCodec};
 use serde::Serialize;
 use sha2::Sha256;

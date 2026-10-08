@@ -2,7 +2,7 @@
 //! timestamp window; it does not add a replay cache or replace identity checks.
 
 use crate::{Error, Result};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 
 pub struct SignedRequest<'a> {

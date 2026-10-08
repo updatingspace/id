@@ -6,7 +6,7 @@ use axum::{
     body::Body,
     http::{Request as HttpRequest, StatusCode},
 };
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_runtime::{
     cache_store::CacheStore,
     magic_link_http::{self, MagicLinkHttpConfig},

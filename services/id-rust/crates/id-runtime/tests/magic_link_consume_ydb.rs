@@ -2,7 +2,7 @@
 //! Synthetic Portal magic link, one-time consume, and BFF code on local YDB.
 
 use anyhow::{Context, Result, ensure};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use id_runtime::{
     cache_store::CacheStore,
     magic_link_consume::{self, ConsumeFailure, ConsumeRequest},

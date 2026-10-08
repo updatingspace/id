@@ -165,7 +165,10 @@ async function main() {
     const rejectedPage = await context.newPage();
     await rejectedPage.setViewportSize({ width: 390, height: 844 });
     await rejectedPage.goto(`${origin}/account?section=security`);
-    assert.equal(await rejectedPage.locator('main > section').count(), 3);
+    for (const name of ['Ключи доступа', 'Приложение с кодами', 'Резервные коды']) {
+      assert.equal(await rejectedPage.getByRole('region', { name, exact: true }).isVisible(), true,
+        `security section must remain visible: ${name}`);
+    }
     await rejectedPage.locator('#passkey-create-panel > summary').click();
     const createButton = await rejectedPage.locator('#passkey-register').boundingBox();
     const createInput = await rejectedPage.locator('#passkey-name').boundingBox();

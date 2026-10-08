@@ -279,7 +279,65 @@ pub async fn reconcile(client: &Client, apply: bool) -> Result<SchemaReport> {
         validate_table(spec, &actual)?;
         report.checked_tables += 1;
     }
-    for spec in &manifest.indexes {
+    reconcile_indexes(client, &manifest.indexes, apply, &mut report).await?;
+    Ok(report)
+}
+
+/// Additive lookup indexes for provider ownership; the frozen Django manifest
+/// and its historical checksum remain unchanged. Defaults to read-only check.
+pub async fn provider_indexes(client: &Client, apply: bool) -> Result<SchemaReport> {
+    let indexes = [
+        (
+            "socialaccount_socialaccount",
+            "social_provider_subject_idx",
+            vec!["provider", "uid"],
+        ),
+        (
+            "usid_external_identity",
+            "usid_ext_provider_subject_idx",
+            vec!["provider", "subject"],
+        ),
+        (
+            "accounts_accountidentity",
+            "account_identity_reverse_idx",
+            vec!["identity_id"],
+        ),
+    ]
+    .into_iter()
+    .map(|(table, name, columns)| IndexSpec {
+        table: table.into(),
+        name: name.into(),
+        columns: columns.iter().map(|column| (*column).to_owned()).collect(),
+        sql: format!(
+            "ALTER TABLE `{table}` ADD INDEX `{name}` GLOBAL ON ({})",
+            columns
+                .iter()
+                .map(|column| format!("`{column}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    })
+    .collect::<Vec<_>>();
+    let ddl = indexes
+        .iter()
+        .map(|index| format!("{};", index.sql))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut report = SchemaReport {
+        source_sha256: hex::encode(Sha256::digest(ddl.as_bytes())),
+        ..SchemaReport::default()
+    };
+    reconcile_indexes(client, &indexes, apply, &mut report).await?;
+    Ok(report)
+}
+
+async fn reconcile_indexes(
+    client: &Client,
+    indexes: &[IndexSpec],
+    apply: bool,
+    report: &mut SchemaReport,
+) -> Result<()> {
+    for spec in indexes {
         let actual = describe(client, &spec.table).await?;
         if !validate_index(spec, &actual)? {
             if !apply {
@@ -302,7 +360,7 @@ pub async fn reconcile(client: &Client, apply: bool) -> Result<SchemaReport> {
         }
         report.checked_indexes += 1;
     }
-    Ok(report)
+    Ok(())
 }
 
 pub fn require_local_ydb_for_pilot() -> Result<()> {

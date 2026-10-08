@@ -56,6 +56,9 @@ jobs:
           target/debug/idctl legacy-schema --apply
           test "$(target/debug/idctl legacy-schema --apply | jq -r .created_indexes)" = 0
           target/debug/idctl legacy-schema
+          target/debug/idctl provider-indexes --apply
+          test "$(target/debug/idctl provider-indexes --apply | jq -r .created_indexes)" = 0
+          target/debug/idctl provider-indexes
           target/debug/idctl cache-schema
           target/debug/idctl cache-schema
       - name: Real YDB transaction and nullable type checks
@@ -213,6 +216,10 @@ jobs:
       - name: Browser → Topcoat GitHub/Discord login capability and pending MFA
         working-directory: services/id-rust
         run: node scripts/check-web-provider-login-browser.cjs
+
+      - name: Browser provider link state
+        working-directory: services/id-rust
+        run: node scripts/check-web-provider-link-browser.cjs
 
       - name: Verify responsive account UI, themes and form state in Chromium
         working-directory: services/id-rust
