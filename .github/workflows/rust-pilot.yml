@@ -50,8 +50,10 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22.12.0"
-      - name: Verify strict coverage checker
-        run: node scripts/ci/test-check-rust-coverage.mjs
+      - name: Verify coverage and shared scenario tooling
+        run: |
+          node scripts/ci/test-check-rust-coverage.mjs
+          node scripts/ci/test-rust-security-scenarios.mjs
       - name: Install pinned coverage-only compiler and LLVM tools
         if: inputs.coverage
         run: |
@@ -318,6 +320,18 @@ jobs:
           ID_AUTH_APPS_PILOT_ENABLED: "true"
           CSRF_TRUSTED_ORIGINS: http://localhost:5175
         run: cargo test --locked -p id-runtime --test authorized_apps_http_ydb -- --ignored --nocapture
+      - name: Measure required password recovery scenario
+        if: inputs.coverage
+        run: bash scripts/ci/run-rust-security-scenarios.sh password-reset
+      - name: Measure required email change and cancellation scenarios
+        if: inputs.coverage
+        run: bash scripts/ci/run-rust-security-scenarios.sh email-change
+      - name: Measure required delayed export escrow scenario
+        if: inputs.coverage
+        run: bash scripts/ci/run-rust-security-scenarios.sh export-escrow
+      - name: Measure isolated deletion, export jobs and admin scenarios
+        if: inputs.coverage
+        run: bash scripts/ci/run-rust-security-scenarios.sh isolated-deletion
       - name: Verify Rust cache cutover gate on local YDB
         working-directory: services/id-rust
         run: cargo run --locked --bin idctl -- cache-audit --require-portable

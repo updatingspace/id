@@ -1,7 +1,8 @@
 # Rust coverage baseline (preparatory, not yet a required release gate)
 
-This iteration measures the existing `rust-pilot.yml` integration scenario;
-it does not duplicate its test list. The default required run still uses Rust
+This iteration measures the existing `rust-pilot.yml` integration scenario and
+replays the selected required schema-job scenarios below through their shared
+command source. It does not duplicate their test lists. The default required run still uses Rust
 1.98.1. The optional `coverage=true` run uses a separately pinned nightly to
 measure real branches. **The migration's coverage acceptance is not complete:**
 the first baseline below fails the thresholds; completing the measured scenarios,
@@ -61,7 +62,7 @@ the following ignored tests:
 | `selects_only_due_opted_in_profiles`, `refreshes_profile_through_mock_gravatar_and_s3` | `crates/id-runtime/src/gravatar_job.rs:318,369` | Privacy opt-in and media refresh; outside this security profile |
 
 The two `internal_identity_http` ignored tests named above are also absent from
-all current CI entrypoints. Plain `cargo test --workspace` compiles these tests
+all CI entrypoints at that baseline revision. Plain `cargo test --workspace` compiles these tests
 but skips them. This inventory does not claim that adding the invocations alone
 reaches the thresholds. `oidc_cross_version_ydb` is also uninvoked, but its
 retired Python roundtrip is not a new blocker under the agreed Rust-only scope.
@@ -84,6 +85,37 @@ independent counter/gate recalculation, but not repeating the LLVM export or
 revalidating each child profile outside the runner. Direct integration children
 have no individual wrapper receipts. The on-runner checks are evidence for
 their documented scope; the artifact does not prove complete child accounting.
+
+## Shared schema scenarios added after the first baseline
+
+`scripts/ci/run-rust-security-scenarios.sh` is the command source for four
+existing required `ydb-schema-check` steps. The coverage run invokes those same
+cases with its instrumented compiler, target and profile environment intact:
+
+| Case | Tests |
+|---|---|
+| `password-reset` | `password_reset_http_ydb`, password-reset mail claim/expiry |
+| `email-change` | `email_change_ydb`, `email_cancel_http_ydb` |
+| `export-escrow` | `data_export_escrow_ydb` |
+| `isolated-deletion` | `legacy_unbound_deletion_ydb`, `legacy_cutover_reset_ydb`, `data_export_delete_flow_ydb`, `admin_http_ydb` |
+
+The ordinary extended run does not repeat these schema-job steps. Only
+`coverage=true` replays them in the single instrumented job; their regular
+required schema checks remain in place. The cancellation and unbound-deletion
+tests were previously uninvoked. Unbound deletion now requires explicit
+`ID_DISPOSABLE_YDB=true` on port 2137 and runs before the cutover seal in a
+new container. Cleanup targets only the container ID created by that invocation
+and preserves an earlier test failure even if container cleanup also fails.
+The original local YDB on port 2136 is never sealed or globally drained by this case.
+
+The export/delete test now stops both real `id-jobs` children through their
+existing SIGINT handler, waits for successful exit and, during measurement,
+requires the coverage wrapper's completion receipt and nonempty profile files.
+It previously used SIGKILL, which could lose child coverage. A failed graceful
+exit or missing receipt fails the scenario. This is a test-harness change;
+graceful shutdown on the production platform's SIGTERM remains unverified and
+is not claimed by this measurement. The new measured totals still require the
+next complete instrumented CI run; the historical baseline above is unchanged.
 
 ## Run the measurement
 

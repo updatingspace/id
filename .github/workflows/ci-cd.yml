@@ -206,19 +206,7 @@ jobs:
           cargo test --locked -p id-runtime --lib password_mail::tests::deleted_account_cancels_and_scrubs_pending_mail -- --ignored
 
       - name: Verify Rust password recovery on local YDB
-        env:
-          YDB_CREDENTIALS_MODE: anonymous
-          ID_AUTH_FORM_TOKEN_ENABLED: "true"
-          ID_AUTH_PASSWORD_RESET_PILOT_ENABLED: "true"
-          ID_PASSWORD_RESET_HMAC_KEY: "0707070707070707070707070707070707070707070707070707070707070707"
-          CSRF_TRUSTED_ORIGINS: "http://localhost:5175"
-          CARGO_INCREMENTAL: "0"
-          CARGO_PROFILE_TEST_DEBUG: "0"
-        run: |
-          cargo run --locked -p id-runtime --bin idctl -- password-reset-schema
-          cargo run --locked -p id-runtime --bin idctl -- password-reset-schema
-          cargo test --locked -p id-runtime --test password_reset_http_ydb -- --ignored
-          cargo test --locked -p id-runtime --lib password_reset::tests::mail_claim_is_single_owner_and_expiry_is_cleaned -- --ignored
+        run: bash ../../scripts/ci/run-rust-security-scenarios.sh password-reset
 
       - name: Verify Rust email confirmation and durable mail on local YDB
         env:
@@ -251,50 +239,13 @@ jobs:
           cargo test --locked -p id-runtime --lib magic_link_request::tests::mail_claim_has_one_owner_and_retry_after_lease -- --ignored
 
       - name: Verify Rust email change ownership and one-use confirmation on local YDB
-        env:
-          YDB_CREDENTIALS_MODE: anonymous
-          ID_AUTH_EMAIL_CHANGE_PILOT_ENABLED: "true"
-          ID_AUTH_EMAIL_CANCEL_PILOT_ENABLED: "true"
-          CSRF_TRUSTED_ORIGINS: "http://id.localhost"
-          CARGO_INCREMENTAL: "0"
-          CARGO_PROFILE_TEST_DEBUG: "0"
-        run: |
-          cargo run --locked -p id-runtime --bin idctl -- email-change-schema
-          cargo run --locked -p id-runtime --bin idctl -- email-change-schema
-          cargo run --locked -p id-runtime --bin idctl -- security-mail-schema
-          cargo test --locked -p id-runtime --test email_change_ydb -- --ignored
+        run: bash ../../scripts/ci/run-rust-security-scenarios.sh email-change
 
       - name: Verify delayed export escrow, cancellation and expired object cleanup
-        env:
-          YDB_CREDENTIALS_MODE: anonymous
-          CARGO_INCREMENTAL: "0"
-          CARGO_PROFILE_TEST_DEBUG: "0"
-        run: cargo test --locked -p id-runtime --test data_export_escrow_ydb -- --ignored
+        run: bash ../../scripts/ci/run-rust-security-scenarios.sh export-escrow
 
       - name: Verify isolated cutover, delayed export and deletion finalization
-        env:
-          YDB_ENDPOINT: grpc://127.0.0.1:2137
-          YDB_CREDENTIALS_MODE: anonymous
-          ID_DISPOSABLE_YDB: "true"
-          CARGO_INCREMENTAL: "0"
-          CARGO_PROFILE_TEST_DEBUG: "0"
-        run: |
-          docker run -d --rm --name id-deletion-test-ydb --hostname localhost \
-            -e GRPC_PORT=2137 -e MON_PORT=8766 \
-            -p 127.0.0.1:2137:2137 \
-            ydbplatform/local-ydb@sha256:9e46fd45875551a75bcf34d0bb9ca0baa1d8763a4ccf2070af45f4467c4b7402
-          trap 'docker stop id-deletion-test-ydb' EXIT
-          YDB_CONTAINER_NAME=id-deletion-test-ydb \
-            YDB_LOCAL_ENDPOINT=grpc://localhost:2137 \
-            ../../scripts/ci/wait-for-ydb-local.sh
-          cargo run --locked -p id-runtime --bin idctl -- legacy-schema --apply
-          cargo run --locked -p id-runtime --bin idctl -- cache-schema
-          cargo test --locked -p id-runtime --test legacy_cutover_reset_ydb -- --ignored
-          cargo run --locked -p id-runtime --bin idctl -- data-export-schema
-          cargo run --locked -p id-runtime --bin idctl -- data-export-escrow-schema
-          cargo run --locked -p id-runtime --bin idctl -- data-export-mail-schema
-          cargo test --locked -p id-runtime --test data_export_delete_flow_ydb -- --ignored
-          ID_AUTH_ADMIN_READ_ENABLED=true ID_AUTH_ADMIN_SUSPEND_ENABLED=true ID_AUTH_ADMIN_CLIENT_REDIRECTS_ENABLED=true cargo test --locked -p id-runtime --test admin_http_ydb -- --ignored
+        run: bash ../../scripts/ci/run-rust-security-scenarios.sh isolated-deletion
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
