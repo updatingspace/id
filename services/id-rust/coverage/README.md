@@ -279,7 +279,12 @@ metrics abort the gate rather than treating absent code as covered.
 
 ## Explicit review proposal
 
-`security-profile.json` lists **92 files, 69 critical** without globs. Its scope
+`security-profile.json` now lists **94 files, 70 critical** without globs. The
+two historical measurements above used 92 files, 69 critical. The new profile
+adds `provider_login.rs` as critical and runtime `lib.rs` as startup code, so
+moving signal handling out of the API binary does not remove its denominator.
+Both providers and the jobs shutdown regression run in the measured workflow.
+This combined implementation requires a new measurement. Its scope
 is the Rust implementation of authentication/authorization responsibilities,
 not an arbitrary whole-workspace average. The thresholds are fixed at 85% lines
 and 80% branches in aggregate; each critical file requires 100% of both.
@@ -303,9 +308,10 @@ The other historical areas are `accounts.api.exception_handlers`,
 `core.logging_config`, `core.middleware`, `idp.services` and
 `updspaceid.providers`. Responses/logging/middleware are distributed over the
 listed HTTP handlers and API/jobs startup; OIDC services are listed explicitly
-in the manifest. **External provider login/link/callback code is still absent**:
-`oauth_providers_http.rs` is inventory, not a replacement for GitHub/Discord/Steam
-authentication. A high coverage percentage cannot close that implementation gap.
+in the manifest. Linked-account GitHub/Discord login and callbacks now share
+the critical `provider_login.rs` module. Real provider/Gateway acceptance,
+Steam, link/unlink and provider signup remain incomplete. A high coverage
+percentage cannot close those implementation and acceptance gaps.
 
 The proposal additionally includes MFA/passkey proof and ceremony decisions,
 password/email recovery, signup/magic-link ownership, operator mutations,

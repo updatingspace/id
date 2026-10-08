@@ -1471,6 +1471,7 @@ async fn callback(State(config): State<Arc<ProviderLoginConfig>>, request: Reque
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     #[test]

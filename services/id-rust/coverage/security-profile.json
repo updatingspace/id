@@ -46,6 +46,7 @@
         "crates/id-runtime/src/login_preflight.rs",
         "crates/id-runtime/src/session_store.rs",
         "crates/id-runtime/src/session_issuer.rs",
+        "crates/id-runtime/src/provider_login.rs",
         "crates/id-runtime/src/me_store.rs",
         "crates/id-runtime/src/logout_store.rs",
         "crates/id-runtime/src/session_revoke.rs",
@@ -163,13 +164,14 @@
       "name": "Backend startup and logging configuration",
       "critical": false,
       "files": [
+        "crates/id-runtime/src/lib.rs",
         "crates/id-runtime/src/bin/id-api.rs",
         "crates/id-runtime/src/bin/id-jobs.rs"
       ]
     }
   ],
   "known_gaps": [
-    "GitHub/Discord/Steam login/link/callback implementations are absent. oauth_providers_http is inventory only and is not parity for historical updspaceid.providers.",
+    "Linked-account GitHub/Discord login and callbacks are implemented in provider_login and included as critical. Real provider/Gateway acceptance, Steam, link/unlink and provider signup remain incomplete.",
     "No one-to-one Rust replacement for old exception/logging/middleware modules: relevant checks remain in the listed HTTP handlers and binary startup. Retired Portal tenant responsibilities are outside this ID profile."
   ]
 }
