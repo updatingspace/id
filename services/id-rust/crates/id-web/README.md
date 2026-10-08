@@ -104,6 +104,25 @@ cargo clippy --locked -p id-web --all-targets -- -D warnings
 The web image is built by `Dockerfile.web`; a frontend change produces a new
 `id-web` image and can be deployed independently of `id-api`.
 
+### Cloudflare and Content Security Policy
+
+The shared Topcoat response layer adds a fresh cryptographic script nonce to
+each HTML response's existing CSP and sets `Cache-Control: no-store`, including
+the home page. Static CSS/JS keep their existing caching. Do not cache nonce
+HTML or add `unsafe-inline`/external script sources to silence CSP errors.
+[Cloudflare JavaScript Detections](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/#if-you-have-a-content-security-policy-csp)
+reads the nonce from the HTTP CSP header and applies it to injected scripts;
+Bot Fight Mode remains enabled.
+
+The `id.updspace.com` hostname must also have a Cloudflare configuration rule
+with expression `http.host eq "id.updspace.com"` and `disable_rum=true` so the
+automatic analytics beacon is not injected. The rule applied on 2026-10-08 is
+`133d93be67b14a78bf2822194749354e` in ruleset
+`0668fc67c72048aab0de0c8a9ace904f`, zone `635e4264df1831a6f6cfa4c91361ef0f`.
+After a release, verify the public HTML nonce changes between responses and
+check browser CSP events: JSD should receive the nonce, and the RUM beacon
+should be absent. Ordinary console logs alone may omit CSP violations.
+
 Browser checks use the small, locked Playwright runner in
 `services/id-rust/browser-tests`. Install it with `npm ci` there; the Topcoat
 smoke scripts resolve this package without installing the old React frontend.
