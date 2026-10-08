@@ -57,6 +57,7 @@ async fn main() -> anyhow::Result<()> {
             .route(account::page)
             .route(account::style)
             .route(account::account_script)
+            .route(account::provider_link_script)
             .route(account::deletion_script)
             .route(account::profile_script)
             .route(account::avatar_script)

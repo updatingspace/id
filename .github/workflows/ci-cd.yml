@@ -369,6 +369,9 @@ jobs:
       - name: Verify GitHub/Discord login capability and pending MFA in Chromium
         run: node scripts/check-web-provider-login-browser.cjs
 
+      - name: Browser provider link state
+        run: node scripts/check-web-provider-link-browser.cjs
+
       - name: Verify responsive account UI, themes and form state in Chromium
         run: node scripts/check-web-ui-browser.cjs
 

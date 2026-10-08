@@ -92,7 +92,7 @@ async function main() {
         await page.evaluate(() => document.documentElement.style.fontSize = '200%');
         assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll("body *")].filter(e => e.getBoundingClientRect().right > innerWidth + 1).map(e => e.outerHTML.slice(0, 120))), [], `200% overflow ${route} ${width} ${theme}`);
         assert.deepEqual(await page.locator('fieldset > legend:visible').evaluateAll(legends => legends.filter(e => e.getBoundingClientRect().right > e.parentElement.getBoundingClientRect().right + 1).map(e => e.textContent)), [], `200% legend overflow ${route} ${width} ${theme}`);
-        for (const summary of await page.locator('details:not(.mobile-navigation) > summary').all()) {
+        for (const summary of await page.locator('details:not(.mobile-navigation) > summary:visible').all()) {
           await summary.click();
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `expanded 200% overflow ${route} ${width} ${theme}`);
         }

@@ -166,6 +166,7 @@ struct ConsentView<'a> {
 #[template(path = "account-security.html")]
 struct SecurityPage<'a> {
     features: OverviewFeatures,
+    user: &'a api::User,
     password_change_enabled: bool,
     passkey_registration_enabled: bool,
     show_passkey_script: bool,
@@ -177,6 +178,21 @@ struct SecurityPage<'a> {
     recovery_status: &'static str,
     recovery_left: usize,
     passkeys: &'a [PasskeyView<'a>],
+}
+
+impl SecurityPage<'_> {
+    fn provider_linked(&self, provider: &str) -> bool {
+        self.user
+            .oauth_providers
+            .as_ref()
+            .is_some_and(|providers| providers.iter().any(|value| value == provider))
+    }
+
+    fn has_provider_links(&self) -> bool {
+        ["github", "discord", "steam"]
+            .iter()
+            .any(|id| self.provider_linked(id))
+    }
 }
 
 struct PasskeyView<'a> {
@@ -341,7 +357,7 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
                 );
             }
         };
-        return security_page(cx, snapshot, cookies).await;
+        return security_page(cx, &user, snapshot, cookies).await;
     }
     let history_section = api.history_enabled
         && request::uri(cx).query().is_some_and(|query| {
@@ -622,6 +638,7 @@ async fn apps_page(
 
 async fn security_page(
     cx: &Cx,
+    user: &api::User,
     security: SecurityResponse,
     cookies: Vec<String>,
 ) -> topcoat::Result<Response> {
@@ -648,6 +665,7 @@ async fn security_page(
         .collect::<Vec<_>>();
     let html = SecurityPage {
         features: OverviewFeatures::from(app_context::<AccountApi>(cx)),
+        user,
         password_change_enabled: api.password_change_enabled,
         passkey_registration_enabled: api.passkey_registration_enabled,
         show_passkey_script,
@@ -737,6 +755,15 @@ pub(crate) async fn account_script() -> topcoat::Result<Response> {
         .header("Cache-Control", "no-store")
         .header("X-Content-Type-Options", "nosniff")
         .body(Body::from(include_str!("../static/account.js")))?)
+}
+
+#[route(GET "/_id/provider-link.js")]
+pub(crate) async fn provider_link_script() -> topcoat::Result<Response> {
+    Ok(Response::builder()
+        .header("Content-Type", "text/javascript; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(include_str!("../static/provider-link.js")))?)
 }
 
 #[route(GET "/_id/account-delete.js")]
@@ -855,8 +882,12 @@ mod tests {
     }
 
     #[test]
-    fn security_template_keeps_mfa_and_passkey_hooks_and_escapes_names() -> Result<(), askama::Error>
-    {
+    fn security_template_keeps_mfa_and_passkey_hooks_and_escapes_names()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user = serde_json::from_value(serde_json::json!({
+            "username": "pilot", "email": "<script>bad()</script>@example.invalid",
+            "email_verified": true, "has_2fa": true, "oauth_providers": ["github"]
+        }))?;
         let keys = [PasskeyView {
             id: "42\" onclick=\"bad",
             name: "<script>bad()</script>",
@@ -865,6 +896,7 @@ mod tests {
         }];
         let html = SecurityPage {
             features: OverviewFeatures::default(),
+            user: &user,
             password_change_enabled: true,
             passkey_registration_enabled: true,
             show_passkey_script: true,
@@ -879,6 +911,8 @@ mod tests {
         }
         .render()?;
         assert!(!html.contains("<script>bad()</script>"));
+        assert!(html.contains("data-link-provider=\"github\" data-linked=\"true\""));
+        assert!(html.contains("data-providers-known=\"true\""));
         assert!(!html.contains("data-passkey-rename=\"42\" onclick="));
         for hook in [
             "id=\"totp-disable\"",
@@ -894,9 +928,15 @@ mod tests {
     }
 
     #[test]
-    fn security_template_shows_totp_setup_without_existing_key() -> Result<(), askama::Error> {
+    fn security_template_shows_totp_setup_without_existing_key()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user = serde_json::from_value(serde_json::json!({
+            "username": "pilot", "email": "pilot@example.invalid",
+            "email_verified": true, "has_2fa": false
+        }))?;
         let html = SecurityPage {
             features: OverviewFeatures::default(),
+            user: &user,
             password_change_enabled: false,
             passkey_registration_enabled: false,
             show_passkey_script: false,
@@ -913,6 +953,7 @@ mod tests {
         assert!(html.contains("id=\"totp-confirm-form\""));
         assert!(html.contains("id=\"totp-recovery-codes\""));
         assert!(html.contains("Ключей доступа пока нет"));
+        assert!(html.contains("data-providers-known=\"false\" hidden"));
         assert!(!html.contains("id=\"totp-disable\""));
         assert!(!html.contains("id=\"password-change-form\""));
         Ok(())
@@ -1061,6 +1102,7 @@ mod tests {
             birth_date: None,
             email_verified: false,
             has_2fa: true,
+            oauth_providers: None,
             avatar_url: Some("https://storage.yandexcloud.net/avatar?a=1&b=2".into()),
         };
         let email = api::EmailStatus {
@@ -1118,6 +1160,7 @@ mod tests {
             birth_date: None,
             email_verified: true,
             has_2fa: false,
+            oauth_providers: None,
             avatar_url: None,
         };
         let html = AccountOverview {
@@ -1171,6 +1214,7 @@ mod tests {
             birth_date: None,
             email_verified: true,
             has_2fa: true,
+            oauth_providers: None,
             avatar_url: None,
         };
         let mut features = OverviewFeatures {

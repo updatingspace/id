@@ -31,6 +31,7 @@ pub(super) struct User {
     pub(super) email_verified: bool,
     pub(super) has_2fa: bool,
     pub(super) avatar_url: Option<String>,
+    pub(super) oauth_providers: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]

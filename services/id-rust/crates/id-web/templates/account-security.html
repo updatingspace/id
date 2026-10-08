@@ -14,11 +14,33 @@
   {% if password_change_enabled %}<script src="/_id/password-change.js?v=ui-20261008-1" defer></script>{% endif %}
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
   <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <script src="/_id/provider-link.js?v=ui-20261008-1" defer></script>
 </head>
 <body>
   {% call shell::open(features, "security", "Вход и защита") %}{% endcall %}
     <p class="eyebrow">Безопасность</p><h1>Вход и защита</h1>
     <p class="page-intro">Выберите удобный способ входа и проверьте, как восстановить доступ, если устройство окажется недоступно.</p>
+    <section id="provider-links" aria-labelledby="provider-links-title" data-providers-known="{{ user.oauth_providers.is_some() }}" {% if !self.has_provider_links() %}hidden{% endif %}>
+      <h2 id="provider-links-title">Внешние аккаунты</h2>
+      <p>Подключённый сервис станет ещё одним способом входа в UpdSpace ID.</p>
+      <p>Текущий аккаунт: <strong id="provider-link-account">{% if user.email.is_empty() %}{{ user.username }}{% else %}{{ user.email }}{% endif %}</strong></p>
+      <p id="provider-link-status" role="status" aria-live="polite" tabindex="-1" hidden></p>
+      <p id="provider-link-error" role="alert" tabindex="-1" hidden></p>
+      <a id="provider-link-reauth" class="button" href="/login?reauth=provider-link&amp;next=%2Faccount%3Fsection%3Dsecurity" hidden>Подтвердить личность</a>
+      <ul class="session-list">
+      {% for (id, name) in [("github", "GitHub"), ("discord", "Discord"), ("steam", "Steam")] %}
+        <li class="list-row" data-link-provider="{{ id }}" data-linked="{{ self.provider_linked(id) }}" {% if !self.provider_linked(id) %}hidden{% endif %}><div>
+          <strong>{{ name }}</strong><p data-link-state>{% if self.provider_linked(id) %}Связан{% endif %}</p>
+          <details name="provider-link" data-link-review hidden><summary>Подключить {{ name }}</summary>
+            <p>На следующем экране выберите свой аккаунт {{ name }}. Он будет связан с текущим аккаунтом UpdSpace ID. Отвязка или замена пока недоступны.</p>
+            <button type="button" data-link-begin disabled>Продолжить в {{ name }}</button>
+          </details>
+        </div></li>
+      {% endfor %}
+      </ul>
+      <button id="provider-link-refresh" type="button" hidden>Проверить связи</button>
+      <button id="provider-link-cancel" type="button" hidden>Отменить попытку</button>
+    </section>
     <section aria-labelledby="passkeys-title">
       <h2 id="passkeys-title">Ключи доступа</h2>
       <p>Ключ позволяет подтверждать вход с помощью защиты телефона или компьютера. Состояние: <strong id="passkeys-status">{{ passkeys_status }}</strong>.</p>
