@@ -13,6 +13,7 @@
   const providers = [
     { id: "github", name: "GitHub", authorizeUrl: "https://github.com/login/oauth/authorize" },
     { id: "discord", name: "Discord", authorizeUrl: "https://discord.com/oauth2/authorize" },
+    { id: "steam", name: "Steam", authorizeUrl: "https://steamcommunity.com/openid/login" },
   ].map(provider => ({ ...provider, enabled: false,
     button: document.getElementById(`${provider.id}-login`),
   }));
