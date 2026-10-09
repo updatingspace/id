@@ -5,11 +5,9 @@ permissions:
   actions: read
 
 on:
-  workflow_run:
-    workflows: ["ID CI/CD"]
-    types: [completed]
-    branches: [main, master]
+  workflow_dispatch:
 
+# Cloud runtime was retired after the verified 2026-10-09 home k3s migration.
 concurrency:
   group: deploy-yc-rust
   cancel-in-progress: false
@@ -26,9 +24,9 @@ env:
 
 jobs:
   verify-revision:
+    if: ${{ false }} # Retired YC workflow; home k3s is authoritative.
     name: Require tested source revision
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,6 +40,7 @@ jobs:
           node scripts/ci/verify-yc-workflow-event.mjs
 
   build:
+    if: ${{ false }} # Retired YC workflow; home k3s is authoritative.
     name: Build and push Rust images
     needs: verify-revision
     runs-on: ubuntu-latest
@@ -103,6 +102,7 @@ jobs:
           cache-to: type=gha,scope=rust-jobs,mode=max
 
   deploy:
+    if: ${{ false }} # Retired YC workflow; home k3s is authoritative.
     name: Deploy existing Rust containers
     needs: build
     runs-on: ubuntu-latest
