@@ -50,7 +50,7 @@ async function main() {
     if (api === 'timezones') return reply(res, 200, { timezones: [{ name: 'Europe/Moscow', display_name: 'Москва (UTC+3)' }, { name: 'UTC', display_name: 'UTC' }] });
     if (api === 'consents') return reply(res, 200, { consents: [{ kind: 'data_processing', version: 'v1', granted_at: '2026-10-01T12:00:00Z', revoked_at: null }] });
     if (api === 'oauth/apps') return reply(res, 200, { items: empty ? [] : [{ client_id: 'portal', name: 'UpdSpace Portal', scopes: ['openid', 'email', 'profile'], last_used_at: '2026-10-08T09:15:00Z' }] });
-    if (url.pathname === '/oauth/authorize/prepare') return reply(res, 200, { action: 'consent', request_id: 'synthetic-consent', client: { name: 'UpdSpace Portal' }, redirect_uri: 'https://portal.example.invalid/callback', scopes: [{ name: 'openid', description: 'Идентификатор аккаунта', required: true }, { name: 'email', description: 'Электронная почта', required: false }] });
+    if (url.pathname === '/oauth/authorize/prepare') return reply(res, 200, { action: 'consent', request_id: 'synthetic-consent', account_label: user.email, consent_required: true, blocked: '', client: { name: 'UpdSpace Portal' }, redirect_uri: 'https://portal.example.invalid/callback', scopes: [{ name: 'openid', description: 'Идентификатор аккаунта', required: true }, { name: 'email', description: 'Электронная почта', required: false }] });
     if (url.pathname.startsWith('/api/')) return reply(res, 501, { code: 'SYNTHETIC_PREVIEW', message: 'Это локальный макет API. Действие не выполнено.' });
     const forwarded = http.request({ hostname: '127.0.0.1', port: webPort, path: req.url, method: req.method, headers: { ...req.headers, host: `127.0.0.1:${webPort}` } }, upstream => { res.writeHead(upstream.statusCode, upstream.headers); upstream.pipe(res); });
     forwarded.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
@@ -152,7 +152,7 @@ async function main() {
     await page.unroute('**/api/v1/auth/preferences');
     await page.goto(origin + '/oauth/consent?client_id=synthetic');
     assert.equal(await page.locator('input[name=scope]:checked').count(), 0);
-    assert.equal(await page.locator('#remember').isChecked(), false);
+    assert.equal(await page.locator('#remember').count(), 0);
     for (const section of ['sessions', 'apps', 'activity']) { empty = true; await page.goto(origin + '/account?section=' + section); assert.equal(await page.locator('.session-row').count(), 0); }
     await page.goto(origin + '/login');
     await page.locator('#session-choice:visible').waitFor();
