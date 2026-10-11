@@ -15,7 +15,7 @@
   }
 
   async function decide(approved) {
-    if (approve.disabled || deny.disabled) return;
+    if (deny.disabled || (approved && approve.disabled)) return;
     const csrf = csrfCookie();
     if (!csrf) { error.textContent = "Сессия формы истекла. Обновите страницу."; error.hidden = false; return; }
     approve.disabled = true;
@@ -24,7 +24,7 @@
     const scopes = Array.from(form.querySelectorAll('input[name="required-scope"], input[name="scope"]:checked'))
       .map((input) => input.value);
     const payload = approved
-      ? { request_id: form.dataset.requestId, scopes, remember: document.getElementById("remember").checked }
+      ? { request_id: form.dataset.requestId, ...(form.dataset.consentRequired === "true" ? { scopes } : {}) }
       : { request_id: form.dataset.requestId };
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
@@ -40,7 +40,7 @@
     } catch {
       error.textContent = "Не удалось сохранить решение. Обновите страницу и попробуйте снова.";
       error.hidden = false;
-      approve.disabled = false;
+      approve.disabled = Boolean(form.dataset.blocked);
       deny.disabled = false;
     } finally { clearTimeout(timeout); }
   }

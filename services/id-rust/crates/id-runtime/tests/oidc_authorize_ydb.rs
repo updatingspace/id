@@ -177,7 +177,7 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
     let verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let authorize_uri = format!(
-        "/oauth/authorize?client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example.invalid%2Fcallback&response_type=code&scope=openid%20email&state=state-123&code_challenge={challenge}&code_challenge_method=S256&prompt=none"
+        "/oauth/authorize?client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example.invalid%2Fcallback&response_type=code&scope=openid%20email%20profile&state=state-123&code_challenge={challenge}&code_challenge_method=S256&prompt=none"
     );
     client.query_client().exec("UPSERT INTO auth_user (id, password, is_active, username, first_name, last_name, email, is_staff, is_superuser, date_joined) VALUES ($id, $password, true, $name, '', '', $email, false, false, CurrentUtcDatetime())")
         .param("$id", user_id).param("$password", password).param("$name", format!("rust-authorize-{stamp}"))
@@ -192,7 +192,7 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
         client.query_client().exec("UPSERT INTO accounts_accountidentity (user_id, identity_id, public_subject, created_at) VALUES ($user_id, $identity_id, $subject, CurrentUtcDatetime())")
             .param("$user_id", user_id).param("$identity_id", identity_id)
             .param("$subject", format!("rust-authorize-subject-{stamp}")).await?;
-        client.query_client().exec("UPSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'OIDC pilot', '', '', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\",\"email\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
+        client.query_client().exec("UPSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'OIDC pilot', '', '', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\",\"email\",\"profile\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
             .param("$id", client_pk).param("$client_id", client_id.clone())
             .param("$redirects", r#"["https://rp.example.invalid/callback"]"#).await?;
         let duplicate_pk = client_pk - 100;
@@ -213,7 +213,7 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
         let csrf_cookie = headers.get(header::SET_COOKIE).context("missing CSRF cookie")?.to_str()?.split(';').next().context("empty CSRF cookie")?;
         let csrf = csrf_cookie.split_once('=').context("malformed CSRF cookie")?.1;
         let browser_cookie = format!("{session_cookie}; {csrf_cookie}");
-        let body = json!({"request_id":request_id,"scopes":["openid","email"],"remember":true});
+        let body = json!({"request_id":request_id,"scopes":["openid","email"],"remember":false});
         let (status, _, _) = call_json(&app, "POST", "/oauth/authorize/approve", &browser_cookie, None, Some(body.clone())).await?;
         ensure!(status == StatusCode::FORBIDDEN, "approval without CSRF passed");
         client.query_client().exec("UPSERT INTO idp_oidcclient (id, client_id, name, logo_url, description, client_secret_hash, redirect_uris, allowed_scopes, grant_types, response_types, is_public, is_first_party, created_at, updated_at) VALUES ($id, $client_id, 'Ambiguous OIDC client', '', '', '', Unwrap(CAST($redirects AS Json)), Unwrap(CAST('[\"openid\",\"email\"]' AS Json)), Unwrap(CAST('[\"authorization_code\"]' AS Json)), Unwrap(CAST('[\"code\"]' AS Json)), true, false, CurrentUtcDatetime(), CurrentUtcDatetime())")
@@ -240,6 +240,21 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
         }
         stream.close().await?;
         ensure!(found == 1, "remembered consent missing or duplicated");
+        let (status, _, repeated) = call_json(&app, "GET", &prepare_uri, &browser_cookie, None, None).await?;
+        ensure!(status == StatusCode::OK && repeated["consent_required"] == false && repeated["blocked"] == "",
+            "saved grant must ask only for account confirmation: {repeated}");
+        ensure!(repeated["scopes"].as_array().context("scopes")?.len() == 2, "denied optional scope returned");
+        ensure!(repeated["account_label"] == format!("rust-authorize-{stamp}@example.invalid"));
+        let repeated_id = repeated["request_id"].as_str().context("missing confirmation request")?;
+        let (status, _, _) = call_json(&app, "POST", "/oauth/authorize/approve", &browser_cookie, Some(csrf),
+            Some(json!({"request_id":repeated_id,"scopes":["openid"]}))).await?;
+        ensure!(status == StatusCode::BAD_REQUEST, "saved grant could be narrowed without revocation");
+        let (status, _, confirmed) = call_json(&app, "POST", "/oauth/authorize/approve", &browser_cookie, Some(csrf),
+            Some(json!({"request_id":repeated_id}))).await?;
+        ensure!(status == StatusCode::OK && confirmed["redirect_uri"].as_str().is_some_and(|uri| uri.contains("code=")));
+        let (status, location) = get(&app, &authorize_uri.replace("&prompt=none", ""), Some(&browser_cookie), None).await?;
+        ensure!(status == StatusCode::FOUND && location.context("interactive redirect")?.starts_with("/oauth/consent?"),
+            "interactive return skipped account confirmation");
         let form = authorize_uri.split_once('?').context("missing authorize form")?.1;
         let (status, location) = post_form(&app, form, Some(&browser_cookie), "application/x-www-form-urlencoded").await?;
         ensure!(status == StatusCode::FOUND && location.context("form authorization redirect")?.contains("code="), "form authorization failed");
@@ -280,7 +295,7 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
             let request_id = pending_id.clone();
             tasks.spawn(async move {
                 call_json(&app, "POST", "/oauth/authorize/approve", &browser_cookie, Some(&csrf),
-                    Some(json!({"request_id":request_id,"scopes":["openid"],"remember":false}))).await
+                    Some(json!({"request_id":request_id}))).await
             });
         }
         let mut issued = 0;
@@ -339,6 +354,24 @@ async fn remembered_consent_issues_only_bound_single_use_codes() -> Result<()> {
         ensure!(exchange_code(&client, keys, "https://id.example.invalid", "local-refresh-salt",
             exchange, SystemTime::now()).await?.is_err(), "authorization code replay was accepted");
         client.query_client().exec("DELETE FROM idp_oidcauthorizationcode WHERE code = $code").param("$code", code).await?;
+        use id_runtime::authorized_apps_store::{account_apps, AppsOperation, AppsResult};
+        use id_runtime::oidc_authorize::{prepare_authorization, parse_authorization_query, Authorization};
+        use id_runtime::oidc_consent::{decide, Decision, DecisionOutcome};
+        let policy = std::collections::BTreeMap::from([(client_id.clone(), vec!["email".into(), "profile".into()])]);
+        let params = parse_authorization_query(prepare_uri.split_once('?').context("query")?.1).context("params")?;
+        let codec = Arc::new(codec);
+        let Authorization::Prepared(blocked) = prepare_authorization(&client, codec.clone(), Some(&session), params.clone(), &policy, SystemTime::now()).await? else { anyhow::bail!("missing blocked confirmation") };
+        ensure!(!blocked.consent_required && blocked.blocked == "consent", "new required scope was granted without revocation");
+        let result = account_apps(&client, codec.clone(), &session, AppsOperation::Revoke(client_id.clone()), SystemTime::now()).await?;
+        ensure!(matches!(result, Some(AppsResult::Revoked(true))));
+        ensure!(decide(&client, codec.clone(), &session, &blocked.request_id, Decision::Approve { scopes: None }, &policy, SystemTime::now()).await? == DecisionOutcome::NotFound,
+            "revoked pending confirmation was reusable");
+        let Authorization::Prepared(fresh) = prepare_authorization(&client, codec.clone(), Some(&session), params, &policy, SystemTime::now()).await? else { anyhow::bail!("missing new consent") };
+        ensure!(fresh.consent_required && fresh.blocked.is_empty() && fresh.required_scopes.contains(&"profile".into()));
+        ensure!(decide(&client, codec.clone(), &session, &fresh.request_id,
+            Decision::Approve { scopes: Some(vec!["openid".into(), "email".into()]) }, &policy, SystemTime::now()).await? == DecisionOutcome::InvalidScope,
+            "required scope could be omitted");
+        ensure!(matches!(decide(&client, codec, &session, &fresh.request_id, Decision::Approve { scopes: None }, &policy, SystemTime::now()).await?, DecisionOutcome::Redirect(_)));
         client.query_client().exec("UPSERT INTO mfa_authenticator (id, user_id, type, data, created_at) VALUES ($id, $user_id, 'totp', Unwrap(CAST('{}' AS Json)), CurrentUtcDatetime())")
             .param("$id", client_pk).param("$user_id", user_id).await?;
         let (status, location) = get(&app, &authorize_uri, Some(&format!("sessionid={session}")), None).await?;

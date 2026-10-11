@@ -34,7 +34,7 @@ http.createServer((request, response) => {
     client:{client_id:'pilot-client',name:'Пилотное <script>приложение</script>',logo_url:''},
     scopes:[{name:'openid',description:'Идентификатор пользователя',required:true,granted:true},
       {name:'email',description:'Адрес электронной почты',required:false,granted:true}],
-    consent_required:true,state:'pilot-state',redirect_uri:'https://rp.example.invalid/callback'}));
+    account_label:'user@example.invalid',blocked:'',consent_required:true,state:'pilot-state',redirect_uri:'https://rp.example.invalid/callback'}));
 }).listen(port, '127.0.0.1');
 EOF
 
@@ -61,7 +61,7 @@ done
 [[ "${ready}" == true ]]
 
 html="$(<"${scratch_dir}/consent.html")"
-[[ "${html}" == *'Какие сведения передать приложению?'* ]]
+[[ "${html}" == *'Войти в Пилотное '* ]]
 [[ "${html}" == *'data-request-id="pilot-request"'* ]]
 [[ "${html}" == *'/_id/consent.js'* ]]
 [[ "${html}" != *'<script>приложение</script>'* ]]
