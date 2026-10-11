@@ -78,6 +78,8 @@ for ((attempt=0; attempt<240; attempt++)); do
 done
 if [[ ! -s "${scratch_dir}/fixture.json" ]]; then cat "${scratch_dir}/fixture.log" >&2; exit 1; fi
 
+required_scopes="$(node -e 'const fixture = require(process.argv[1]); process.stdout.write(JSON.stringify({[fixture.client_id]: ["email", "profile"]}));' "${scratch_dir}/fixture.json")"
+OIDC_REQUIRED_SCOPES="${required_scopes}" ID_AUTH_APPS_PILOT_ENABLED=true \
 YDB_ENDPOINT="${YDB_ENDPOINT:-grpc://127.0.0.1:2136}" \
 YDB_DATABASE=/local YDB_CREDENTIALS_MODE=anonymous \
 DJANGO_DEBUG=true DJANGO_SECRET_KEY="${DJANGO_SECRET_KEY:-synthetic-browser-fixture-secret-32-chars}" \

@@ -1,17 +1,22 @@
-.consent-shell { min-height: 100dvh; display: grid; place-items: center; padding: 2rem 1rem; }
-.consent-card { width: 100%; max-width: 38rem; padding: clamp(1rem,4vw,2.5rem); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
-.consent-card > .brand { margin-bottom: 1.5rem; }
-.context-label { color: var(--action); font-size: .85rem; }
-.app-identity { display: grid; gap: .4rem; padding: 1rem; margin: 1.25rem 0; background: var(--soft); border-radius: 10px; }
-.app-identity strong { font-size: 1.25rem; }
-.app-identity span, .choice-note { color: var(--muted); font-size: .94rem; }
-.scope { border-bottom: 1px solid var(--line); padding: 1rem 0; }
-.scope:last-child { border-bottom: 0; }
-.scope strong, .scope small { display: block; }
+.consent-shell { min-height: 100svh; display: grid; place-items: center; padding: 1.5rem 1rem; }
+.consent-card { width: min(100%, 28rem); border: 1px solid var(--line); border-radius: 1.25rem; padding: clamp(1.25rem, 4vw, 2rem); background: var(--surface); overflow-wrap: anywhere; }
+.consent-card h1 { margin: 1.25rem 0 .5rem; font-size: 1.65rem; line-height: 1.25; text-wrap: balance; }
+.destination { margin: 0 0 1.5rem; color: var(--muted); font-size: .9rem; }
+.account { display: grid; gap: .3rem; padding: 1rem; background: var(--soft); border-radius: .75rem; }
+.account > span, .hint, .scope small { color: var(--muted); font-size: .8rem; }
+.account strong { font-size: .95rem; }
+.consent-card form { display: block; }
+.consent-card fieldset { border: 0; padding: 0; margin: 1.5rem 0 1rem; }
+.consent-card legend { margin-bottom: .6rem; }
+.consent-card .scope { align-items: center; padding: .4rem 0; margin: 0; }
+.scope > span:not(.scope-marker) { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .5rem; }
+.scope small { font-size: .75rem; }
 .scope-marker { flex: 0 0 20px; color: var(--action); }
-.consent-card fieldset { padding: 1rem; }
-.consent-card .actions { display: grid; grid-template-columns: 1fr 1fr; }
-#deny, #approve { min-height: 48px; }
-@media (max-width: 440px) { .consent-shell { padding: 1rem; } .consent-card .actions { grid-template-columns: 1fr; } }
-.app-identity { grid-template-columns: minmax(0,1fr); }
-.app-identity span, .scope > span { min-width: 0; overflow-wrap: anywhere; }
+.hint { margin: .75rem 0 0; }
+.hint a, .notice a { display: inline; min-height: 0; padding: 0; }
+.consent-card details { margin-top: 1.25rem; font-size: .85rem; }
+.consent-card summary { color: var(--muted); }
+.consent-card ul { padding-left: 1.25rem; line-height: 1.8; }
+.consent-card .actions { display: grid; gap: .5rem; margin-top: 1.5rem; }
+#deny { border-color: transparent; background: transparent; }
+.notice { margin-top: 1.25rem; font-size: .9rem; }

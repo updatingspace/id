@@ -52,6 +52,9 @@ struct PrepareResponse {
     client: Option<PreparedClient>,
     scopes: Option<Vec<PreparedScope>>,
     redirect_uri: Option<String>,
+    account_label: Option<String>,
+    consent_required: Option<bool>,
+    blocked: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +77,9 @@ struct ConsentPage<'a> {
     request_id: &'a str,
     csrf_cookie_name: &'a str,
     scopes: &'a [PreparedScope],
+    account_label: &'a str,
+    consent_required: bool,
+    blocked: &'a str,
 }
 
 async fn prepare(
@@ -150,6 +156,13 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     let Some(scopes) = result.scopes else {
         return problem("Не найдены запрошенные права.");
     };
+    let (Some(account_label), Some(consent_required), Some(blocked)) = (
+        result.account_label,
+        result.consent_required,
+        result.blocked,
+    ) else {
+        return problem("Не удалось проверить разрешения. Обновите страницу.");
+    };
     // The API supplies the redirect only after exact client validation. Do not
     // expose callback paths or query parameters in the consent UI.
     let destination = display_destination(result.redirect_uri.as_deref());
@@ -159,6 +172,9 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         request_id: &request_id,
         csrf_cookie_name: &api.csrf_cookie_name,
         scopes: &scopes,
+        account_label: &account_label,
+        consent_required,
+        blocked: &blocked,
     })
     .render()
     {
@@ -247,11 +263,15 @@ mod tests {
             request_id: "\" autofocus onfocus=alert(1)",
             csrf_cookie_name: "csrftoken",
             scopes: &scopes,
+            account_label: "<account@example.com>",
+            consent_required: true,
+            blocked: "",
         }
         .render()?;
 
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(!html.contains("<img src=x onerror=alert(1)>"));
+        assert!(!html.contains("<account@example.com>"));
         assert!(!html.contains("value=\"profile\" onfocus="));
         assert!(!html.contains("data-request-id=\"\" autofocus"));
         assert!(html.contains("name=\"required-scope\""));
@@ -260,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn consent_does_not_preselect_optional_access_or_remember_choice() -> Result<(), askama::Error>
+    fn consent_keeps_optional_access_unchecked_and_always_saves_choice() -> Result<(), askama::Error>
     {
         let scopes = [
             PreparedScope {
@@ -280,15 +300,61 @@ mod tests {
             request_id: "request",
             csrf_cookie_name: "csrftoken",
             scopes: &scopes,
+            account_label: "<account@example.com>",
+            consent_required: true,
+            blocked: "",
         }
         .render()?;
         assert!(html.contains("name=\"required-scope\" value=\"openid\""));
         assert!(!html.contains("value=\"openid\" checked disabled"));
         assert!(html.contains("value=\"email\" />"));
         assert!(html.contains("https://example.com"));
-        assert!(!html.contains("id=\"remember\" type=\"checkbox\" checked"));
-        assert!(html.contains("Не предоставлять доступ"));
-        assert!(html.contains("Разрешить выбранное"));
+        assert!(
+            !html.contains("id=\"remember\""),
+            "consent must always persist without an opt-in checkbox"
+        );
+        assert!(html.contains("Отмена"));
+        assert!(html.contains("Разрешить и продолжить"));
+        Ok(())
+    }
+
+    #[test]
+    fn returning_user_confirms_account_without_editable_permissions() -> Result<(), askama::Error> {
+        let html = ConsentPage {
+            client_name: "ETU LK Assistant",
+            destination: "https://spbetu.ru",
+            request_id: "request",
+            csrf_cookie_name: "csrftoken",
+            scopes: &[],
+            account_label: "user@example.com",
+            consent_required: false,
+            blocked: "",
+        }
+        .render()?;
+        assert!(html.contains("Войти в ETU LK Assistant?"));
+        assert!(html.contains("user@example.com"));
+        assert!(html.contains(">Продолжить</button>"));
+        assert!(!html.contains("type=\"checkbox\""));
+        assert!(html.contains("<details>"));
+        Ok(())
+    }
+
+    #[test]
+    fn missing_required_grant_links_to_revoke_without_approval() -> Result<(), askama::Error> {
+        let html = ConsentPage {
+            client_name: "ETU LK Assistant",
+            destination: "https://spbetu.ru",
+            request_id: "request",
+            csrf_cookie_name: "csrftoken",
+            scopes: &[],
+            account_label: "user@example.com",
+            consent_required: false,
+            blocked: "consent",
+        }
+        .render()?;
+        assert!(html.contains("id=\"approve\" type=\"submit\" disabled"));
+        assert!(html.contains("Отзовите доступ в ЛК ID"));
+        assert!(!html.contains("type=\"checkbox\""));
         Ok(())
     }
 

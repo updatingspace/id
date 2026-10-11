@@ -1,4 +1,4 @@
-//! Local-only silent SSO for OIDC clients with remembered consent.
+//! OIDC consent, account confirmation and explicit silent SSO.
 
 use crate::{
     logout_http::{cookie_value, csrf_allowed},
@@ -22,7 +22,7 @@ use cookie::SameSite;
 use id_compat::{headers::session_token, session::SessionCodec};
 use serde::Deserialize;
 use serde_json::json;
-use std::{env, sync::Arc, time::SystemTime};
+use std::{collections::BTreeMap, env, sync::Arc, time::SystemTime};
 use url::Url;
 use ydb::Client;
 
@@ -35,6 +35,7 @@ pub struct OidcAuthorizeHttpConfig {
     csrf_same_site: SameSite,
     csrf_cookie_domain: Option<String>,
     trusted_origins: Vec<String>,
+    required_scopes: BTreeMap<String, Vec<String>>,
 }
 
 impl OidcAuthorizeHttpConfig {
@@ -65,6 +66,10 @@ impl OidcAuthorizeHttpConfig {
         Ok(Some(Arc::new(Self {
             client,
             codec: session_codec_from_env()?,
+            required_scopes: parse_required_scopes(
+                &env::var("OIDC_REQUIRED_SCOPES")
+                    .unwrap_or_else(|_| include_str!("../data/oidc-required-scopes.json").into()),
+            )?,
             session_cookie_name: env::var("SESSION_COOKIE_NAME")
                 .unwrap_or_else(|_| "sessionid".into()),
             csrf_cookie_name: env::var("CSRF_COOKIE_NAME").unwrap_or_else(|_| "csrftoken".into()),
@@ -80,6 +85,23 @@ impl OidcAuthorizeHttpConfig {
                 .collect::<std::result::Result<Vec<_>, _>>()?,
         })))
     }
+}
+
+fn parse_required_scopes(raw: &str) -> Result<BTreeMap<String, Vec<String>>> {
+    let clients: BTreeMap<String, Vec<String>> = serde_json::from_str(raw)?;
+    for (client, scopes) in &clients {
+        if client.is_empty()
+            || client.len() > 64
+            || scopes.iter().any(|scope| {
+                scope.is_empty()
+                    || scope.chars().any(char::is_whitespace)
+                    || crate::oidc_authorize::requested_scopes(scope).is_none()
+            })
+        {
+            bail!("OIDC_REQUIRED_SCOPES must map client IDs to supported scope names");
+        }
+    }
+    Ok(clients)
 }
 
 pub fn router(config: Arc<OidcAuthorizeHttpConfig>) -> Router {
@@ -156,7 +178,6 @@ async fn decision_http(
     let decision = if approving {
         Decision::Approve {
             scopes: payload.scopes,
-            remember: payload.remember,
         }
     } else {
         Decision::Deny
@@ -167,6 +188,7 @@ async fn decision_http(
         &token,
         &payload.request_id,
         decision,
+        &config.required_scopes,
         SystemTime::now(),
     )
     .await
@@ -179,6 +201,7 @@ async fn decision_http(
         Ok(DecisionOutcome::Expired) => error(StatusCode::BAD_REQUEST, "request_expired"),
         Ok(DecisionOutcome::InvalidScope) => error(StatusCode::BAD_REQUEST, "invalid_scope"),
         Ok(DecisionOutcome::InvalidClient) => error(StatusCode::BAD_REQUEST, "invalid_client"),
+        Ok(DecisionOutcome::ConsentChanged) => error(StatusCode::CONFLICT, "consent_changed"),
         Err(failure) => {
             tracing::error!(?failure, "Rust OIDC decision failed");
             error(StatusCode::SERVICE_UNAVAILABLE, "server_error")
@@ -238,6 +261,7 @@ async fn authorize(
         config.codec.clone(),
         session,
         params,
+        &config.required_scopes,
         SystemTime::now(),
     )
     .await;
@@ -302,6 +326,7 @@ async fn prepare(State(config): State<Arc<OidcAuthorizeHttpConfig>>, request: Re
         config.codec.clone(),
         explicit.or(cookie.as_deref()),
         params,
+        &config.required_scopes,
         SystemTime::now(),
     )
     .await;
@@ -313,7 +338,7 @@ async fn prepare(State(config): State<Arc<OidcAuthorizeHttpConfig>>, request: Re
                 .map(|scope| {
                     json!({
                         "name": scope, "description": scope_description(scope),
-                        "required": scope == "openid", "granted": true,
+                        "required": prepared.required_scopes.contains(scope), "granted": !prepared.consent_required,
                     })
                 })
                 .collect();
@@ -322,7 +347,8 @@ async fn prepare(State(config): State<Arc<OidcAuthorizeHttpConfig>>, request: Re
                 json!({
                     "action":"consent", "request_id":prepared.request_id,
                     "client":{"client_id":prepared.client_id,"name":prepared.client_name,"logo_url":prepared.client_logo_url},
-                    "scopes":scopes,"consent_required":true,"state":prepared.state,
+                    "scopes":scopes,"consent_required":prepared.consent_required,"state":prepared.state,
+                    "account_label":prepared.account_label,"blocked":prepared.blocked,
                     "redirect_uri":prepared.redirect_uri,
                 }),
             )
@@ -398,4 +424,25 @@ fn error(status: StatusCode, code: &str) -> Response {
         .headers_mut()
         .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_required_scopes;
+
+    #[test]
+    fn required_scope_configuration_is_per_service_and_validated() -> anyhow::Result<()> {
+        let config = parse_required_scopes(include_str!("../data/oidc-required-scopes.json"))?;
+        assert_eq!(config["etu-lk-assistant"], ["email", "profile"]);
+        for invalid in [
+            r#"{"app":["unknown"]}"#,
+            r#"{"app":["email profile"]}"#,
+            r#"{"app":[""]}"#,
+            r#"{"":[]}"#,
+        ] {
+            assert!(parse_required_scopes(invalid).is_err());
+        }
+        assert!(parse_required_scopes("{}").is_ok());
+        Ok(())
+    }
 }

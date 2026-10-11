@@ -1,4 +1,4 @@
-//! Local-only, remembered-consent OIDC authorization-code issuance.
+//! OIDC grants with interactive account confirmation and explicit silent SSO.
 
 use crate::{
     oidc_protocol::parse_token_body,
@@ -21,7 +21,7 @@ use ydb::{Client, Transaction, TxMode, closure};
 #[derive(Debug, PartialEq, Eq)]
 pub enum Authorization {
     Redirect(String),
-    Prepared(PreparedAuthorization),
+    Prepared(Box<PreparedAuthorization>),
     LoginRequired,
     ConsentRequired(String),
     InvalidClient,
@@ -38,6 +38,10 @@ pub struct PreparedAuthorization {
     pub scopes: Vec<String>,
     pub state: String,
     pub redirect_uri: String,
+    pub account_label: String,
+    pub consent_required: bool,
+    pub blocked: String,
+    pub required_scopes: Vec<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -55,7 +59,7 @@ pub(crate) fn redirect_uri_with(
     Ok(url.into())
 }
 
-fn requested_scopes(raw: &str) -> Option<Vec<String>> {
+pub(crate) fn requested_scopes(raw: &str) -> Option<Vec<String>> {
     let mut scopes = vec!["openid".to_owned()];
     for scope in raw.split_whitespace() {
         if !matches!(
@@ -83,9 +87,19 @@ pub async fn authorize_remembered(
     codec: Arc<SessionCodec>,
     session: Option<&str>,
     params: BTreeMap<String, String>,
+    required: &BTreeMap<String, Vec<String>>,
     now: SystemTime,
 ) -> Result<Authorization> {
-    authorize_request(client, codec, session, params, now, Mode::RedirectOnly).await
+    authorize_request(
+        client,
+        codec,
+        session,
+        params,
+        required,
+        now,
+        Mode::RedirectOnly,
+    )
+    .await
 }
 
 pub async fn prepare_authorization(
@@ -93,9 +107,10 @@ pub async fn prepare_authorization(
     codec: Arc<SessionCodec>,
     session: Option<&str>,
     params: BTreeMap<String, String>,
+    required: &BTreeMap<String, Vec<String>>,
     now: SystemTime,
 ) -> Result<Authorization> {
-    authorize_request(client, codec, session, params, now, Mode::Prepare).await
+    authorize_request(client, codec, session, params, required, now, Mode::Prepare).await
 }
 
 async fn authorize_request(
@@ -103,6 +118,7 @@ async fn authorize_request(
     codec: Arc<SessionCodec>,
     session: Option<&str>,
     params: BTreeMap<String, String>,
+    required: &BTreeMap<String, Vec<String>>,
     now: SystemTime,
     mode: Mode,
 ) -> Result<Authorization> {
@@ -162,6 +178,13 @@ async fn authorize_request(
     let Some(scopes) = requested_scopes(scope) else {
         return Ok(Authorization::InvalidRequest);
     };
+    let mut required = required.get(client_id).cloned().unwrap_or_default();
+    if !required.iter().any(|scope| scope == "openid") {
+        required.push("openid".into());
+    }
+    if required.iter().any(|scope| !scopes.contains(scope)) {
+        return Ok(Authorization::InvalidRequest);
+    }
     let code = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
     let request_id = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 24]>());
     let session = session.map(str::to_owned);
@@ -177,10 +200,10 @@ async fn authorize_request(
         .map(|value| (*value).to_owned())
         .collect();
     retry_known_abort(|| {
-        let (session, codec, scopes, code, request_id, client_id, redirect_uri, state, nonce, challenge, method, prompt, backends) =
-            (session.clone(), codec.clone(), scopes.clone(), code.clone(), request_id.clone(), client_id.clone(), redirect_uri.clone(), state.clone(), nonce.clone(), challenge.clone(), method.clone(), prompt.clone(), backends.clone());
+        let (session, codec, scopes, code, request_id, client_id, redirect_uri, state, nonce, challenge, method, prompt, backends, required) =
+            (session.clone(), codec.clone(), scopes.clone(), code.clone(), request_id.clone(), client_id.clone(), redirect_uri.clone(), state.clone(), nonce.clone(), challenge.clone(), method.clone(), prompt.clone(), backends.clone(), required.clone());
         async {
-            client.query_client().retry_tx(closure!([session, codec, scopes, code, request_id, client_id, redirect_uri, state, nonce, challenge, method, prompt, backends, mode], async |tx: &mut Transaction| {
+            client.query_client().retry_tx(closure!([session, codec, scopes, code, request_id, client_id, redirect_uri, state, nonce, challenge, method, prompt, backends, mode, required], async |tx: &mut Transaction| {
                 let mut clients = tx.query("SELECT id, name, logo_url, CAST(redirect_uris AS Utf8) AS redirects, CAST(allowed_scopes AS Utf8) AS allowed, CAST(response_types AS Utf8) AS responses, CAST(grant_types AS Utf8) AS grants, is_public FROM idp_oidcclient VIEW oidc_client_id_idx WHERE client_id = $client_id LIMIT 2")
                     .param("$client_id", client_id.clone()).await?;
                 let mut rows = Vec::with_capacity(2);
@@ -216,10 +239,14 @@ async fn authorize_request(
                     .param("$user_id", user_id).optional().await?.is_some();
                 if has_mfa && !restored.mfa_verified { return Ok(Authorization::LoginRequired) }
                 let mut scopes = scopes.to_vec();
+                let mut blocked = String::new();
                 if let Some(mut prefs) = tx.query_row("SELECT CAST(privacy_scope_defaults AS Utf8) AS defaults FROM accounts_userpreferences VIEW acct_prefs_user_idx WHERE user_id = $user_id LIMIT 1")
                     .param("$user_id", user_id).optional().await? {
                     let raw: String = prefs.remove_field_by_name("defaults")?.try_into()?;
                     let defaults: Value = serde_json::from_str(&raw).map_err(ydb::YdbOrCustomerError::from_err)?;
+                    if required.iter().any(|scope| scope != "openid" && defaults[scope] == "deny") {
+                        blocked = "privacy".into();
+                    }
                     scopes.retain(|scope| scope == "openid" || defaults[scope] != "deny");
                 }
                 let mut consents = tx.query("SELECT client_id, CAST(scopes AS Utf8) AS scopes FROM idp_oidcconsent VIEW oidc_consent_user_idx WHERE user_id = $user_id")
@@ -237,20 +264,32 @@ async fn authorize_request(
                 }
                 consents.close().await?;
                 if matched.len() > 1 { return Err(ydb::YdbOrCustomerError::from_err(std::io::Error::other("ambiguous OIDC consent"))) }
-                let grant_ok = prompt != "consent" && matched.first().is_some_and(|granted| scopes.iter().all(|scope| granted.contains(scope)));
-                if !grant_ok {
+                let consent_required = matched.is_empty();
+                if let Some(granted) = matched.first() {
+                    if blocked.is_empty() && required.iter().any(|scope| !granted.contains(scope)) {
+                        blocked = "consent".into();
+                    }
+                    scopes.retain(|scope| granted.contains(scope));
+                }
+                if prompt != "none" || consent_required || !blocked.is_empty() {
                     if matches!(mode, Mode::Prepare) && prompt != "none" {
+                        let mut account = tx.query_row("SELECT username, email FROM auth_user WHERE id = $user_id")
+                            .param("$user_id", user_id).await?;
+                        let email: String = account.remove_field_by_name("email")?.try_into()?;
+                        let username: String = account.remove_field_by_name("username")?.try_into()?;
+                        let account_label = if email.is_empty() { username } else { email };
                         tx.exec("INSERT INTO idp_oidcauthorizationrequest (request_id, client_id, user_id, redirect_uri, scope, state, nonce, code_challenge, code_challenge_method, prompt, created_at, expires_at) VALUES ($request_id, $client_id, $user_id, $redirect_uri, $scope, $state, $nonce, $challenge, $method, $prompt, CAST($now AS Datetime), CAST($expires AS Datetime))")
                             .param("$request_id", request_id.clone()).param("$client_id", client_pk).param("$user_id", user_id)
                             .param("$redirect_uri", redirect_uri.clone()).param("$scope", scopes.join(" "))
                             .param("$state", state.clone()).param("$nonce", nonce.clone())
                             .param("$challenge", challenge.clone()).param("$method", method.clone())
-                            .param("$prompt", prompt.clone()).param("$now", now)
+                            .param("$prompt", if consent_required { "consent" } else { "confirm" }).param("$now", now)
                             .param("$expires", now + Duration::from_secs(600)).await?;
-                        return Ok(Authorization::Prepared(PreparedAuthorization {
+                        return Ok(Authorization::Prepared(Box::new(PreparedAuthorization {
                             request_id: request_id.clone(), client_id: client_id.clone(), client_name,
                             client_logo_url, scopes, state: state.clone(), redirect_uri: redirect_uri.clone(),
-                        }));
+                            account_label, consent_required, blocked, required_scopes: required.clone(),
+                        })));
                     }
                     let uri = redirect_uri_with(redirect_uri, &[("error", "consent_required"), ("state", state)])
                         .map_err(ydb::YdbOrCustomerError::from_err)?;
