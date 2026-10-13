@@ -161,7 +161,18 @@ async fn code_is_single_use_and_signed_subject_remains_stable() -> Result<()> {
             .await?.context("issued access token must reach UserInfo")?;
         ensure!(info["sub"] == subject && info["user_id"] == identity_id.to_string()
             && info["email"] == email && info["email_verified"] == true
-            && info.get("name").is_none(), "UserInfo claims differ from granted scopes");
+            && info.get("name").is_none() && info.get("preferred_username").is_none(), "UserInfo claims differ from granted scopes");
+        ensure!(info["client_id"] == client_id && info["master_flags"]["is_staff"] == false);
+        // The same token must observe privilege changes, without a new login.
+        for (staff, admin) in [(true, false), (false, true), (true, true), (false, false)] {
+            client.query_client().exec("UPDATE auth_user SET is_staff = $staff WHERE id = $id")
+                .param("$staff", staff).param("$id", user_id).await?;
+            client.query_client().exec("UPDATE usid_user SET system_admin = $admin WHERE user_id = $id")
+                .param("$admin", admin).param("$id", identity_id).await?;
+            let fresh = userinfo(&client, &keys, "https://id.example.invalid", &tokens.access_token, None, now)
+                .await?.context("live privilege lookup")?;
+            ensure!(fresh["master_flags"]["is_staff"] == staff && fresh["master_flags"]["system_admin"] == admin);
+        }
         ensure!(userinfo(&client, &keys, "https://other.example.invalid", &tokens.access_token, None, now).await?.is_none(), "wrong issuer accepted");
         let tampered = format!("{}x", tokens.access_token);
         ensure!(userinfo(&client, &keys, "https://id.example.invalid", &tampered, None, now).await?.is_none(), "tampered access token accepted");
@@ -305,6 +316,7 @@ async fn code_is_single_use_and_signed_subject_remains_stable() -> Result<()> {
         let legacy_info = userinfo(&client, &keys, "https://id.example.invalid", &legacy_access, Some(media), now)
             .await?.context("legacy-scope access token must reach UserInfo")?;
         ensure!(legacy_info["sub"] == subject && legacy_info["name"] == "Ada Lovelace"
+            && legacy_info["preferred_username"] == format!("oidc-{stamp}")
             && legacy_info["given_name"] == "Ada" && legacy_info["family_name"] == "Lovelace"
             && legacy_info["birthdate"] == "2001-02-03" && legacy_info["phone_number"] == "+123456789"
             && legacy_info["phone_number_verified"] == true && legacy_info["locale"] == "ru"

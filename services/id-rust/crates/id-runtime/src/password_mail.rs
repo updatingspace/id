@@ -4,10 +4,7 @@
 
 use crate::{new_device_mail::DrainResult, tx_retry::retry_known_abort};
 use anyhow::{Context, Result, bail, ensure};
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentTransferEncoding},
-};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox};
 use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 use ydb::{Client, IndexStatus, IndexType, Transaction, TxMode, Value, closure};
@@ -202,10 +199,13 @@ async fn recipient(client: &Client, id: &str) -> Result<Option<String>> {
 }
 
 fn render(recipient: &str, from: &Mailbox) -> Result<Message> {
-    Ok(Message::builder().from(from.clone()).to(recipient.parse()?)
-        .subject("Пароль аккаунта изменён")
-        .header(ContentTransferEncoding::QuotedPrintable)
-        .body("Пароль вашего аккаунта UpdSpace ID изменён.\n\nЕсли это были не вы, обратитесь в поддержку и проверьте безопасность своей почты.".to_owned())?)
+    crate::transactional_mail::render(
+        recipient,
+        from,
+        "Пароль аккаунта изменён",
+        "Пароль вашего аккаунта UpdSpace ID изменён.\n\nЕсли это были не вы, обратитесь в поддержку и проверьте безопасность своей почты.",
+        None,
+    )
 }
 
 async fn finish(

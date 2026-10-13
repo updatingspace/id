@@ -71,8 +71,8 @@ html="$(<"${scratch_dir}/security.html")"
 [[ "${html}" == *'aria-labelledby="passkeys-title"'* ]]
 [[ "${html}" == *'aria-labelledby="totp-title"'* ]]
 [[ "${html}" == *'aria-labelledby="recovery-title"'* ]]
-[[ "${html}" == *'После нажатия браузер попросит подтвердить добавление'* ]]
-[[ "${html}" == *'Подходит для входа без пароля'* ]]
+[[ "${html}" == *'Браузер попросит подтвердить создание ключа.'* ]]
+[[ "${html}" == *'Ключи доступа (passkey)'* ]]
 [[ "${html}" == *'id="totp-disable"'* ]]
 [[ "${html}" == *'/_id/totp-disable.js'* ]]
 [[ "${html}" == *'id="recovery-rotate"'* ]]
@@ -91,7 +91,7 @@ curl --silent --fail --max-time 5 -H 'Cookie: sessionid=valid-no-totp' \
   -D "${scratch_dir}/totp.headers" \
   "http://127.0.0.1:${web_port}/account?section=security" >"${scratch_dir}/totp.html"
 rg -q 'id="totp-begin"' "${scratch_dir}/totp.html"
-rg -q 'Ключей доступа пока нет' "${scratch_dir}/totp.html"
+if rg -q 'Ключей доступа пока нет' "${scratch_dir}/totp.html"; then exit 1; fi
 rg -q 'id="passkey-register"' "${scratch_dir}/totp.html"
 rg -q '/_id/passkeys.js' "${scratch_dir}/totp.html"
 rg -q 'id="totp-confirm-form"' "${scratch_dir}/totp.html"

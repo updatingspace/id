@@ -46,6 +46,9 @@
   async function run(button, action, success) {
     if (busy) return;
     busy = true;
+    const dialog = button.closest('dialog');
+    dialog?.setAttribute('aria-busy', 'true');
+    for (const input of dialog?.querySelectorAll('input') || []) input.readOnly = true;
     button.disabled = true;
     message.hidden = true;
     error.hidden = true;
@@ -60,6 +63,8 @@
       error.hidden = false;
     } finally {
       busy = false;
+      dialog?.removeAttribute('aria-busy');
+      for (const input of dialog?.querySelectorAll('input') || []) input.readOnly = false;
       button.disabled = false;
     }
   }

@@ -5,7 +5,9 @@
 use crate::{
     data_export::{ExportManifest, write_ndjson_with_avatar, write_ndjson_with_avatar_for_escrow},
     data_export_operation::ExportClaim,
-    media_delete::{EMPTY_HASH, PRODUCTION_ENDPOINT, SigningRequest, host_header, sign},
+    media_delete::{
+        EMPTY_HASH, PRODUCTION_ENDPOINT, SigningRequest, host_header, parse_s3_endpoint, sign,
+    },
     media_url::MediaUrl,
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -109,19 +111,9 @@ impl S3Export {
         access_key: String,
         secret_key: String,
     ) -> Result<Self> {
-        let endpoint = Url::parse(endpoint).context("invalid export S3 endpoint")?;
-        let loopback = matches!(
-            endpoint.host_str(),
-            Some("localhost" | "127.0.0.1" | "[::1]")
-        );
+        let endpoint = parse_s3_endpoint(endpoint)?;
         ensure!(
-            (endpoint.as_str() == PRODUCTION_ENDPOINT || (loopback && endpoint.scheme() == "http"))
-                && endpoint.path() == "/"
-                && endpoint.query().is_none()
-                && endpoint.fragment().is_none()
-                && endpoint.username().is_empty()
-                && endpoint.password().is_none()
-                && (3..=63).contains(&bucket.len())
+            (3..=63).contains(&bucket.len())
                 && bucket.bytes().all(|b| b.is_ascii_lowercase()
                     || b.is_ascii_digit()
                     || matches!(b, b'-' | b'.'))

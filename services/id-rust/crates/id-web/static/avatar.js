@@ -11,7 +11,23 @@
   if (!form || !file || !image || !placeholder || !remove || !message || !error) return;
 
   const submit = form.querySelector('button[type="submit"]');
+  const choose = document.getElementById('avatar-choose');
+  const fileName = document.getElementById('avatar-file-name');
   let busy = false;
+  const selectionChanged = () => {
+    if (fileName) fileName.textContent = file.files?.[0]?.name || 'JPEG, PNG или WebP до 6 МБ';
+    if (choose) submit.disabled = busy || !file.files?.length;
+  };
+  choose?.addEventListener('click', () => { if (!busy) file.click(); });
+  file.addEventListener('change', () => { error.hidden = true; selectionChanged(); });
+  const setBusy = value => {
+    busy = value;
+    form.setAttribute('aria-busy', String(value));
+    submit.disabled = value || Boolean(choose && !file.files?.length);
+    remove.disabled = value || image.hidden;
+    file.disabled = value;
+    if (choose) choose.disabled = value;
+  };
   const csrfCookie = () => {
     const entry = document.cookie.split("; ").find((item) => item.startsWith("csrftoken="));
     if (!entry) return "";
@@ -32,7 +48,7 @@
         headers: { "X-CSRFToken": csrfCookie() }, signal: controller.signal,
       });
       if (response.status === 401) {
-        window.location.replace("/login?next=%2Faccount");
+        window.location.replace("/login?next=%2Faccount%3Fsection%3Dprofile");
         return null;
       }
       const result = await response.json();
@@ -48,11 +64,13 @@
       image.hidden = false;
       placeholder.hidden = true;
       remove.disabled = false;
+      remove.hidden = false;
     } else {
       image.removeAttribute("src");
       image.hidden = true;
       placeholder.hidden = false;
       remove.disabled = true;
+      remove.hidden = true;
     }
   };
 
@@ -65,7 +83,7 @@
       showError(new Error("Файл слишком большой: максимум 6 МБ."));
       return;
     }
-    busy = true; submit.disabled = true; remove.disabled = true;
+    setBusy(true);
     message.hidden = true; error.hidden = true;
     try {
       const body = new FormData();
@@ -74,23 +92,26 @@
       if (!result) return;
       updatePreview(result.avatar_url);
       form.reset();
-      message.textContent = "Аватар обновлён.";
+      selectionChanged();
+      message.textContent = "Фото профиля обновлено.";
       message.hidden = false;
+      form.closest('dialog')?.close();
     } catch (failure) { showError(failure); }
-    finally { busy = false; submit.disabled = false; remove.disabled = image.hidden; }
+    finally { setBusy(false); }
   });
 
   remove.addEventListener("click", async () => {
     if (busy || remove.disabled) return;
-    busy = true; submit.disabled = true; remove.disabled = true;
+    setBusy(true);
     message.hidden = true; error.hidden = true;
     try {
       const result = await send("DELETE");
       if (!result) return;
       updatePreview(null);
-      message.textContent = "Аватар удалён.";
+      message.textContent = "Фото профиля удалено.";
       message.hidden = false;
+      form.closest('dialog')?.close();
     } catch (failure) { showError(failure); }
-    finally { busy = false; submit.disabled = false; remove.disabled = image.hidden; }
+    finally { setBusy(false); }
   });
 })();

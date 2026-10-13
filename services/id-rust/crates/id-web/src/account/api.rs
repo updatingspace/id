@@ -69,7 +69,6 @@ pub(super) struct Preferences {
     pub(super) language: String,
     pub(super) timezone: String,
     pub(super) marketing_opt_in: bool,
-    pub(super) privacy_scope_defaults: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -128,6 +127,8 @@ pub(super) struct MfaStatus {
     pub(super) has_webauthn: bool,
     pub(super) has_recovery_codes: bool,
     pub(super) recovery_codes_left: usize,
+    #[serde(default)]
+    pub(super) recovery_codes_used: Option<usize>,
 }
 
 #[derive(Deserialize)]

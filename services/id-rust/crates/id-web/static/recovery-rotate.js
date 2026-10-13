@@ -54,8 +54,15 @@
       codesVisible = true;
       const recoveryStatus = document.getElementById("recovery-status");
       const recoveryLeft = document.getElementById("recovery-left");
-      if (recoveryStatus) recoveryStatus.textContent = "Есть";
-      if (recoveryLeft) recoveryLeft.textContent = String(body.recovery_codes.length);
+      const used = document.getElementById("recovery-used");
+      const usage = document.getElementById("recovery-usage");
+      if (used) used.textContent = "0";
+      if (usage) usage.hidden = false;
+      if (recoveryStatus) recoveryStatus.textContent = "Осталось кодов:";
+      if (recoveryLeft) {
+        recoveryLeft.textContent = String(body.recovery_codes.length);
+        recoveryLeft.hidden = false;
+      }
       const saved = document.getElementById("recovery-rotation-saved");
       if (saved) saved.hidden = false;
       rotationKey = null;

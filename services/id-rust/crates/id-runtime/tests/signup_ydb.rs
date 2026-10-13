@@ -36,6 +36,7 @@ async fn creates_identity_once_and_verifies_new_email() -> Result<()> {
         language: "ru".into(),
         timezone: "Europe/Moscow".into(),
         consent_data_processing: true,
+        age_confirmed: true,
         consent_marketing: false,
         is_minor: false,
         guardian_email: None,
@@ -105,6 +106,10 @@ async fn creates_identity_once_and_verifies_new_email() -> Result<()> {
     }
     rows.close().await?;
     ensure!(mail_ids.len() == 1, "signup lost verification intent");
+    let mut consent = client.query_client().query_row("SELECT version FROM accounts_userconsent VIEW acct_consent_user_kind_idx WHERE user_id = $id AND kind = 'age_confirmation'")
+        .param("$id", user_id).await?;
+    let version: String = consent.remove_field_by_name("version")?.try_into()?;
+    ensure!(version == "18plus-v1");
     let key = VerifyKey::new([11; 32])?;
     let token = key.issue(Uuid::parse_str(
         mail_ids.first().context("missing mail intent")?,
@@ -122,7 +127,7 @@ async fn creates_identity_once_and_verifies_new_email() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "requires migrated local YDB"]
-async fn minor_signup_persists_birth_date_and_parental_consent() -> Result<()> {
+async fn minor_signup_is_rejected_without_creating_an_account() -> Result<()> {
     ensure!(std::env::var("YDB_DATABASE")? == "/local");
     let client = Arc::new(id_runtime::connect_ydb().await?);
     email_verify::ensure_schema(&client).await?;
@@ -142,6 +147,7 @@ async fn minor_signup_persists_birth_date_and_parental_consent() -> Result<()> {
             language: "ru".into(),
             timezone: "Europe/Moscow".into(),
             consent_data_processing: true,
+            age_confirmed: true,
             consent_marketing: false,
             is_minor: false,
             guardian_email: Some(" Guardian@Example.Invalid ".into()),
@@ -150,30 +156,14 @@ async fn minor_signup_persists_birth_date_and_parental_consent() -> Result<()> {
         },
         SystemTime::now(),
     )
-    .await?;
-    assert_eq!(result, SignupResult::Created);
-    let mut row = client
-        .query_client()
+    .await;
+    assert!(result.is_err());
+    let account = client.query_client()
         .query_row("SELECT user_id FROM accounts_accountemaillookup VIEW acct_email_key_idx WHERE email_key = $email")
-        .param("$email", email)
-        .await?;
-    let user_id: i32 = row.remove_field_by_name("user_id")?.try_into()?;
-    let mut row = client
-        .query_client()
-        .query_row("SELECT CAST(birth_date AS Utf8) AS birth_date FROM accounts_userprofile VIEW acct_profile_user_idx WHERE user_id = $id")
-        .param("$id", user_id)
-        .await?;
-    let stored_birth: Option<String> = row.remove_field_by_name("birth_date")?.try_into()?;
-    assert_eq!(stored_birth, Some(birth_date.to_string()));
-    let mut row = client
-        .query_client()
-        .query_row("SELECT CAST(meta AS Utf8) AS meta FROM accounts_userconsent VIEW acct_consent_user_kind_idx WHERE user_id = $id AND kind = 'parental'")
-        .param("$id", user_id)
-        .await?;
-    let meta: String = row.remove_field_by_name("meta")?.try_into()?;
-    assert_eq!(
-        serde_json::from_str::<Value>(&meta)?,
-        json!({"guardian_email":"guardian@example.invalid"})
+        .param("$email", email).optional().await?;
+    ensure!(
+        account.is_none(),
+        "rejected minor registration created an account"
     );
     Ok(())
 }
@@ -219,7 +209,7 @@ async fn http_signup_requires_csrf_and_returns_no_session() -> Result<()> {
     .to_owned();
     let form: Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
     let email = format!("http-signup-{}@example.invalid", Uuid::new_v4().simple());
-    let payload = json!({"username":format!("http-{}", Uuid::new_v4().simple()),"email":email,"password":"A strong and unusual registration password 2026!","form_token":form["form_token"],"consent_data_processing":true,"consent_marketing":true});
+    let payload = json!({"username":format!("http-{}", Uuid::new_v4().simple()),"email":email,"password":"A strong and unusual registration password 2026!","form_token":form["form_token"],"consent_data_processing":true,"age_confirmed":true,"consent_marketing":true});
     let post = |csrf_header: bool| {
         let app = app.clone();
         let payload = payload.clone();
@@ -302,6 +292,7 @@ async fn http_signup_requires_csrf_and_returns_no_session() -> Result<()> {
         "password": "A strong and unusual registration password 2026!",
         "form_token": minor_form["form_token"],
         "consent_data_processing": true,
+        "age_confirmed": true,
         "birth_date": birth_date.to_string(),
     });
     let minor_post = |payload: Value| {
@@ -326,15 +317,25 @@ async fn http_signup_requires_csrf_and_returns_no_session() -> Result<()> {
     let rejected = minor_post(minor.clone()).await?;
     ensure!(rejected.status() == StatusCode::BAD_REQUEST);
     let body: Value = serde_json::from_slice(&to_bytes(rejected.into_body(), 4096).await?)?;
-    ensure!(body["code"] == "PARENTAL_CONSENT_REQUIRED");
+    ensure!(body["code"] == "MINIMUM_AGE_REQUIRED");
     minor["guardian_consent"] = json!(true);
     let rejected = minor_post(minor.clone()).await?;
     ensure!(rejected.status() == StatusCode::BAD_REQUEST);
     let body: Value = serde_json::from_slice(&to_bytes(rejected.into_body(), 4096).await?)?;
-    ensure!(body["code"] == "GUARDIAN_EMAIL_REQUIRED");
+    ensure!(body["code"] == "MINIMUM_AGE_REQUIRED");
     minor["guardian_email"] = json!("guardian@example.invalid");
-    let created = minor_post(minor).await?;
-    ensure!(created.status() == StatusCode::CREATED);
-    ensure!(created.headers().get(header::SET_COOKIE).is_none());
+    let rejected = minor_post(minor.clone()).await?;
+    ensure!(rejected.status() == StatusCode::BAD_REQUEST);
+    minor
+        .as_object_mut()
+        .context("object")?
+        .remove("birth_date");
+    for confirmation in [Value::Null, json!(false)] {
+        minor["age_confirmed"] = confirmation;
+        let rejected = minor_post(minor.clone()).await?;
+        ensure!(rejected.status() == StatusCode::BAD_REQUEST);
+        let body: Value = serde_json::from_slice(&to_bytes(rejected.into_body(), 4096).await?)?;
+        ensure!(body["code"] == "MINIMUM_AGE_REQUIRED");
+    }
     Ok(())
 }

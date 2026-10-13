@@ -1,25 +1,43 @@
 {% import "account-shell.html" as shell %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-account>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
   <title>Безопасность — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
-  {% if show_totp_setup %}<script src="/_id/totp.js?v=ui-20261008-1" defer></script>{% endif %}
+  <link rel="stylesheet" href="/_id/account.css?v=profile-20261013-2" />
+  {% if show_totp_setup %}<script src="/_id/totp.js?v=structure-20261013-2" defer></script>{% endif %}
   {% if show_totp_disable %}<script src="/_id/totp-disable.js?v=ui-20261008-1" defer></script>{% endif %}
-  {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js?v=ui-20261008-1" defer></script>{% endif %}
-  {% if show_passkey_script %}<script src="/_id/passkeys.js?v=ui-20261008-1" defer></script>{% endif %}
-  {% if password_change_enabled %}<script src="/_id/password-change.js?v=ui-20261008-1" defer></script>{% endif %}
+  {% if show_recovery_rotation %}<script src="/_id/recovery-rotate.js?v=structure-20261013-2" defer></script>{% endif %}
+  {% if show_passkey_script %}<script src="/_id/passkeys.js?v=structure-20261013-2" defer></script>{% endif %}
+  {% if password_change_enabled %}<script src="/_id/password-change.js?v=structure-20261013-2" defer></script>{% endif %}
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
   <script src="/_id/provider-link.js?v=ui-20261008-2" defer></script>
 </head>
 <body>
   {% call shell::open(features, "security", "Вход и защита") %}{% endcall %}
     <p class="eyebrow">Безопасность</p><h1>Вход и защита</h1>
     <p class="page-intro">Выберите удобный способ входа и проверьте, как восстановить доступ, если устройство окажется недоступно.</p>
+    {% if password_change_enabled %}
+    <section aria-labelledby="password-title">
+      <h2 id="password-title">Пароль</h2>
+      <p>После смены пароля вход потребуется на всех устройствах.</p>
+      <form id="password-change-form" aria-describedby="password-change-error">
+        <label for="current-password">Текущий пароль</label>
+        <input id="current-password" name="current_password" type="password" autocomplete="current-password" required />
+        <label for="new-password">Новый пароль</label>
+        <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="10" aria-describedby="password-rules" required />
+        <p id="password-rules" class="item-meta">Не менее 10 символов. Пароль должен отличаться от текущего, не состоять только из цифр и не содержать ваше имя, фамилию или часть адреса почты. Часто используемые пароли не подходят.</p>
+        <label for="confirm-password">Повторите новый пароль</label>
+        <input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="10" required />
+        <button type="submit">Сменить пароль</button>
+      </form>
+      <p id="password-change-message" role="status" aria-live="polite" hidden></p>
+      <p id="password-change-error" role="alert" hidden></p>
+    </section>
+    {% endif %}
     <section id="provider-links" aria-labelledby="provider-links-title" data-providers-known="{{ user.oauth_providers.is_some() }}" {% if !self.has_provider_links() %}hidden{% endif %}>
       <h2 id="provider-links-title">Внешние аккаунты</h2>
       <p>Подключённый сервис станет ещё одним способом входа в UpdSpace ID.</p>
@@ -50,63 +68,13 @@
       <button id="provider-link-refresh" type="button" hidden>Проверить связи</button>
       <button id="provider-link-cancel" type="button" hidden>Отменить попытку</button>
     </section>
-    <section aria-labelledby="passkeys-title">
-      <h2 id="passkeys-title">Ключи доступа</h2>
-      <p>Ключ позволяет подтверждать вход с помощью защиты телефона или компьютера. Состояние: <strong id="passkeys-status">{{ passkeys_status }}</strong>.</p>
-      {% if passkey_registration_enabled %}
-      <div id="passkey-registration">
-        <details id="passkey-create-panel"><summary>Добавить ключ доступа</summary>
-        <p>Назовите ключ так, чтобы позднее узнать своё устройство. После нажатия браузер попросит подтвердить добавление.</p>
-        <div class="passkey-create">
-          <label for="passkey-name">Название нового ключа</label>
-          <input id="passkey-name" name="passkey_name" maxlength="80" value="Мой ключ доступа" autocomplete="off" />
-          <button id="passkey-register" class="primary" type="button">Добавить ключ доступа</button>
-        </div>
-        </details>
-        <button id="passkey-review" type="button" hidden>Обновить список ключей</button>
-        <p id="passkey-register-message" role="status" aria-live="polite" hidden></p>
-        <div id="passkey-recovery" hidden>
-          <h3>Резервные коды</h3>
-          <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
-          <ul id="passkey-recovery-codes"></ul>
-          <button id="passkey-recovery-saved" type="button" hidden>Я сохранил коды — продолжить</button>
-        </div>
-      </div>
-      {% endif %}
-      {% if passkeys.is_empty() %}<p id="passkeys-empty">Ключей доступа пока нет.</p>{% endif %}
-      <ul class="session-list">
-        {% for key in passkeys %}
-        <li class="session-row passkey-row"><div>
-          <strong>{{ key.name }}</strong>
-          {% if key.is_passwordless %}<small>Подходит для входа без пароля</small>{% endif %}
-        </div>
-        {% if key.can_manage %}<div>
-          <button type="button" data-passkey-rename="{{ key.id }}">Переименовать</button>
-          <button type="button" data-passkey-delete="{{ key.id }}">Удалить</button>
-        </div>
-        <div class="passkey-editor" data-passkey-editor hidden>
-          <label for="passkey-name-{{ key.id }}">Новое название ключа</label>
-          <input id="passkey-name-{{ key.id }}" value="{{ key.name }}" maxlength="80" autocomplete="off" />
-          <div class="passkey-actions">
-            <button type="button" data-passkey-rename-save="{{ key.id }}">Сохранить название</button>
-            <button type="button" data-passkey-cancel>Отмена</button>
-          </div>
-        </div>
-        <div class="passkey-editor" data-passkey-delete-review hidden>
-          <p>Удалить ключ «{{ key.name }}»? Вы больше не сможете использовать его для входа. Если это последний способ MFA, резервные коды также будут удалены.</p>
-          <div class="passkey-actions">
-            <button type="button" data-passkey-delete-confirm="{{ key.id }}">Да, удалить ключ</button>
-            <button type="button" data-passkey-cancel>Оставить ключ</button>
-          </div>
-        </div>{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% if show_passkey_script %}<p id="passkey-error" role="alert" hidden></p>{% endif %}
-    </section>
-    <section aria-labelledby="totp-title">
-      <h2 id="totp-title">Приложение с кодами</h2>
-      <p>Подтверждайте вход одноразовым кодом из приложения. Состояние: <strong id="totp-status">{{ totp_status }}</strong>.</p>
+    <section aria-labelledby="protection-title">
+      <h2 id="protection-title">Дополнительная защита</h2>
+      <p>Настройте подтверждение входа и сохраните способ восстановления доступа.</p>
+      <div class="security-method" aria-labelledby="totp-title">
+      <h3 id="totp-title">Двухэтапная проверка (2FA)</h3>
+      <p>Подтверждайте вход одноразовым кодом из приложения-аутентификатора.</p>
+      <p id="totp-status" {% if show_totp_setup %}hidden{% endif %}>{{ totp_status }}</p>
       {% if show_totp_setup %}
       <div id="totp-setup">
         <button id="totp-begin" type="button">Настроить приложение с кодами</button>
@@ -132,16 +100,70 @@
       {% endif %}
       {% if show_totp_disable %}
       <div id="totp-disable-panel">
-        <p>При отключении приложения с кодами его секрет перестанет действовать. Если других способов MFA нет, резервные коды также будут удалены.</p>
+        <p>При отключении приложения с кодами его секрет перестанет действовать. Если ключей доступа не осталось, резервные коды также будут удалены.</p>
         <button id="totp-disable" type="button">Отключить приложение с кодами</button>
         <p id="totp-disable-error" role="alert" hidden></p>
       </div>
       {% endif %}
-    </section>
-    <section aria-labelledby="recovery-title">
-      <h2 id="recovery-title">Резервные коды</h2>
-      <p>Используйте их, если основной способ подтверждения недоступен. Состояние: <strong id="recovery-status">{{ recovery_status }}</strong>; осталось: <strong id="recovery-left">{{ recovery_left }}</strong>.</p>
-      {% if show_totp_setup && recovery_left == 0 %}<p id="recovery-guidance">Сначала <a href="#totp-title">настройте приложение с кодами</a>{% if passkey_registration_enabled %} или <a href="#passkeys-title">добавьте ключ доступа</a>{% endif %}. После настройки сохраните выданные резервные коды отдельно от устройства.</p>{% endif %}
+      </div>
+    <div class="security-method" aria-labelledby="passkeys-title">
+      <h3 id="passkeys-title">Ключи доступа (passkey)</h3>
+      <p>Ключ позволяет подтверждать вход с помощью защиты телефона или компьютера.</p>
+      {% if passkey_registration_enabled %}
+      <div id="passkey-registration">
+        <div id="passkey-create-panel">
+        <p>Браузер попросит подтвердить создание ключа.</p>
+        <div class="passkey-create">
+          <label for="passkey-name">Название нового ключа</label>
+          <input id="passkey-name" name="passkey_name" maxlength="80" value="Мой ключ доступа" autocomplete="off" />
+          <button id="passkey-register" class="primary" type="button">Добавить ключ доступа</button>
+        </div>
+        </div>
+        <button id="passkey-review" type="button" hidden>Обновить список ключей</button>
+        <p id="passkey-register-message" role="status" aria-live="polite" hidden></p>
+        <div id="passkey-recovery" hidden>
+          <h3>Резервные коды</h3>
+          <p>Сохраните эти коды сейчас. Каждый код можно использовать только один раз.</p>
+          <ul id="passkey-recovery-codes"></ul>
+          <button id="passkey-recovery-saved" type="button" hidden>Я сохранил коды — продолжить</button>
+        </div>
+      </div>
+      {% endif %}
+      <ul class="session-list">
+        {% for key in passkeys %}
+        <li class="session-row passkey-row"><div>
+          <strong>{{ key.name }}</strong>
+          {% if key.is_passwordless %}<small>Подходит для входа без пароля</small>{% endif %}
+        </div>
+        {% if key.can_manage %}<div>
+          <button type="button" data-passkey-rename="{{ key.id }}">Переименовать</button>
+          <button type="button" data-passkey-delete="{{ key.id }}">Удалить</button>
+        </div>
+        <div class="passkey-editor" data-passkey-editor hidden>
+          <label for="passkey-name-{{ key.id }}">Новое название ключа</label>
+          <input id="passkey-name-{{ key.id }}" value="{{ key.name }}" maxlength="80" autocomplete="off" />
+          <div class="passkey-actions">
+            <button type="button" data-passkey-rename-save="{{ key.id }}">Сохранить название</button>
+            <button type="button" data-passkey-cancel>Отмена</button>
+          </div>
+        </div>
+        <div class="passkey-editor" data-passkey-delete-review hidden>
+          <p>Удалить ключ «{{ key.name }}»? Вы больше не сможете использовать его для входа. Если нет других ключей доступа и приложения с кодами, резервные коды также будут удалены.</p>
+          <div class="passkey-actions">
+            <button type="button" data-passkey-delete-confirm="{{ key.id }}">Да, удалить ключ</button>
+            <button type="button" data-passkey-cancel>Оставить ключ</button>
+          </div>
+        </div>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% if show_passkey_script %}<p id="passkey-error" role="alert" hidden></p>{% endif %}
+    </div>
+      <div class="security-method" aria-labelledby="recovery-title">
+      <h3 id="recovery-title">Резервные коды</h3>
+      <p>Одноразовые коды для входа, если приложение-аутентификатор или passkey недоступны. Храните их отдельно от устройства для входа.</p>
+      <p><span id="recovery-status">{{ recovery_status }}</span> <strong id="recovery-left" {% if recovery_left == 0 %}hidden{% endif %}>{{ recovery_left }}</strong><span id="recovery-usage" {% if recovery_used.is_none() %}hidden{% endif %}> · Использовано: <strong id="recovery-used">{% if let Some(used) = recovery_used %}{{ used }}{% endif %}</strong></span></p>
+      {% if !show_recovery_rotation && recovery_left == 0 %}{% if show_totp_setup || passkey_registration_enabled %}<p id="recovery-guidance">Они появятся после настройки {% if show_totp_setup %}приложения с кодами{% if passkey_registration_enabled %} или ключа доступа{% endif %}{% else %}ключа доступа{% endif %}.</p>{% endif %}{% endif %}
       {% if show_recovery_rotation %}
       <div id="recovery-rotation">
         <p>При обновлении все прежние резервные коды перестанут работать. Новый набор будет показан только здесь.</p>
@@ -154,24 +176,15 @@
         <p id="recovery-rotation-error" role="alert" hidden></p>
       </div>
       {% endif %}
+      </div>
     </section>
-    {% if password_change_enabled %}
-    <section aria-labelledby="password-title">
-      <h2 id="password-title">Смена пароля</h2>
-      <p>После смены пароля вход потребуется на всех устройствах.</p>
-      <details><summary>Сменить пароль</summary>
-      <form id="password-change-form" aria-describedby="password-change-error">
-        <label for="current-password">Текущий пароль</label>
-        <input id="current-password" name="current_password" type="password" autocomplete="current-password" required />
-        <label for="new-password">Новый пароль</label>
-        <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="10" required />
-        <button type="submit">Сменить пароль</button>
-      </form>
-      </details>
-      <p id="password-change-message" role="status" aria-live="polite" hidden></p>
-      <p id="password-change-error" role="alert" hidden></p>
-    </section>
-    {% endif %}
+    {% if features.sessions_enabled || features.history_enabled %}
+    <section aria-labelledby="activity-title"><h2 id="activity-title">Устройства и входы</h2>
+      <nav class="security-links" aria-label="Устройства и входы">
+        {% if features.sessions_enabled %}<a href="/account?section=sessions"><strong>Активные устройства</strong><span>Проверьте, где открыт аккаунт, и завершите лишние сеансы.</span></a>{% endif %}
+        {% if features.history_enabled %}<a href="/account?section=activity"><strong>История входов</strong><span>Успешные входы и неудачные попытки.</span></a>{% endif %}
+      </nav>
+    </section>{% endif %}
   {% call shell::close() %}{% endcall %}
 </body>
 </html>

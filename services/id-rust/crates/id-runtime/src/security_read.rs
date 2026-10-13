@@ -17,6 +17,7 @@ pub struct MfaStatus {
     pub has_webauthn: bool,
     pub has_recovery_codes: bool,
     pub recovery_codes_left: usize,
+    pub recovery_codes_used: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -123,7 +124,7 @@ fn epoch_seconds(time: SystemTime) -> Result<u64> {
     Ok(time.duration_since(UNIX_EPOCH)?.as_secs())
 }
 
-fn recovery_left(data: &Value) -> Result<usize> {
+fn recovery_counts(data: &Value) -> Result<(usize, Option<usize>)> {
     if let Some(migrated) = data.get("migrated_codes").filter(|value| !value.is_null()) {
         let values = migrated
             .as_array()
@@ -132,7 +133,7 @@ fn recovery_left(data: &Value) -> Result<usize> {
             values.len() <= 100 && values.iter().all(Value::is_string),
             "invalid migrated recovery codes"
         );
-        return Ok(values.len());
+        return Ok((values.len(), None));
     }
     let mask = data
         .get("used_mask")
@@ -146,7 +147,8 @@ fn recovery_left(data: &Value) -> Result<usize> {
         !seed.is_empty() && mask >> 10 == 0,
         "invalid recovery code data"
     );
-    Ok(10 - mask.count_ones() as usize)
+    let used = mask.count_ones() as usize;
+    Ok((10 - used, Some(used)))
 }
 
 fn assemble(rows: Vec<AuthenticatorRow>) -> Result<SecuritySnapshot> {
@@ -155,6 +157,7 @@ fn assemble(rows: Vec<AuthenticatorRow>) -> Result<SecuritySnapshot> {
         has_webauthn: false,
         has_recovery_codes: false,
         recovery_codes_left: 0,
+        recovery_codes_used: None,
     };
     let mut passkeys = Vec::new();
     for row in rows {
@@ -171,7 +174,7 @@ fn assemble(rows: Vec<AuthenticatorRow>) -> Result<SecuritySnapshot> {
                     "duplicate recovery authenticators"
                 );
                 status.has_recovery_codes = true;
-                status.recovery_codes_left = recovery_left(&data)?;
+                (status.recovery_codes_left, status.recovery_codes_used) = recovery_counts(&data)?;
             }
             "webauthn" => {
                 status.has_webauthn = true;
@@ -213,15 +216,19 @@ mod tests {
     #[test]
     fn recovery_mask_and_migrated_codes_count_without_exposing_values() -> Result<()> {
         assert_eq!(
-            recovery_left(&json!({"seed":"encrypted","used_mask":0b101}))?,
-            8
+            recovery_counts(&json!({"seed":"encrypted","used_mask":0b101}))?,
+            (8, Some(2))
         );
         assert_eq!(
-            recovery_left(&json!({"migrated_codes":["encrypted-a","encrypted-b"]}))?,
-            2
+            recovery_counts(&json!({"migrated_codes":["encrypted-a","encrypted-b"]}))?,
+            (2, None)
         );
-        assert!(recovery_left(&json!({"seed":"encrypted","used_mask":1024})).is_err());
-        assert!(recovery_left(&json!({"migrated_codes":"bad"})).is_err());
+        assert_eq!(
+            recovery_counts(&json!({"seed":"encrypted","used_mask":1023}))?,
+            (0, Some(10))
+        );
+        assert!(recovery_counts(&json!({"seed":"encrypted","used_mask":1024})).is_err());
+        assert!(recovery_counts(&json!({"migrated_codes":"bad"})).is_err());
         Ok(())
     }
 

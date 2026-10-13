@@ -15,6 +15,26 @@ pub(crate) const EMPTY_HASH: &str =
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const SIGNED_HEADERS: &str = "host;x-amz-content-sha256;x-amz-date";
 
+pub(crate) fn parse_s3_endpoint(endpoint: &str) -> Result<Url> {
+    let endpoint = Url::parse(endpoint).context("invalid S3 endpoint")?;
+    let loopback = matches!(
+        endpoint.host_str(),
+        Some("localhost" | "127.0.0.1" | "[::1]")
+    );
+    // The operator selects the endpoint; only loopback test servers may omit TLS.
+    ensure!(
+        (endpoint.scheme() == "https" || (loopback && endpoint.scheme() == "http"))
+            && endpoint.host_str().is_some()
+            && endpoint.path() == "/"
+            && endpoint.query().is_none()
+            && endpoint.fragment().is_none()
+            && endpoint.username().is_empty()
+            && endpoint.password().is_none(),
+        "S3 endpoint must be an HTTPS origin (HTTP is allowed only on loopback)"
+    );
+    Ok(endpoint)
+}
+
 pub struct S3MediaDelete {
     http: Client,
     endpoint: Url,
@@ -46,19 +66,9 @@ impl S3MediaDelete {
         access_key: String,
         secret_key: String,
     ) -> Result<Self> {
-        let endpoint = Url::parse(endpoint).context("invalid S3 endpoint")?;
-        let loopback = matches!(
-            endpoint.host_str(),
-            Some("localhost" | "127.0.0.1" | "[::1]")
-        );
+        let endpoint = parse_s3_endpoint(endpoint)?;
         ensure!(
-            (endpoint.as_str() == PRODUCTION_ENDPOINT || (loopback && endpoint.scheme() == "http"))
-                && endpoint.path() == "/"
-                && endpoint.query().is_none()
-                && endpoint.fragment().is_none()
-                && endpoint.username().is_empty()
-                && endpoint.password().is_none()
-                && (3..=63).contains(&bucket.len())
+            (3..=63).contains(&bucket.len())
                 && bucket.bytes().all(|byte| byte.is_ascii_lowercase()
                     || byte.is_ascii_digit()
                     || matches!(byte, b'-' | b'.'))
@@ -303,7 +313,7 @@ mod tests {
         }
         assert!(
             S3MediaDelete::new(
-                "https://other.example/",
+                "http://other.example/",
                 "id-media",
                 "ru-central1",
                 "key".into(),
@@ -311,6 +321,46 @@ mod tests {
             )
             .is_err()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_operator_configured_s3_with_tls_and_rejects_ambiguous_origins() -> Result<()> {
+        for endpoint in [
+            PRODUCTION_ENDPOINT,
+            "https://s3.example.test/",
+            "https://s3.example.test:9443/",
+            "http://127.0.0.1:9000/",
+            "http://[::1]:9000/",
+        ] {
+            parse_s3_endpoint(endpoint)?;
+            S3MediaDelete::new(
+                endpoint,
+                "id-media",
+                "garage",
+                "key".into(),
+                "secret".into(),
+            )?;
+            crate::data_export_s3::S3Export::new(
+                endpoint,
+                "id-exports",
+                "garage",
+                "key".into(),
+                "secret".into(),
+            )?;
+        }
+        for endpoint in [
+            "http://s3.example.test/",
+            "http://192.168.1.176:3900/",
+            "http://localhost.example.test/",
+            "https://user:password@s3.example.test/",
+            "https://s3.example.test/bucket",
+            "https://s3.example.test/?query=1",
+            "https://s3.example.test/#fragment",
+            "file:///tmp/s3",
+        ] {
+            assert!(parse_s3_endpoint(endpoint).is_err(), "{endpoint}");
+        }
         Ok(())
     }
 

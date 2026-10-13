@@ -103,6 +103,7 @@ struct SignupBody {
     language: Option<String>,
     timezone: Option<String>,
     consent_data_processing: Option<bool>,
+    age_confirmed: Option<bool>,
     consent_marketing: Option<bool>,
     is_minor: Option<bool>,
     guardian_email: Option<String>,
@@ -234,23 +235,11 @@ async fn signup_inner(
         None => None,
     };
     let is_minor = signup::requires_guardian(payload.is_minor.unwrap_or(false), birth_date);
-    if is_minor && payload.guardian_consent != Some(true) {
+    if is_minor || payload.age_confirmed != Some(true) {
         return error(
             StatusCode::BAD_REQUEST,
-            "PARENTAL_CONSENT_REQUIRED",
-            "Для пользователей младше 18 требуется согласие родителя/опекуна",
-        );
-    }
-    if is_minor
-        && payload
-            .guardian_email
-            .as_deref()
-            .is_none_or(|value| value.trim().is_empty())
-    {
-        return error(
-            StatusCode::BAD_REQUEST,
-            "GUARDIAN_EMAIL_REQUIRED",
-            "Укажите email родителя/опекуна",
+            "MINIMUM_AGE_REQUIRED",
+            "Регистрация доступна с 18 лет. Подтвердите, что вам исполнилось 18 лет.",
         );
     }
     if payload.consent_data_processing != Some(true) {
@@ -269,6 +258,7 @@ async fn signup_inner(
         language: payload.language.unwrap_or_else(|| "en".into()),
         timezone: payload.timezone.unwrap_or_default(),
         consent_data_processing: true,
+        age_confirmed: true,
         consent_marketing: payload.consent_marketing.unwrap_or(false),
         is_minor,
         guardian_email: payload.guardian_email,

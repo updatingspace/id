@@ -32,7 +32,7 @@ http.createServer((request, response) => {
   if (request.url === '/api/v1/auth/sessions' && valid) {
     response.end(JSON.stringify({ sessions: [
       { id: 'current', user_agent: 'Current device', ip: '192.0.2.1', current: true, revoked: false },
-      { id: 'other" onclick="bad', user_agent: '<script>bad()</script>', ip: '192.0.2.2', current: false, revoked: false },
+      { id: 'other" onclick="bad', user_agent: '<script>bad()</script>', ip: '192.0.2.2<img src=x>', current: false, revoked: false },
     ] }));
     return;
   }
@@ -67,9 +67,9 @@ html="$(<"${scratch_dir}/sessions.html")"
 [[ "${html}" == *'id="session-error"'* ]]
 [[ "${html}" == *'id="revoke-others"'* ]]
 [[ "${html}" == *'data-revoke-session="other&#34; onclick=&#34;bad"'* ]]
-[[ "${html}" == *'&#60;script&#62;bad()&#60;/script&#62;'* ]]
+[[ "${html}" == *'192.0.2.2&#60;img src=x&#62;'* ]]
 [[ "${html}" != *'<script>bad()</script>'* ]]
-[[ "${html}" == *'src="/_id/sessions.js"'* ]]
+[[ "${html}" == *'src="/_id/sessions.js?v='* ]]
 rg -qi '^cache-control: no-store' "${scratch_dir}/sessions.headers"
 guest_status="$(curl --silent --show-error --max-time 5 -o /dev/null -w '%{http_code}' \
   "http://127.0.0.1:${web_port}/account?section=sessions")"

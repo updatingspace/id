@@ -1,43 +1,49 @@
 {% import "account-shell.html" as shell %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-account>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
-  <title>Сессии — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
+  <title>Устройства — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=profile-20261013-2" />
   <script src="/_id/sessions.js?v=ui-20261008-1" defer></script>
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
 </head>
 <body>
   {% call shell::open(features, "sessions", "Устройства") %}{% endcall %}
     <h1>Активные устройства</h1>
     <p id="session-message" role="status" aria-live="polite" hidden></p>
     <p id="session-error" role="alert" hidden></p>
-    <p class="page-intro">Проверьте, где открыт аккаунт. Завершение сеанса потребует нового входа на выбранном устройстве.</p>
-    <nav class="subnav" aria-label="Устройства и активность"><a href="/account?section=sessions" aria-current="page">Активные устройства</a>{% if features.history_enabled %}<a href="/account?section=activity">История входов</a>{% endif %}</nav>
-    <section aria-label="Сессии">
-      {% if !has_active %}<p>Активных сессий нет.</p>{% endif %}
+    <p class="page-intro">Здесь вы вошли в аккаунт.</p>
+    {% if features.security_enabled %}<a class="back-link" href="/account?section=security">← Вход и защита</a>{% endif %}
+    <section aria-label="Сеансы">
+      {% if !has_active %}<p>Активных сеансов нет.</p>{% endif %}
       {% for revoked_group in [false, true] %}
       {% if !revoked_group || has_revoked %}
-      {% if revoked_group %}<details><summary>Завершённые сеансы</summary>{% endif %}
+      {% if revoked_group %}<details class="session-history"><summary>Завершённые сеансы</summary>{% endif %}
       <ul class="session-list" {% if !revoked_group %}aria-label="Действующие сеансы"{% endif %}>
         {% for session in sessions %}{% if session.revoked == *revoked_group %}
         <li class="session-row"><div>
-          <strong>{{ session.device }}</strong>
-          {% if session.current %}<span class="badge">Это устройство · Текущая сессия</span>{% endif %}
-          {% if session.revoked %}<span class="badge">Доступ отозван</span>{% endif %}
-          {% if let Some(time) = session.last_seen %}<small>Последняя активность: <time datetime="{{ time }}">{{ time }}</time></small>{% endif %}
-          <details><summary>Технические сведения</summary><p>{{ session.user_agent }}</p><p>IP: {{ session.ip }}</p></details>
+          <div class="session-heading">
+            <strong>{{ session.device }}</strong>
+            {% if session.current %}<span class="badge">Это устройство</span>{% endif %}
+          </div>
+          <p class="item-meta session-meta">
+            {% if let Some(time) = session.last_seen %}<span>Активность: <time datetime="{{ time }}">{{ time }}</time></span>{% endif %}
+            <span>IP: {{ session.ip }}</span>
+          </p>
         </div>
         {% if !session.current && !session.revoked %}<button type="button" data-revoke-session="{{ session.id }}">Завершить сеанс</button>{% endif %}
         </li>{% endif %}{% endfor %}
       </ul>
       {% if revoked_group %}</details>{% endif %}
       {% endif %}{% endfor %}
-      {% if has_other %}<button id="revoke-others" type="button">Завершить другие сессии</button>{% endif %}
+      {% if has_other %}<div class="session-actions">
+        <button id="revoke-others" type="button">Завершить другие сеансы</button>
+        <p class="item-meta">На этом устройстве вход сохранится.</p>
+      </div>{% endif %}
     </section>
   {% call shell::close() %}{% endcall %}
 </body>

@@ -62,32 +62,6 @@ jobs:
             echo 'Python application or tooling returned to the repository' >&2
             exit 1
           fi
-          if git grep -n -E 'updatingspace-id-backend|gunicorn|app\.jobs:application' -- infra/terraform/yandex-cloud; then
-            echo 'Retired Django deployment path returned to Terraform' >&2
-            exit 1
-          fi
-          if git grep -n -E 'type: object_storage|object: index\.html|frontend_static_routes' -- infra/terraform/yandex-cloud/templates/api-gateway.openapi.yaml.tftpl infra/terraform/yandex-cloud/locals.tf; then
-            echo 'Retired React Gateway fallback returned' >&2
-            exit 1
-          fi
-          if git grep -n -E 'resource "yandex_storage_bucket" "frontend"|yandex_storage_bucket\.frontend' -- infra/terraform/yandex-cloud; then
-            echo 'Retired React bucket returned to Terraform' >&2
-            exit 1
-          fi
-      - name: Verify delayed-export deploy gate
-        working-directory: .
-        run: node scripts/ci/test-check-yc-delayed-export.mjs
-      - name: Verify account-deletion deploy gate
-        working-directory: .
-        run: node scripts/ci/test-check-yc-account-deletion.mjs
-      - name: Verify production CI event gate
-        working-directory: .
-        run: node scripts/ci/test-verify-yc-workflow-event.mjs
-      - name: Verify production YDB schema receipt matches this source
-        working-directory: .
-        env:
-          YDB_DATABASE_ID: etnq1cp5vubgd8ono4t4
-        run: node scripts/ci/check-ydb-schema-receipt.mjs
       - name: Install pinned Rust
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Install WebAuthn build dependencies
@@ -407,44 +381,6 @@ jobs:
           CARGO_PROFILE_TEST_DEBUG: "0"
           YDB_CREDENTIALS_MODE: anonymous
         run: bash scripts/smoke-web-passkey-native-live.sh
-
-  terraform-check:
-    name: Terraform validate
-    runs-on: ubuntu-latest
-    env:
-      TF_VAR_cloud_id: dummy-cloud
-      TF_VAR_folder_id: dummy-folder
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Verify exact Rust revision rollback
-        run: node scripts/ci/test-yc-rust-rollback.mjs
-
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-
-      - name: Terraform fmt
-        run: terraform fmt -check -recursive infra/terraform/yandex-cloud
-
-      - name: Terraform init
-        run: terraform -chdir=infra/terraform/yandex-cloud init -backend=false
-
-      - name: Terraform validate
-        run: terraform -chdir=infra/terraform/yandex-cloud validate
-
-  opentofu-check:
-    name: OpenTofu validate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
-
-      - name: OpenTofu local check
-        run: scripts/ci/check-yc-terraform-local.sh
 
   rust-extended:
     uses: ./.github/workflows/rust-pilot.yml

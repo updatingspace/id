@@ -36,7 +36,7 @@ async function main() {
     if (pathname === '/api/v1/auth/security') {
       securityReads += 1;
       return reply(response, 200, { mfa: { has_totp: hasTotp, has_webauthn: false,
-        has_recovery_codes: hasTotp, recovery_codes_left: recoveryLeft }, authenticators: [] });
+        has_recovery_codes: hasTotp, recovery_codes_left: recoveryLeft, recovery_codes_used: hasTotp ? 10 - recoveryLeft : null }, authenticators: [] });
     }
     if (pathname === '/api/v1/auth/mfa/totp/begin') return reply(response, 200, {
       ok: true, secret: 'SYNTHETIC', svg_data_uri: 'data:image/svg+xml;base64,' +
@@ -87,11 +87,11 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    const totpStatus = page.locator('section[aria-labelledby="totp-title"] > p strong');
-    const recoveryStatus = page.locator('section[aria-labelledby="recovery-title"] > p strong');
+    const totpStatus = page.locator('#totp-status');
+    const recoveryStatus = page.locator('#recovery-status');
     await page.goto(`${origin}/account?section=security`);
     const initialReads = securityReads;
-    assert.equal(await totpStatus.innerText(), 'Не включена');
+    assert.equal(await totpStatus.isVisible(), false);
     assert.equal(await page.locator('#totp-recovery-saved').evaluate(button => button.hidden), true,
       'an older script must not expose an unhandled completion button');
     await page.locator('#totp-begin').click();
@@ -99,13 +99,16 @@ async function main() {
     await page.locator('#totp-code').fill('000000');
     await page.locator('#totp-confirm-form button').click();
     await page.locator('#totp-error').waitFor({ state: 'visible' });
-    assert.equal(await totpStatus.innerText(), 'Не включена');
+    assert.equal(await totpStatus.isVisible(), false);
     assert.equal(await page.locator('#totp-recovery').isHidden(), true);
     await page.locator('#totp-code').fill('123456');
     await page.locator('#totp-confirm-form button').click();
     await page.locator('#totp-message').waitFor({ state: 'visible' });
-    assert.equal(await totpStatus.innerText(), 'Включена', 'successful setup must replace the stale SSR status');
-    assert.deepEqual(await recoveryStatus.allTextContents(), ['Есть', '10']);
+    assert.equal(await totpStatus.innerText(), 'Приложение подключено.', 'successful setup must replace the stale SSR status');
+    assert.equal(await recoveryStatus.innerText(), 'Осталось кодов:');
+    assert.equal(await page.locator('#recovery-left').innerText(), '10');
+    assert.equal(await page.locator('#recovery-used').innerText(), '0');
+    assert.equal(await page.locator('#recovery-left').isVisible(), true);
     assert.deepEqual(await page.locator('#totp-recovery-codes li').allTextContents(), codes);
     assert.equal(await page.locator('#totp-secret').innerText(), '');
     assert.equal(securityReads, initialReads, 'codes must stay visible without an automatic reload');
@@ -133,17 +136,25 @@ async function main() {
     });
     await page.locator('#totp-recovery-saved').click();
     await page.locator('#totp-disable').waitFor();
-    assert.equal(await totpStatus.innerText(), 'Включена');
+    assert.equal(await totpStatus.innerText(), 'Приложение подключено.');
     assert.equal(await page.locator('#totp-recovery-codes').count(), 0, 'codes are not rendered on the next SSR page');
     recoveryLeft = 3;
     await page.reload();
     assert.equal(await page.locator('#recovery-left').innerText(), '3');
+    assert.equal(await page.locator('#recovery-used').innerText(), '7');
+    recoveryLeft = 0;
+    await page.reload();
+    assert.equal(await page.locator('#recovery-status').innerText(), 'Резервных кодов нет.');
+    assert.equal(await page.locator('#recovery-left').isVisible(), false);
+    assert.equal(await page.locator('#recovery-guidance').count(), 0, 'connected MFA needs code rotation, not setup guidance');
     assert.equal(await page.locator('#recovery-rotation-saved').evaluate(button => button.hidden), true);
     allowRotation = true;
     await page.locator('#recovery-rotate').click();
     await page.locator('#recovery-rotation-result').waitFor({ state: 'visible' });
     allowRotation = false;
     assert.equal(await page.locator('#recovery-left').innerText(), '10');
+    assert.equal(await page.locator('#recovery-used').innerText(), '0');
+    assert.equal(await page.locator('#recovery-left').isVisible(), true);
     assert.deepEqual(await page.locator('#recovery-rotation-codes li').allTextContents(), codes);
     await page.locator('#recovery-rotation-saved').click();
     await page.locator('#recovery-rotate').waitFor({ state: 'visible' });

@@ -3,52 +3,39 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
-  <meta name="description" content="UpdSpace ID — одна точка входа в сервисы UpdSpace. Вы решаете, какие приложения получают доступ к вашему аккаунту.">
-  <title>UpdSpace ID — одна точка входа</title>
-  <link rel="stylesheet" href="/_id/home.css?v=ui-20261008-1">
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
+  <meta name="description" content="Вход в сервисы UpdSpace, настройки аккаунта и управление доступом приложений.">
+  <title>UpdSpace ID — вход в сервисы UpdSpace</title>
+  <link rel="stylesheet" href="/_id/home.css?v=profile-20261013-1">
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
 </head>
-<body data-public-home>
+<body>
   <a class="skip-link" href="#main">К содержанию</a>
   <div class="site-shell">
     <header class="site-header">
       <a class="brand" href="/" aria-label="UpdSpace ID — главная"><span class="brand-mark" aria-hidden="true">ID</span>UpdSpace ID</a>
       <nav aria-label="Основная навигация">
         <a href="/login">Войти</a>
-        <a class="header-account" href="/account">Мой аккаунт</a>
       </nav>
     </header>
     <main id="main">
       <section class="hero" aria-labelledby="home-title">
         <div class="hero-copy">
-          <p class="eyebrow">Ваш аккаунт UpdSpace</p>
-          <h1 id="home-title">Один аккаунт для сервисов UpdSpace.</h1>
-          <p class="lead">UpdSpace ID соединяет ваши сервисы с одним аккаунтом. Вы входите в привычной точке, а сами решаете, какому приложению доверить доступ и когда его закрыть.</p>
+          <h1 id="home-title">Один аккаунт для сервисов UpdSpace</h1>
+          <p class="lead">Входите в подключённые сервисы с одним аккаунтом. Пароль, защита входа и разрешения приложений собраны в одном месте.</p>
           <div class="actions">
-            <a class="primary" href="/account">Управлять аккаунтом <span aria-hidden="true">→</span></a>
-            <a class="secondary" href="/signup">Создать аккаунт</a>
+            <a class="primary" href="/signup">Создать аккаунт</a>
+            <a class="secondary" href="/login">Войти</a>
           </div>
         </div>
-        <div class="identity-card" aria-label="Путь входа через UpdSpace ID">
-          <p class="card-label">Вход в другое приложение</p>
-          <ol class="entry-steps">
-            <li><span class="step-number">01</span><span><strong>Узнаёте приложение</strong><small>Перед продолжением видно, куда вы возвращаетесь.</small></span></li>
-            <li><span class="step-number">02</span><span><strong>Решаете, чем поделиться</strong><small>Дополнительные сведения требуют вашего выбора.</small></span></li>
-            <li><span class="step-number">03</span><span><strong>Сохраняете контроль</strong><small>Выданный доступ можно проверить и закрыть в аккаунте.</small></span></li>
-          </ol>
-        </div>
       </section>
-      <section class="next-step" aria-labelledby="next-step-title">
-        <div>
-          <p class="eyebrow">Всё в ваших руках</p>
-          <h2 id="next-step-title">Доступ не даётся навсегда</h2>
-        </div>
-        <p>Если потеряли устройство или перестали пользоваться приложением, откройте аккаунт и закройте его доступ. Там же можно проверить связанные с вами сведения.</p>
-        <a href="/account?section=apps">Посмотреть доступ приложений <span aria-hidden="true">→</span></a>
+      <section class="account-tasks" aria-label="Возможности ID">
+        <article><h2>Один вход</h2><p>Используйте аккаунт ID в подключённых приложениях UpdSpace.</p></article>
+        <article><h2>Защита аккаунта</h2><p>Добавьте двухэтапную проверку или passkey. Проверяйте устройства, на которых открыт аккаунт.</p></article>
+        <article><h2>Контроль доступа</h2><p>Смотрите, какие разрешения выдали приложениям, и отзывайте доступ, когда он больше не нужен.</p></article>
       </section>
     </main>
-    <footer class="site-footer"><label class="theme-control">Оформление<select data-theme-select aria-label="Оформление"><option value="system">Как на устройстве</option><option value="light">Светлое</option><option value="dark">Тёмное</option></select></label><span>UpdSpace ID</span><a href="/login">Войти в аккаунт</a></footer>
+    <footer class="site-footer" aria-label="Документы и контакты"><a href="/privacy">Политика конфиденциальности</a><a href="/terms">Условия использования</a><a href="/contacts">Контакты</a></footer>
   </div>
 </body>
 </html>

@@ -1,15 +1,15 @@
 {% import "account-shell.html" as shell %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-account>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
   <title>Экспорт данных — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  <link rel="stylesheet" href="/_id/account.css?v=profile-20261013-2" />
   <script src="/_id/export.js?v=ui-20261008-1" defer></script>
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
 </head>
 <body>
   {% call shell::open(features, "privacy", "Копия данных") %}{% endcall %}

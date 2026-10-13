@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
   <title>Вход в {{ client_name }} — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/consent.css?v=consent-20261011-1" />
+  <link rel="stylesheet" href="/_id/consent.css?v=structure-20261013-2" />
   <script src="/_id/consent.js?v=consent-20261011-1" defer></script>
 </head>
 <body>
@@ -20,7 +20,7 @@
         {% if blocked == "consent" %}
         <p class="notice">Приложению нужны обязательные разрешения, которых нет в сохранённом доступе. <a href="/account?section=apps">Отзовите доступ в ЛК ID</a> и начните вход заново.</p>
         {% else if blocked == "privacy" %}
-        <p class="notice">Обязательные сведения закрыты в <a href="/account?section=privacy">настройках приватности</a>. Разрешите их передачу и начните вход заново.</p>
+        <p class="notice">Передача обязательных сведений ограничена ранее сохранёнными настройками аккаунта. Для их изменения <a href="/contacts">свяжитесь с оператором</a>.</p>
         {% else if consent_required %}
         <fieldset>
           <legend>Приложение получит</legend>
@@ -41,11 +41,7 @@
         </fieldset>
         <p class="hint">Выбор сохранится. Изменить его можно после <a href="/account?section=apps">отзыва доступа</a>.</p>
         {% else %}
-        <details>
-          <summary>Доступ уже предоставлен</summary>
-          <ul>{% for scope in scopes %}<li>{{ scope.description }}</li>{% endfor %}</ul>
-          <p class="hint">Изменить разрешения можно после <a href="/account?section=apps">отзыва доступа в ЛК ID</a>.</p>
-        </details>
+        <p class="hint">Доступ уже предоставлен. <a href="/account?section=apps">Посмотреть разрешения</a></p>
         {% endif %}
         <p id="consent-error" role="alert" hidden></p>
         <div class="actions">
@@ -54,6 +50,7 @@
         </div>
       </form>
     </section>
+  <footer class="legal-links auth-legal" aria-label="Документы и контакты"><a href="/privacy">Политика конфиденциальности</a><a href="/terms">Условия использования</a><a href="/contacts">Контакты</a></footer>
   </main>
 </body>
 </html>

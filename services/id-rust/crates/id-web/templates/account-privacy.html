@@ -1,72 +1,49 @@
 {% import "account-shell.html" as shell %}
+{% import "account-preferences.html" as preferences %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-account>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
-  <title>Настройки — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
-  <script src="/_id/preferences.js?v=ui-20261008-2" defer></script>
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
+  <title>{% if settings_mode %}Настройки{% else %}Приватность и данные{% endif %} — UpdSpace ID</title>
+  <link rel="stylesheet" href="/_id/account.css?v=profile-20261013-2" />
+  <script src="/_id/preferences.js?v=profile-20261013-2" defer></script>
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
 </head>
 <body>
   {% if settings_mode %}{% call shell::open(features, "profile", "Предпочтения") %}{% endcall %}{% else %}{% call shell::open(features, "privacy", "Приватность и данные") %}{% endcall %}{% endif %}
     <h1>{% if settings_mode %}Язык и часовой пояс{% else %}Приватность и данные{% endif %}</h1>
-    <p class="page-intro">{% if settings_mode %}Предпочтения вашего аккаунта. Полная локализация интерфейса пока недоступна.{% else %}Решайте, какие сведения передавать приложениям, и управляйте согласиями.{% endif %}</p>
+    <p class="page-intro">{% if settings_mode %}Предпочтения вашего аккаунта. Полная локализация интерфейса пока недоступна.{% else %}Ваши согласия и управление персональными данными.{% endif %}</p>
+    {% if settings_mode %}
     <section aria-labelledby="preferences-title">
-      <h2 id="preferences-title">{% if settings_mode %}Предпочтения{% else %}Доступ приложений к данным{% endif %}</h2>
-      <form id="preferences-form" data-preference-section="{% if settings_mode %}settings{% else %}privacy{% endif %}">
-        <div {% if !settings_mode %}hidden{% endif %}>
-        <label for="preferences-language">Язык</label>
-        <select id="preferences-language" name="language">
-          <option value="ru" {% if language_ru %}selected{% endif %}>Русский</option>
-          <option value="en" {% if language_en %}selected{% endif %}>English</option>
-        </select>
-        <label for="preferences-timezone">Часовой пояс</label>
-        <select id="preferences-timezone" name="timezone">
-          <option value="" {% if timezone_empty %}selected{% endif %}>Не выбран</option>
-          {% for zone in timezones %}<option value="{{ zone.name }}" {% if zone.selected %}selected{% endif %}>{{ zone.display_name }}</option>{% endfor %}
-        </select>
-        </div>
-        <div {% if settings_mode %}hidden{% endif %}>
-        <label class="check" for="preferences-marketing"><input id="preferences-marketing" name="marketing_opt_in" type="checkbox" {% if marketing_opt_in %}checked{% endif %} /><span>Получать новости и предложения UpdSpace</span></label>
-        <fieldset>
-          <legend>Доступ приложений к данным</legend>
-          {% for scope in scopes %}
-          <label for="scope-{{ scope.name }}">{{ scope.label }}</label>
-          <select id="scope-{{ scope.name }}" name="scope-{{ scope.name }}">
-            <option value="allow" {% if scope.allow %}selected{% endif %}>Разрешать</option>
-            <option value="ask" {% if scope.ask %}selected{% endif %}>Спрашивать</option>
-            <option value="deny" {% if scope.deny %}selected{% endif %}>Запрещать</option>
-          </select>
-          {% endfor %}
-        </fieldset>
-        </div>
-        <button type="submit">Сохранить настройки</button>
-      </form>
-      <p id="preferences-message" role="status" aria-live="polite" hidden></p>
-      <p id="preferences-error" role="alert" hidden></p>
+      <h2 id="preferences-title">Язык и время</h2>
+      {% call preferences::form(language_ru, language_en, timezone_empty, timezones) %}{% endcall %}
     </section>
+    {% endif %}
     {% if consents_enabled && !settings_mode %}
     <section aria-labelledby="consents-title">
       <h2 id="consents-title">Согласия</h2>
       {% if consents.is_empty() %}<p>Сохранённых согласий нет.</p>{% endif %}
+      <ul class="session-list consent-list">
       {% for consent in consents %}
-      <article class="list-row">
-        <strong>{% if consent.kind == "data_processing" %}Обработка персональных данных{% else if consent.kind == "marketing" %}Новости и предложения{% else %}{{ consent.kind }}{% endif %}</strong>
-        <span>{{ consent.version }}</span>
-        <time datetime="{{ consent.granted_at }}">{{ consent.granted_at }}</time>
-        {% if consent.revoked %}<span>Отозвано</span>{% else if consent.revocable %}
+      <li class="list-row consent-row">
+        <div>
+          <strong>{% if consent.kind == "data_processing" %}Обработка персональных данных{% else if consent.kind == "age_confirmation" %}Возраст 18 лет или старше{% else if consent.kind == "marketing" %}Новости и предложения{% else %}{{ consent.kind }}{% endif %}</strong>
+          <p class="item-meta">Принято <time datetime="{{ consent.granted_at }}">{{ consent.granted_at }}</time> · Версия {{ consent.version }}</p>
+        </div>
+        {% if consent.revoked %}<span class="badge">Отозвано</span>{% else if consent.revocable %}
         <button type="button" class="consent-revoke" data-kind="marketing">Отозвать</button>{% endif %}
-      </article>
+      </li>
       {% endfor %}
+      </ul>
+      <p class="item-meta consent-note">Подписка на новости пока недоступна.{% if marketing_opt_in %} Ранее выданное согласие можно отозвать.{% endif %} Служебные письма не зависят от подписки.</p>
       <p id="consents-message" role="status" aria-live="polite" hidden></p>
       <p id="consents-error" role="alert" hidden></p>
     </section>
     {% endif %}
-  {% if !settings_mode %}<section><h2>Ваши данные</h2><div class="actions">{% if features.exports_enabled %}<a class="button" href="/account?section=data">Получить копию данных</a>{% endif %}{% if features.deletion_enabled %}<a class="button danger" href="/account?section=delete">Удаление аккаунта</a>{% endif %}</div></section>{% endif %}
+  {% if !settings_mode %}<section><h2>Ваши данные</h2><p><a href="/data">Какие данные хранит ID</a></p><div class="actions">{% if features.exports_enabled %}<a class="button" href="/account?section=data">Получить копию данных</a>{% endif %}{% if features.deletion_enabled %}<a class="button danger" href="/account?section=delete">Удаление аккаунта</a>{% endif %}</div></section>{% endif %}
   {% call shell::close() %}{% endcall %}
 </body>
 </html>

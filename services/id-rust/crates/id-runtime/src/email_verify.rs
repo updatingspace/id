@@ -10,10 +10,7 @@ use crate::{
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentTransferEncoding},
-};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor, message::Mailbox};
 use sha2::Sha256;
 use std::{
     sync::Arc,
@@ -527,10 +524,15 @@ pub async fn process_one(
     match recipient(client, id, SystemTime::now()).await {
         Ok(Some(address)) => {
             let link = config.link(Uuid::parse_str(id)?)?;
-            let message = Message::builder().from(from.clone()).to(address.parse()?)
-                .subject("Подтвердите email UpdSpace ID")
-                .header(ContentTransferEncoding::QuotedPrintable)
-                .body(format!("Чтобы подтвердить адрес, откройте ссылку:\n\n{link}\n\nСсылка действует 24 часа. Если вы не регистрировались, проигнорируйте письмо."))?;
+            let message = crate::transactional_mail::render(
+                &address,
+                from,
+                "Подтвердите почту UpdSpace ID",
+                &format!(
+                    "Чтобы подтвердить адрес, откройте ссылку:\n\n{link}\n\nСсылка действует 24 часа. Если вы не добавляли этот адрес в UpdSpace ID, проигнорируйте письмо."
+                ),
+                Some(("Подтвердить адрес", &link)),
+            )?;
             let delivered = tokio::time::timeout(Duration::from_secs(30), mailer.send(message))
                 .await
                 .is_ok_and(|outcome| outcome.is_ok());

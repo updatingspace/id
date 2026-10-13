@@ -335,7 +335,8 @@ mod tests {
         assert!(html.contains("user@example.com"));
         assert!(html.contains(">Продолжить</button>"));
         assert!(!html.contains("type=\"checkbox\""));
-        assert!(html.contains("<details>"));
+        assert!(!html.contains("<details>"));
+        assert!(html.contains("Посмотреть разрешения"));
         Ok(())
     }
 

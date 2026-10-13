@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::{env, fmt, sync::Arc};
 use url::Url;
 
-const PRODUCTION_ENDPOINT: &str = "https://storage.yandexcloud.net/";
+use crate::media_delete::{PRODUCTION_ENDPOINT, parse_s3_endpoint};
 const AVATAR_URL_SECONDS: u32 = 3600;
 
 #[derive(Clone)]
@@ -67,22 +67,9 @@ impl MediaUrl {
             env::var("MEDIA_STORAGE_DRIVER")?.as_str() == "s3",
             "signed media requires S3 storage"
         );
-        let endpoint = Url::parse(
+        let endpoint = parse_s3_endpoint(
             &env::var("S3_ENDPOINT_URL").unwrap_or_else(|_| PRODUCTION_ENDPOINT.into()),
         )?;
-        let loopback = matches!(
-            endpoint.host_str(),
-            Some("localhost" | "127.0.0.1" | "[::1]")
-        );
-        ensure!(
-            (endpoint.as_str() == PRODUCTION_ENDPOINT || (loopback && endpoint.scheme() == "http"))
-                && endpoint.path() == "/"
-                && endpoint.query().is_none()
-                && endpoint.fragment().is_none()
-                && endpoint.username().is_empty()
-                && endpoint.password().is_none(),
-            "unsupported S3 endpoint for signed media"
-        );
         let bucket = env::var("S3_BUCKET_NAME").context("S3_BUCKET_NAME is required")?;
         ensure!(
             (3..=63).contains(&bucket.len())

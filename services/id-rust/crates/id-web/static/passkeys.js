@@ -149,12 +149,17 @@
           codesVisible = true;
           const guidance = document.getElementById("recovery-guidance");
           if (guidance) guidance.hidden = true;
-          const passkeysStatus = document.getElementById("passkeys-status");
           const recoveryStatus = document.getElementById("recovery-status");
           const recoveryLeft = document.getElementById("recovery-left");
-          if (passkeysStatus) passkeysStatus.textContent = "Есть";
-          if (recoveryStatus) recoveryStatus.textContent = "Есть";
-          if (recoveryLeft) recoveryLeft.textContent = String(result.recovery_codes.length);
+          const used = document.getElementById("recovery-used");
+          const usage = document.getElementById("recovery-usage");
+          if (used) used.textContent = "0";
+          if (usage) usage.hidden = false;
+          if (recoveryStatus) recoveryStatus.textContent = "Осталось кодов:";
+          if (recoveryLeft) {
+            recoveryLeft.textContent = String(result.recovery_codes.length);
+            recoveryLeft.hidden = false;
+          }
           const saved = document.getElementById("passkey-recovery-saved");
           if (saved) saved.hidden = false;
           const empty = document.getElementById("passkeys-empty");

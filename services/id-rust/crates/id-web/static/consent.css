@@ -1,4 +1,4 @@
-.consent-shell { min-height: 100svh; display: grid; place-items: center; padding: 1.5rem 1rem; }
+.consent-shell { min-height: 100svh; display: grid; place-items: center; align-content: center; padding: 1.5rem 1rem; }
 .consent-card { width: min(100%, 28rem); border: 1px solid var(--line); border-radius: 1.25rem; padding: clamp(1.25rem, 4vw, 2rem); background: var(--surface); overflow-wrap: anywhere; }
 .consent-card h1 { margin: 1.25rem 0 .5rem; font-size: 1.65rem; line-height: 1.25; text-wrap: balance; }
 .destination { margin: 0 0 1.5rem; color: var(--muted); font-size: .9rem; }
