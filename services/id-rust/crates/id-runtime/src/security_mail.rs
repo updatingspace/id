@@ -4,10 +4,7 @@
 
 use crate::{new_device_mail::DrainResult, tx_retry::retry_known_abort};
 use anyhow::{Context, Result, bail, ensure};
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentTransferEncoding},
-};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox};
 use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 use ydb::{Client, IndexStatus, IndexType, Transaction, TxMode, Value, closure};
@@ -233,12 +230,7 @@ fn render(recipient: &str, kind: &str, from: &Mailbox) -> Result<Message> {
         ),
         _ => bail!("unsupported security mail kind"),
     };
-    Ok(Message::builder()
-        .from(from.clone())
-        .to(recipient.parse()?)
-        .subject(subject)
-        .header(ContentTransferEncoding::QuotedPrintable)
-        .body(body.to_owned())?)
+    crate::transactional_mail::render(recipient, from, subject, body, None)
 }
 
 async fn finish(

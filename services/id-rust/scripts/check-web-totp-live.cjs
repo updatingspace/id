@@ -97,14 +97,14 @@ async function main() {
     const originalCodes = await page.locator('#totp-recovery-codes li').allTextContents();
     assert.equal(await page.locator('#totp-secret').textContent(), '');
     assert.equal(await page.locator('#totp-qr').getAttribute('src'), null);
-    assert.equal(await page.locator('#totp-status').textContent(), 'Включена');
-    assert.equal(await page.locator('#recovery-status').textContent(), 'Есть');
+    assert.equal(await page.locator('#totp-status').textContent(), 'Приложение подключено.');
+    assert.equal(await page.locator('#recovery-status').textContent(), 'Осталось кодов:');
     assert.equal(await page.locator('#recovery-left').textContent(), '10');
 
     await page.locator('#totp-recovery-saved').click();
     await page.locator('#totp-disable').waitFor();
     assert.equal(await page.locator('h1').textContent(), 'Вход и защита');
-    assert.equal(await page.locator('#totp-status').textContent(), 'Включена');
+    assert.equal(await page.locator('#totp-status').textContent(), 'Приложение подключено.');
     assert.equal(await page.locator('#totp-begin').count(), 0);
     assert.equal(await page.locator('#totp-recovery-codes').count(), 0);
     assert.equal(await page.locator('#recovery-rotate').isVisible(), true);
@@ -119,8 +119,8 @@ async function main() {
     assert.equal(await page.locator('#totp-disable').isVisible(), true);
     await page.locator('#totp-disable').click();
     await page.locator('#totp-begin').waitFor({ state: 'visible' });
-    assert.equal(await page.locator('#totp-status').textContent(), 'Не включена');
-    assert.equal(await page.locator('#recovery-status').textContent(), 'Нет');
+    assert.equal(await page.locator('#totp-status').textContent(), 'Приложение не подключено.');
+    assert.equal(await page.locator('#recovery-status').textContent(), 'Резервных кодов нет.');
     assert.equal(await page.locator('#recovery-left').textContent(), '0');
     assert.deepEqual(unexpectedDialogs, [], 'saved-codes actions must release the beforeunload warning');
     console.log('PASS: Chromium TOTP setup, recovery-code rotation, CSRF and invalid-code denial, persistence and disable');

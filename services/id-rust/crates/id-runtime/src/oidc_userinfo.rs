@@ -104,19 +104,22 @@ pub async fn userinfo(
         let Some(principal) = active_principal_tx(tx, *user_id).await? else { return Ok(None); };
         if principal.public_subject.as_str() != subject { return Ok(None); }
         let Ok(scopes) = narrow_scopes(scope, None) else { return Ok(None); };
-        let Some(mut account) = tx.query_row("SELECT first_name, last_name, email FROM auth_user WHERE id = $id")
+        let Some(mut account) = tx.query_row("SELECT first_name, last_name, email, is_staff, username FROM auth_user WHERE id = $id")
             .param("$id", *user_id).optional().await? else { return Ok(None); };
         let first_name: String = account.remove_field_by_name("first_name")?.try_into()?;
         let last_name: String = account.remove_field_by_name("last_name")?.try_into()?;
         let email: String = account.remove_field_by_name("email")?.try_into()?;
+        let is_staff: bool = account.remove_field_by_name("is_staff")?.try_into()?;
+        let username: String = account.remove_field_by_name("username")?.try_into()?;
         let Some(mut identity) = tx.query_row("SELECT system_admin, email_verified FROM usid_user WHERE user_id = $id")
             .param("$id", principal.identity_id.get()).optional().await? else { return Ok(None); };
         let system_admin: bool = identity.remove_field_by_name("system_admin")?.try_into()?;
         let master_email_verified: bool = identity.remove_field_by_name("email_verified")?.try_into()?;
         let mut claims = Map::new();
         claims.insert("sub".into(), json!(subject));
+        claims.insert("client_id".into(), json!(client_name));
         claims.insert("user_id".into(), json!(principal.identity_id.get().to_string()));
-        claims.insert("master_flags".into(), json!({"suspended":false,"banned":false,"system_admin":system_admin,"email_verified":master_email_verified,"status":"active"}));
+        claims.insert("master_flags".into(), json!({"suspended":false,"banned":false,"system_admin":system_admin,"is_staff":is_staff,"email_verified":master_email_verified,"status":"active"}));
         if scopes.iter().any(|scope| scope == "email") {
             let mut stream = tx.query("SELECT email, verified FROM account_emailaddress VIEW account_emailaddress_user_id_2c513194 WHERE user_id = $id AND primary = true LIMIT 2")
                 .param("$id", *user_id).await?;
@@ -157,6 +160,7 @@ pub async fn userinfo(
                 claims.insert("phone_number_verified".into(), json!(profile.is_some_and(|row| row.2)));
             }
             if wants_profile {
+                claims.insert("preferred_username".into(), json!(username));
                 claims.insert("name".into(), json!(format!("{first_name} {last_name}").trim()));
                 let picture = match profile.and_then(|row| row.0.as_deref()).filter(|key| !key.is_empty()) {
                     Some(key) => match media.as_ref() {

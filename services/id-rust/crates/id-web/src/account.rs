@@ -33,6 +33,8 @@ struct AccountOverview<'a> {
     birth_date: &'a str,
     avatar_url: &'a str,
     has_avatar: bool,
+    settings: Option<&'a Preferences>,
+    timezones: &'a [TimezoneView<'a>],
 }
 
 #[derive(Clone, Copy, Default)]
@@ -79,7 +81,6 @@ struct SessionsPage<'a> {
 struct SessionView<'a> {
     last_seen: Option<&'a str>,
     id: &'a str,
-    user_agent: &'a str,
     device: String,
     ip: &'a str,
     current: bool,
@@ -113,8 +114,8 @@ struct AppsPage<'a> {
 struct AppView<'a> {
     client_id: &'a str,
     name: &'a str,
-    scopes: String,
-    last_used_at: &'a str,
+    scopes: Vec<&'a str>,
+    last_used_at: Option<&'a str>,
 }
 
 #[derive(Template)]
@@ -128,7 +129,6 @@ struct PrivacyPage<'a> {
     timezone_empty: bool,
     timezones: &'a [TimezoneView<'a>],
     marketing_opt_in: bool,
-    scopes: &'a [ScopePreference],
     consents: &'a [ConsentView<'a>],
 }
 
@@ -144,14 +144,6 @@ struct TimezoneView<'a> {
     name: &'a str,
     display_name: &'a str,
     selected: bool,
-}
-
-struct ScopePreference {
-    name: &'static str,
-    label: &'static str,
-    allow: bool,
-    ask: bool,
-    deny: bool,
 }
 
 struct ConsentView<'a> {
@@ -174,9 +166,9 @@ struct SecurityPage<'a> {
     show_totp_disable: bool,
     show_recovery_rotation: bool,
     totp_status: &'static str,
-    passkeys_status: &'static str,
     recovery_status: &'static str,
     recovery_left: usize,
+    recovery_used: Option<usize>,
     passkeys: &'a [PasskeyView<'a>],
 }
 
@@ -472,6 +464,30 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
     } else {
         "Не включена"
     };
+    let (settings, zones) = if edit_mode && api.preferences_enabled {
+        let (settings, zones) = tokio::join!(preferences(api, cookie), timezones(api));
+        let settings = match settings {
+            Ok(value) => value,
+            Err(_) => return error_page("Не удалось загрузить настройки. Попробуйте позже."),
+        };
+        let zones = match zones {
+            Ok(value) => value,
+            Err(_) => return error_page("Не удалось загрузить часовые пояса. Попробуйте позже."),
+        };
+        (Some(settings), zones)
+    } else {
+        (None, Vec::new())
+    };
+    let zones = zones
+        .iter()
+        .map(|zone| TimezoneView {
+            name: &zone.name,
+            display_name: &zone.display_name,
+            selected: settings
+                .as_ref()
+                .is_some_and(|settings| settings.timezone == zone.name),
+        })
+        .collect::<Vec<_>>();
     let html = AccountOverview {
         edit_mode,
         features: OverviewFeatures::from(api),
@@ -486,13 +502,19 @@ pub(crate) async fn page(cx: &Cx) -> topcoat::Result<Response> {
         birth_date: user.birth_date.as_deref().unwrap_or(""),
         avatar_url: user.avatar_url.as_deref().unwrap_or(""),
         has_avatar: user.avatar_url.is_some(),
+        settings: settings.as_ref(),
+        timezones: &zones,
     }
     .render()
     .map_err(|error| topcoat::Error::msg(error.to_string()))?;
     page_response(
         html,
         cookies,
-        api.logout_enabled || (edit_mode && (api.profile_enabled || api.email_management_enabled)),
+        api.logout_enabled
+            || (edit_mode
+                && (api.profile_enabled
+                    || api.email_management_enabled
+                    || api.preferences_enabled)),
     )
 }
 
@@ -510,11 +532,6 @@ async fn sessions_page(
             id: &session.id,
             device: device_label(session.user_agent.as_deref().unwrap_or("")),
             last_seen: session.last_seen.as_deref(),
-            user_agent: session
-                .user_agent
-                .as_deref()
-                .filter(|value| !value.is_empty())
-                .unwrap_or("Неизвестное устройство"),
             ip: session
                 .ip
                 .as_deref()
@@ -582,25 +599,6 @@ async fn privacy_page(
     cookies: Vec<String>,
 ) -> topcoat::Result<Response> {
     let api = app_context::<AccountApi>(cx);
-    let scopes = [
-        ("profile_basic", "Основные данные"),
-        ("profile_extended", "Дополнительные данные"),
-        ("email", "Адрес почты"),
-        ("phone", "Телефон"),
-    ]
-    .map(|(name, label)| {
-        let policy = preferences
-            .privacy_scope_defaults
-            .get(name)
-            .and_then(serde_json::Value::as_str);
-        ScopePreference {
-            name,
-            label,
-            allow: policy == Some("allow"),
-            ask: policy.unwrap_or("ask") == "ask",
-            deny: policy == Some("deny"),
-        }
-    });
     let zones = timezones
         .iter()
         .map(|zone| TimezoneView {
@@ -632,7 +630,6 @@ async fn privacy_page(
         timezone_empty: preferences.timezone.is_empty(),
         timezones: &zones,
         marketing_opt_in: preferences.marketing_opt_in,
-        scopes: &scopes,
         consents: &rows,
     }
     .render()
@@ -661,9 +658,11 @@ async fn apps_page(
                     "offline_access" => "Доступ без вашего присутствия",
                     other => other,
                 })
-                .collect::<Vec<_>>()
-                .join(", "),
-            last_used_at: app.last_used_at.as_deref().unwrap_or("нет данных"),
+                .collect(),
+            last_used_at: app
+                .last_used_at
+                .as_deref()
+                .filter(|value| !value.is_empty()),
         })
         .collect::<Vec<_>>();
     let html = AppsPage {
@@ -688,6 +687,11 @@ async fn security_page(
         api.totp_enabled && (security.mfa.has_totp || security.mfa.has_webauthn);
     let show_passkey_script = api.passkey_registration_enabled
         || (api.passkey_management_enabled && security.mfa.has_webauthn);
+    let recovery_left = if security.mfa.has_recovery_codes {
+        security.mfa.recovery_codes_left
+    } else {
+        0
+    };
     let rows = security
         .authenticators
         .iter()
@@ -712,21 +716,17 @@ async fn security_page(
         show_totp_disable,
         show_recovery_rotation,
         totp_status: if security.mfa.has_totp {
-            "Включена"
+            "Приложение подключено."
         } else {
-            "Не включена"
+            "Приложение не подключено."
         },
-        passkeys_status: if security.mfa.has_webauthn {
-            "Есть"
+        recovery_status: if recovery_left > 0 {
+            "Осталось кодов:"
         } else {
-            "Нет"
+            "Резервных кодов нет."
         },
-        recovery_status: if security.mfa.has_recovery_codes {
-            "Есть"
-        } else {
-            "Нет"
-        },
-        recovery_left: security.mfa.recovery_codes_left,
+        recovery_left,
+        recovery_used: security.mfa.recovery_codes_used,
         passkeys: &rows,
     }
     .render()
@@ -942,10 +942,10 @@ mod tests {
             show_totp_setup: false,
             show_totp_disable: true,
             show_recovery_rotation: true,
-            totp_status: "Включена",
-            passkeys_status: "Есть",
-            recovery_status: "Есть",
+            totp_status: "Приложение подключено.",
+            recovery_status: "Осталось кодов:",
             recovery_left: 8,
+            recovery_used: Some(2),
             passkeys: &keys,
         }
         .render()?;
@@ -963,6 +963,8 @@ mod tests {
             assert!(html.contains(hook), "missing {hook}");
         }
         assert!(!html.contains("id=\"totp-setup\""));
+        assert!(!html.contains("Состояние:"));
+        assert!(html.contains("Осталось кодов:"));
         Ok(())
     }
 
@@ -982,16 +984,19 @@ mod tests {
             show_totp_setup: true,
             show_totp_disable: false,
             show_recovery_rotation: false,
-            totp_status: "Не включена",
-            passkeys_status: "Нет",
-            recovery_status: "Нет",
+            totp_status: "Приложение не подключено.",
+            recovery_status: "Резервных кодов нет.",
             recovery_left: 0,
+            recovery_used: None,
             passkeys: &[],
         }
         .render()?;
         assert!(html.contains("id=\"totp-confirm-form\""));
         assert!(html.contains("id=\"totp-recovery-codes\""));
-        assert!(html.contains("Ключей доступа пока нет"));
+        assert!(html.contains("Ключи доступа (passkey)"));
+        assert!(!html.contains("Состояние:"));
+        assert!(html.contains("Резервных кодов нет."));
+        assert!(html.contains("id=\"recovery-left\" hidden"));
         assert!(html.contains("data-providers-known=\"false\" hidden"));
         assert!(!html.contains("id=\"totp-disable\""));
         assert!(!html.contains("id=\"password-change-form\""));
@@ -1006,13 +1011,6 @@ mod tests {
             display_name: "<script>bad()</script>",
             selected: true,
         }];
-        let scopes = [ScopePreference {
-            name: "profile_basic",
-            label: "Основные данные",
-            allow: false,
-            ask: true,
-            deny: false,
-        }];
         let consents = [ConsentView {
             kind: "marketing",
             version: "<img src=x>",
@@ -1020,7 +1018,7 @@ mod tests {
             revoked: false,
             revocable: true,
         }];
-        let html = PrivacyPage {
+        let mut view = PrivacyPage {
             features: OverviewFeatures::default(),
             consents_enabled: true,
             settings_mode: false,
@@ -1029,17 +1027,22 @@ mod tests {
             timezone_empty: false,
             timezones: &zones,
             marketing_opt_in: true,
-            scopes: &scopes,
             consents: &consents,
-        }
-        .render()?;
+        };
+        let html = view.render()?;
         assert!(!html.contains("<script>bad()</script>"));
         assert!(!html.contains("<img src=x>"));
         assert!(!html.contains("value=\"zone\" onclick="));
-        assert!(html.contains("id=\"preferences-form\""));
-        assert!(html.contains("id=\"scope-profile_basic\""));
+        assert!(!html.contains("id=\"preferences-form\""));
+        assert!(!html.contains("id=\"scope-profile_basic\""));
         assert!(html.contains("data-kind=\"marketing\""));
         assert!(html.contains("id=\"consents-error\""));
+        view.settings_mode = true;
+        let html = view.render()?;
+        assert!(html.contains("id=\"preferences-form\""));
+        assert!(!html.contains("<script>bad()</script>"));
+        assert!(!html.contains("value=\"zone\" onclick="));
+        assert!(!html.contains("data-kind=\"marketing\""));
         Ok(())
     }
 
@@ -1048,8 +1051,8 @@ mod tests {
         let rows = [AppView {
             client_id: "client\" onclick=\"bad",
             name: "<script>bad()</script>",
-            scopes: "openid, email".into(),
-            last_used_at: "нет данных",
+            scopes: vec!["Идентификатор аккаунта", "<img src=x>"],
+            last_used_at: None,
         }];
         let html = AppsPage {
             features: OverviewFeatures::default(),
@@ -1058,6 +1061,9 @@ mod tests {
         .render()?;
         assert!(!html.contains("<script>bad()</script>"));
         assert!(!html.contains("data-revoke-app=\"client\" onclick="));
+        assert!(!html.contains("<img src=x>"));
+        assert!(html.contains("<li>Идентификатор аккаунта</li>"));
+        assert!(!html.contains("datetime=\"нет данных\""));
         assert!(html.contains("id=\"apps-message\""));
         assert!(html.contains("id=\"apps-error\""));
         assert!(html.contains("id=\"revoke-app-review\""));
@@ -1072,10 +1078,9 @@ mod tests {
     {
         let rows = [
             SessionView {
-                device: "Chrome · Linux".into(),
+                device: "<script>bad()</script>".into(),
                 last_seen: None,
                 id: "other\" onmouseover=\"bad",
-                user_agent: "<script>bad()</script>",
                 ip: "192.0.2.1",
                 current: false,
                 revoked: false,
@@ -1084,7 +1089,6 @@ mod tests {
                 device: "Chrome · Linux".into(),
                 last_seen: None,
                 id: "current",
-                user_agent: "Current device",
                 ip: "—",
                 current: true,
                 revoked: false,
@@ -1174,6 +1178,8 @@ mod tests {
             birth_date: "",
             avatar_url: user.avatar_url.as_deref().unwrap_or(""),
             has_avatar: true,
+            settings: None,
+            timezones: &[],
         }
         .render()?;
         assert!(!html.contains("<script>alert(1)</script>"));
@@ -1227,6 +1233,8 @@ mod tests {
             birth_date: "",
             avatar_url: "",
             has_avatar: false,
+            settings: None,
+            timezones: &[],
         }
         .render()?;
         assert!(html.contains("href=\"/account?section=profile\""));
@@ -1282,6 +1290,8 @@ mod tests {
             birth_date: "",
             avatar_url: "",
             has_avatar: false,
+            settings: None,
+            timezones: &[],
         };
         assert!(!overview(features).render()?.contains("section=delete"));
         features = OverviewFeatures {
@@ -1337,14 +1347,8 @@ mod tests {
             "marketing_opt_in": false,
             "privacy_scope_defaults": {"email": null, "profile": "ask"}
         }))?;
-        assert_eq!(
-            preferences
-                .privacy_scope_defaults
-                .get("email")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("ask"),
-            "ask"
-        );
+        assert_eq!(preferences.language, "ru");
+        assert_eq!(preferences.timezone, "Europe/Moscow");
         Ok(())
     }
 }

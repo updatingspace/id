@@ -4,42 +4,48 @@
     try { return localStorage.getItem("id-theme") || "system"; } catch { return "system"; }
   };
   const applyTheme = (value) => {
-    document.documentElement.dataset.theme = ["light", "dark"].includes(value) ? value : "system";
-  };
-  applyTheme(storedTheme());
-  addEventListener("storage", event => { if (event.key === "id-theme") applyTheme(storedTheme()); });
-  document.addEventListener("DOMContentLoaded", () => {
-    if (document.body.hasAttribute("data-public-home")) {
-      fetch("/api/v1/auth/me", { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(8000) })
-        .then(response => response.ok ? response.json() : null)
-        .then(body => {
-          if (!body?.user) return;
-          for (const link of document.querySelectorAll('a[href="/login"]')) {
-            link.href = "/account";
-            link.textContent = "Продолжить в аккаунте";
-          }
-          for (const link of document.querySelectorAll('a[href="/signup"]')) {
-            link.href = "/login";
-            link.textContent = "Другой аккаунт";
-          }
-          const headerLogin = document.querySelector('.site-header a[href="/account"]:not(.header-account):not(.brand)');
-          if (headerLogin) headerLogin.hidden = true;
-          const lead = document.querySelector(".lead");
-          lead.textContent = `Вы вошли как ${body.user.email || body.user.username}. Управляйте профилем, защитой и доступом приложений.`;
-        }).catch(() => {});
+    const theme = ["light", "dark"].includes(value) ? value : "system";
+    document.documentElement.dataset.theme = theme;
+    for (const label of document.querySelectorAll('[data-theme-label]')) {
+      label.textContent = { system: 'Автоматически', light: 'Светлое', dark: 'Тёмное' }[theme];
     }
-    for (const select of document.querySelectorAll("[data-theme-select]")) {
-      select.value = document.documentElement.dataset.theme;
-      select.addEventListener("change", () => {
-        applyTheme(select.value);
-        for (const other of document.querySelectorAll("[data-theme-select]")) other.value = select.value;
-        try { localStorage.setItem("id-theme", select.value); } catch {}
+    for (const control of document.querySelectorAll("[data-theme-select], [data-theme-choice]")) {
+      if (control instanceof HTMLInputElement) control.checked = control.value === theme;
+      else control.value = theme;
+    }
+  };
+  const accountPage = document.documentElement.hasAttribute("data-account");
+  applyTheme(accountPage ? storedTheme() : "system");
+  addEventListener("storage", event => { if (accountPage && event.key === "id-theme") applyTheme(storedTheme()); });
+  document.addEventListener("DOMContentLoaded", () => {
+    for (const opener of document.querySelectorAll('[data-dialog-open]')) {
+      opener.addEventListener('click', () => {
+        const dialog = document.getElementById(opener.dataset.dialogOpen);
+        if (!(dialog instanceof HTMLDialogElement)) return;
+        dialog.showModal();
+        if (opener.dataset.dialogFocus) document.getElementById(opener.dataset.dialogFocus)?.focus();
+      });
+    }
+    for (const dialog of document.querySelectorAll('dialog.profile-dialog')) {
+      const busy = () => dialog.matches('[aria-busy="true"]') || dialog.querySelector('[aria-busy="true"]');
+      for (const close of dialog.querySelectorAll('[data-dialog-close]')) {
+        close.addEventListener('click', () => { if (!busy()) dialog.close(); });
+      }
+      dialog.addEventListener('cancel', event => { if (busy()) event.preventDefault(); });
+    }
+    applyTheme(accountPage ? storedTheme() : "system");
+    for (const control of document.querySelectorAll("[data-theme-select], [data-theme-choice]")) {
+      control.addEventListener("change", () => {
+        if (control instanceof HTMLInputElement && !control.checked) return;
+        applyTheme(control.value);
+        try { localStorage.setItem("id-theme", control.value); } catch {}
       });
     }
     for (const time of document.querySelectorAll("time[datetime]")) {
-      const date = new Date(time.dateTime);
+      const dateOnly = time.hasAttribute('data-date-only');
+      const date = new Date(dateOnly ? `${time.dateTime}T12:00:00` : time.dateTime);
       if (!Number.isNaN(date.valueOf())) {
-        time.textContent = new Intl.DateTimeFormat("ru", { dateStyle: "medium", timeStyle: "short" }).format(date);
+        time.textContent = new Intl.DateTimeFormat("ru", dateOnly ? { dateStyle: "long" } : { dateStyle: "medium", timeStyle: "short" }).format(date);
         time.title = `${time.dateTime} · время этого устройства`;
       }
     }

@@ -7,32 +7,6 @@
   const error = document.getElementById("error");
   if (!form || !submit || !status || !error) return;
 
-  const minor = form.elements.namedItem("is-minor");
-  const birthDate = form.elements.namedItem("birth-date");
-  const guardianFields = document.getElementById("guardian-fields");
-  const guardianEmail = form.elements.namedItem("guardian-email");
-  const guardianConsent = form.elements.namedItem("guardian-consent");
-
-  function underEighteen(value) {
-    if (!value) return false;
-    const born = new Date(`${value}T00:00:00`);
-    if (Number.isNaN(born.valueOf()) || born > new Date()) return false;
-    const threshold = new Date();
-    threshold.setFullYear(threshold.getFullYear() - 18);
-    return born > threshold;
-  }
-
-  function updateGuardianFields() {
-    const required = minor.checked || underEighteen(birthDate.value);
-    guardianFields.hidden = !required;
-    guardianEmail.required = required;
-    guardianConsent.required = required;
-  }
-
-  minor.addEventListener("change", updateGuardianFields);
-  birthDate.addEventListener("change", updateGuardianFields);
-  updateGuardianFields();
-
   function safeReturnPath(value) {
     if (!value || /[\\\u0000-\u0020\u007f]/u.test(value)) return "/account";
     try {
@@ -80,9 +54,8 @@
       show("Требуется согласие на обработку персональных данных.", true);
       return;
     }
-    updateGuardianFields();
-    if (guardianFields.hidden === false && (!guardianEmail.value || !guardianConsent.checked)) {
-      show("Для пользователей младше 18 лет нужны email и согласие родителя или опекуна.", true);
+    if (!fields.namedItem("age-confirmed").checked) {
+      show("Регистрация доступна с 18 лет. Подтвердите возраст.", true);
       return;
     }
     submit.disabled = true;
@@ -110,11 +83,8 @@
           language: fields.namedItem("language").value,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
           consent_data_processing: true,
-          consent_marketing: fields.namedItem("consent-marketing").checked,
-          is_minor: minor.checked || underEighteen(birthDate.value),
-          guardian_email: !guardianFields.hidden ? guardianEmail.value.trim() : undefined,
-          guardian_consent: !guardianFields.hidden && guardianConsent.checked,
-          birth_date: birthDate.value || undefined,
+          consent_marketing: false,
+          age_confirmed: true,
           form_token: token.form_token,
         }),
       });

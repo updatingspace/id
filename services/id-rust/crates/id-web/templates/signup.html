@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
   <title>Регистрация — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/login.css?v=ui-20261008-1" />
+  <link rel="stylesheet" href="/_id/login.css?v=structure-20261013-2" />
   <link rel="stylesheet" href="/_id/signup.css?v=ui-20261008-1" />
-  <script src="/_id/signup.js?v=ui-20261008-1" defer></script>
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <script src="/_id/signup.js?v=foundation-20261013-1" defer></script>
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
 </head>
 <body>
   <main class="auth-shell">
     <section class="auth-card signup-card" aria-labelledby="signup-title">
       <a class="brand" href="/">UpdSpace ID</a>
       <h1 id="signup-title">Создать аккаунт</h1>
-      <p class="intro">Создайте аккаунт, затем подтвердите почту.</p>
+      <p class="intro">Регистрация доступна с 18 лет. После регистрации нужно подтвердить почту.</p>
       <p id="status" role="status" aria-live="polite" hidden></p>
       <p id="error" role="alert" aria-live="assertive" hidden></p>
       <form id="signup-form" aria-describedby="error" method="post" action="/signup">
@@ -36,26 +36,11 @@
           <option value="ru">Русский</option>
           <option value="en">English</option>
         </select>
-        <label for="birth-date">Дата рождения (необязательно)</label>
-        <input id="birth-date" name="birth-date" type="date" />
-        <label class="check" for="consent-marketing">
-          <input id="consent-marketing" name="consent-marketing" type="checkbox" />
-          <span>Я хочу получать маркетинговые сообщения (необязательно).</span>
-        </label>
         </div></details>
-        <label class="check" for="is-minor">
-          <input id="is-minor" name="is-minor" type="checkbox" />
-          <span>Мне меньше 18 лет</span>
+        <label class="check" for="age-confirmed">
+          <input id="age-confirmed" name="age-confirmed" type="checkbox" required />
+          <span>Мне исполнилось 18 лет.</span>
         </label>
-        <fieldset id="guardian-fields" hidden>
-          <legend>Согласие родителя или опекуна</legend>
-          <label for="guardian-email">Электронная почта родителя или опекуна</label>
-          <input id="guardian-email" name="guardian-email" type="email" autocomplete="email" maxlength="254" />
-          <label class="check" for="guardian-consent">
-            <input id="guardian-consent" name="guardian-consent" type="checkbox" />
-            <span>Родитель или опекун согласен с регистрацией</span>
-          </label>
-        </fieldset>
         <label class="check" for="consent-data">
           <input id="consent-data" name="consent-data" type="checkbox" required />
           <span>Я согласен на обработку персональных данных.</span>
@@ -63,9 +48,11 @@
         <button id="submit" type="submit">Создать аккаунт</button>
       </form>
       <noscript>Для регистрации включите JavaScript.</noscript>
+      <p class="help"><a href="/data">Как используются данные и куда обратиться</a></p>
       <p class="help">Уже есть аккаунт? <a href="/login">Войти</a></p>
-    <label class="theme-control">Оформление<select data-theme-select aria-label="Оформление"><option value="system">Как на устройстве</option><option value="light">Светлое</option><option value="dark">Тёмное</option></select></label>
+
     </section>
+  <footer class="legal-links auth-legal" aria-label="Документы и контакты"><a href="/privacy">Политика конфиденциальности</a><a href="/terms">Условия использования</a><a href="/contacts">Контакты</a></footer>
   </main>
 </body>
 </html>

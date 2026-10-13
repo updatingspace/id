@@ -9,12 +9,20 @@ function page(responses) {
   const calls = [];
   const listeners = {};
   const pending = { removed: false, remove() { this.removed = true; } };
+  const dialog = {
+    busy: false,
+    setAttribute(name, value) { if (name === 'aria-busy') this.busy = value === 'true'; },
+    removeAttribute(name) { if (name === 'aria-busy') this.busy = false; },
+    querySelectorAll() { return [input]; },
+  };
   const verify = {
+    closest() { return dialog; },
     disabled: false,
     dataset: { email: 'owner@example.invalid' },
     addEventListener(event, callback) { listeners[`verify:${event}`] = callback; },
   };
   const cancel = {
+    closest() { return dialog; },
     disabled: false,
     removed: false,
     previousElementSibling: pending,
@@ -22,7 +30,7 @@ function page(responses) {
     remove() { this.removed = true; },
   };
   const input = { value: 'new@example.invalid' };
-  const submit = { disabled: false };
+  const submit = { disabled: false, closest() { return dialog; } };
   const change = {
     addEventListener(event, callback) { listeners[`change:${event}`] = callback; },
     querySelector(selector) {
@@ -47,6 +55,8 @@ function page(responses) {
     },
     window: { location: { replace: () => assert.fail('unexpected login redirect') } },
     fetch: async (url, options) => {
+      assert.equal(dialog.busy, true);
+      assert.equal(input.readOnly, true);
       calls.push([url, options]);
       const reply = responses.shift();
       assert.ok(reply, `unexpected request to ${url}`);
@@ -56,7 +66,7 @@ function page(responses) {
     setTimeout,
     clearTimeout,
   });
-  return { calls, listeners, verify, cancel, change, input, submit, pending, message, error };
+  return { calls, listeners, verify, cancel, change, input, submit, pending, message, error, dialog };
 }
 
 const reply = (status, body) => ({ status, ok: status < 400, json: async () => body });
@@ -91,6 +101,8 @@ const reply = (status, body) => ({ status, ok: status < 400, json: async () => b
   assert.equal(failed.cancel.removed, false);
   assert.equal(failed.error.hidden, false);
   assert.equal(failed.error.textContent, 'Временно недоступно');
+  assert.equal(failed.dialog.busy, false);
+  assert.equal(failed.input.readOnly, false);
 
   const changed = page([reply(200, { ok: true })]);
   let prevented = false;

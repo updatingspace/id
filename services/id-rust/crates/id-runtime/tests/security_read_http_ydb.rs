@@ -123,7 +123,7 @@ async fn mfa_and_passkeys_require_current_bound_mfa_session() -> Result<()> {
 
         let (status, body) = request(&app, "/api/v1/auth/mfa/status", Some(&cookie), None).await?;
         ensure!(status == StatusCode::OK && body == json!({"has_totp":true,"has_webauthn":true,
-            "has_recovery_codes":true,"recovery_codes_left":8}), "MFA status: {body}");
+            "has_recovery_codes":true,"recovery_codes_left":8,"recovery_codes_used":2}), "MFA status: {body}");
         let (status, body) = request(&app, "/api/v1/auth/passkeys", Some(&cookie), None).await?;
         ensure!(status == StatusCode::OK && body["authenticators"].as_array().is_some_and(|rows| rows.len() == 1), "passkeys: {body}");
         let passkey_id = (row_id - 2).to_string();

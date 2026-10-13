@@ -39,31 +39,26 @@ async function main() {
     await page.goto(origin + '/signup?next=%2Faccount%3Fsection%3Dsecurity');
     assert.equal(await page.locator('a[href^="/login"]').last().getAttribute('href'),
       '/login?next=%2Faccount%3Fsection%3Dsecurity');
-    const born = new Date();
-    born.setFullYear(born.getFullYear() - 17);
-    await page.getByText('Дополнительные сведения', { exact: true }).click();
-    await page.locator('#birth-date').fill(born.toISOString().slice(0, 10));
-    assert.equal(await page.locator('#guardian-fields').isVisible(), true);
+    assert.equal(await page.locator('#birth-date, #guardian-fields, #consent-marketing').count(), 0);
     await page.locator('#email').fill('signup-ui-test@example.invalid');
     await page.locator('#password').fill('A remarkable celestial phrase 2026!');
     await page.locator('#confirmation').fill('A remarkable celestial phrase 2026!');
-    await page.locator('#guardian-email').fill('guardian@example.invalid');
-    await page.locator('#guardian-consent').check();
+    await page.locator('#age-confirmed').check();
     await page.locator('#consent-data').check();
     await page.locator('#submit').click();
     await page.locator('#status').getByText('Аккаунт создан.', { exact: false }).waitFor();
     assert.equal(payload.email, 'signup-ui-test@example.invalid');
     assert.equal(payload.username, undefined);
-    assert.equal(payload.is_minor, true);
-    assert.equal(payload.guardian_email, 'guardian@example.invalid');
-    assert.equal(payload.guardian_consent, true);
-    assert.equal(payload.birth_date, born.toISOString().slice(0, 10));
+    assert.equal(payload.age_confirmed, true);
+    assert.equal(payload.consent_marketing, false);
+    assert.equal(payload.guardian_email, undefined);
+    assert.equal(payload.birth_date, undefined);
     assert.equal(payload.consent_data_processing, true);
     assert.equal(payload.form_token, 'signup-ui-test-token');
     assert.equal(await page.locator('#status a').getAttribute('href'),
       '/verify-email?next=%2Faccount%3Fsection%3Dsecurity');
     assert.deepEqual(errors, []);
-    console.log('PASS: Topcoat signup browser fields, guardian consent, CSRF and return path');
+    console.log('PASS: Topcoat signup browser fields, adult confirmation, CSRF and return path');
   } finally {
     await browser.close();
   }

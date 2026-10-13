@@ -62,6 +62,10 @@ mod tests {
         let routes = || {
             Router::builder()
                 .route(crate::home::page)
+                .route(crate::home::data)
+                .route(crate::home::privacy)
+                .route(crate::home::terms)
+                .route(crate::home::contacts)
                 .route(crate::login::page)
                 .route(crate::export_redeem::page)
                 .route(crate::recovery::forgot_page)
@@ -72,6 +76,10 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for path in [
             "/",
+            "/data",
+            "/privacy",
+            "/terms",
+            "/contacts",
             "/login",
             "/data/export",
             "/forgot-password",

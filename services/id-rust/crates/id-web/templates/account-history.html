@@ -1,19 +1,19 @@
 {% import "account-shell.html" as shell %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-account>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
   <title>История входов — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <link rel="stylesheet" href="/_id/account.css?v=profile-20261013-2" />
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
 </head>
 <body>
   {% call shell::open(features, "sessions", "История входов") %}{% endcall %}
     <h1>История входов</h1>
-    <nav class="subnav" aria-label="Устройства и активность">{% if features.sessions_enabled %}<a href="/account?section=sessions">Активные устройства</a>{% endif %}<a href="/account?section=activity" aria-current="page">История входов</a></nav>
+    {% if features.security_enabled %}<a class="back-link" href="/account?section=security">← Вход и защита</a>{% endif %}
     <section aria-label="Последние входы">
       <p>Показаны последние 100 событий входа.</p>
       {% if events.is_empty() %}<p>Событий пока нет.</p>{% endif %}

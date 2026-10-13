@@ -3,10 +3,7 @@
 
 use crate::{data_export_escrow::ExportEscrowKey, tx_retry::retry_known_abort};
 use anyhow::{Context, Result, bail, ensure};
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentTransferEncoding},
-};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox};
 use std::time::{Duration, SystemTime};
 use url::Url;
 use uuid::Uuid;
@@ -333,12 +330,27 @@ fn render(
             ),
         ),
     };
-    Ok(Message::builder()
-        .from(from.clone())
-        .to(recipient.parse()?)
-        .subject(subject)
-        .header(ContentTransferEncoding::QuotedPrintable)
-        .body(body)?)
+    let action = if claimed.snapshot_failed {
+        None
+    } else {
+        Some(match claimed.kind {
+            Kind::Notice => (
+                "Отменить запрос",
+                url::Url::parse(&config.cancel_link(&claimed.export_id)?)?,
+            ),
+            Kind::Delivery => (
+                "Получить копию данных",
+                url::Url::parse(&config.link(&claimed.export_id)?)?,
+            ),
+        })
+    };
+    crate::transactional_mail::render(
+        recipient,
+        from,
+        subject,
+        &body,
+        action.as_ref().map(|(label, link)| (*label, link)),
+    )
 }
 
 pub async fn process_one(
@@ -398,6 +410,45 @@ pub async fn drain_due(
 mod tests {
     use super::*;
     use base64::{Engine, engine::general_purpose::STANDARD};
+
+    #[test]
+    fn mail_actions_keep_cancel_and_download_capabilities_separate() -> Result<()> {
+        let config = MailConfig::new(
+            ExportEscrowKey::from_base64(&STANDARD.encode([0x37; 32]))?,
+            "https://id.example.invalid/",
+        )?;
+        let from = "ID <sender@example.invalid>".parse()?;
+        let mut claimed = Claimed {
+            token: String::new(),
+            export_id: "0123456789abcdef0123456789abcdef".into(),
+            kind: Kind::Notice,
+            envelope: String::new(),
+            release_at: SystemTime::UNIX_EPOCH,
+            snapshot_failed: false,
+        };
+        for kind in [Kind::Notice, Kind::Delivery] {
+            claimed.kind = kind;
+            claimed.snapshot_failed = false;
+            let raw = String::from_utf8(
+                render(&claimed, "recipient@example.invalid", &config, &from)?.formatted(),
+            )?
+            .replace("=\r\n", "");
+            assert!(raw.contains("multipart/alternative"));
+            let cancel = config.key.cancel_capability(&claimed.export_id)?;
+            let download = config.key.capability(&claimed.export_id)?;
+            assert_eq!(raw.contains(&cancel), kind == Kind::Notice);
+            assert_eq!(raw.contains(&download), kind == Kind::Delivery);
+            claimed.snapshot_failed = true;
+            let raw = String::from_utf8(
+                render(&claimed, "recipient@example.invalid", &config, &from)?.formatted(),
+            )?
+            .replace("=\r\n", "");
+            assert!(!raw.contains("/data/export"));
+            assert!(!raw.contains(&cancel));
+            assert!(!raw.contains(&download));
+        }
+        Ok(())
+    }
 
     #[test]
     fn delivery_link_keeps_capability_in_fragment() -> Result<()> {

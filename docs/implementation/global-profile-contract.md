@@ -19,7 +19,5 @@ The caller must supply the authenticated session's canonical user ID, never a va
 chosen directly from a public request header.
 
 Avatar URLs from private S3 storage retain their original host, path and signature.
-Only relative local-media URLs are resolved against the public ID origin. The
-managed Yandex Cloud stack keeps media private and enables signed object URLs;
-the standalone S3 storage configuration also defaults to signing. Disable
+Only relative local-media URLs are resolved against the public ID origin. The S3 storage configuration defaults to signed URLs for private media. Disable
 `S3_QUERYSTRING_AUTH` only for an intentionally public media bucket.

@@ -8,7 +8,7 @@
 .auth-story-rule { width: 3rem; height: 2px; background: #b0c5ff; }
 .auth-story-foot { position: absolute; bottom: 1.5rem; font-size: .9rem; }
 .auth-card { width: min(100% - 3rem, 29rem); align-self: center; justify-self: center; padding: 2.5rem 0; }
-.auth-shell > .auth-card:only-child { grid-column: 1 / -1; }
+.auth-shell > .auth-card:first-child { grid-column: 1 / -1; }
 .auth-card > .brand { margin-bottom: 2rem; }
 .auth-card h1 { font-size: clamp(1.9rem,3vw,2.3rem); }
 .auth-card form > button[type=submit] { width: 100%; }
@@ -19,7 +19,6 @@
 #auth-context { font-size: .94rem; border-left: 3px solid var(--action); }
 #session-choice { padding: 1rem; margin-bottom: 1.25rem; border: 1px solid var(--line); border-radius: 12px; }
 #session-choice p { margin-bottom: .7rem; }
-.auth-card .theme-control { margin-top: 2rem; }
 #mfa-fields { margin-top: 0; }
 #mfa-fields legend { font-size: 1.1rem; }
 @media (max-width: 800px) { .auth-shell { grid-template-columns: 1fr; } .auth-story { display: none; } .auth-card { padding: 2rem 0; } }

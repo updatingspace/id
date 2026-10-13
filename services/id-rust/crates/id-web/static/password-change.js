@@ -20,7 +20,21 @@
     if (busy || !form.reportValidity()) return;
     const current = form.elements.namedItem("current_password");
     const next = form.elements.namedItem("new_password");
+    const confirmation = form.elements.namedItem("confirm_password");
     if (!(current instanceof HTMLInputElement) || !(next instanceof HTMLInputElement)) return;
+    if (!(confirmation instanceof HTMLInputElement)) {
+      error.textContent = "Обновите страницу, чтобы подтвердить новый пароль.";
+      error.hidden = false;
+      return;
+    }
+    if (next.value !== confirmation.value) {
+      error.textContent = "Пароли не совпадают. Повторите новый пароль.";
+      error.hidden = false;
+      confirmation.setAttribute("aria-invalid", "true");
+      confirmation.focus();
+      return;
+    }
+    confirmation.removeAttribute("aria-invalid");
     busy = true;
     if (button) button.disabled = true;
     error.hidden = true;
@@ -38,7 +52,12 @@
       });
       const body = await response.json();
       if (!response.ok || body.ok !== true) {
-        throw new Error(typeof body.message === "string" ? body.message : "Пароль не изменён.");
+        const reasons = {
+          WRONG_CURRENT_PASSWORD: "Текущий пароль введён неверно.",
+          WEAK_PASSWORD: "Новый пароль не подходит. Проверьте правила под полем и выберите другой.",
+          PASSWORD_CHANGED: "Пароль уже изменён в другом сеансе. Войдите заново.",
+        };
+        throw new Error(reasons[body.code] || (typeof body.message === "string" ? body.message : "Пароль не изменён."));
       }
       form.reset();
       try { window.sessionStorage.removeItem("id_session_token"); } catch {}

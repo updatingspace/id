@@ -1,18 +1,20 @@
 # UpdSpace ID
 
-UpdSpace ID — единый вход, управление доступом к приложениям и данными аккаунта.
+UpdSpace ID — единый вход, управление доступом приложений и данными аккаунта.
 
-## Состав проекта
+## Проект
 
-- [`services/id-rust`](services/id-rust/README.md) — Rust workspace: Axum API, отдельно развёртываемый Topcoat SSR-интерфейс, jobs и операторский CLI `idctl`.
-- [`infra/terraform/yandex-cloud`](infra/terraform/yandex-cloud/README.md) — Yandex Cloud, YDB, API Gateway, Object Storage и очереди.
-- [`services/id-rust/browser-tests`](services/id-rust/browser-tests/package.json) — небольшой Playwright runner для проверки Topcoat в браузере.
+- [Rust workspace](services/id-rust/README.md): API на Axum, Topcoat SSR, фоновые задания и операторский CLI `idctl`.
+- [Интерфейс](services/id-rust/crates/id-web/README.md): публичные страницы, вход и личный кабинет.
+- [Эксплуатация и релизы](docs/operations.md): домашний k3s, проверки и откат.
+- [Данные и письма](docs/data-and-mail.md): действующие потоки и ограничения.
+- [План развития](docs/development/id-development-plan-2026-10-13.md): оставшиеся этапы.
 
-Django и React больше не входят в актуальные исходники или проектные GitHub workflows. Историческая реализация и её контракты доступны в Git. Rust сохраняет чтение действующих форматов credentials и sessions, пока они нужны пользователям.
+Манифесты рабочего сервера находятся в отдельном [репозитории infra](https://github.com/updatingspace/infra). Исторические Django/React, облачный deploy и отчёты миграции доступны в Git. Совместимость существующих аккаунтов, паролей, MFA и сессий остаётся частью Rust runtime.
 
-## Локальная проверка
+## Проверки
 
-Для Rust нужны toolchain из [`rust-toolchain.toml`](services/id-rust/rust-toolchain.toml), `libssl-dev` и `pkg-config`. Из `services/id-rust`:
+Из `services/id-rust`, с toolchain из `rust-toolchain.toml`, `libssl-dev` и `pkg-config`:
 
 ```sh
 cargo fmt --all -- --check
@@ -21,8 +23,4 @@ cargo test --locked --workspace
 cargo build --locked --workspace --bins
 ```
 
-Интеграционные тесты работают с локальной YDB. После её запуска выполните `idctl legacy-schema --apply` и `idctl cache-schema`; детали и команды находятся в [Rust README](services/id-rust/README.md). Тесты Topcoat используют `npm ci` в `services/id-rust/browser-tests` и настоящий браузер с Rust API.
-
-Основной [CI workflow](.github/workflows/ci-cd.yml) проверяет Rust, локальную YDB, browser-сценарии и инфраструктуру. [Расширенная проверка](.github/workflows/rust-pilot.yml) покрывает дополнительные сценарии аутентификации. [Deploy workflow](.github/workflows/deploy-yandex-cloud.yml) строит и выкладывает отдельные образы API, web и jobs.
-
-Миграция ещё не завершена. Production admin и публичный API удаления аккаунта пока выключены. Отложенная выгрузка включена; конфигурационный gate подтверждён 7 октября 2026 года. Реальная 24-часовая доставка, отмена, удаление аккаунта с последующим скачиванием и freeze/resume ещё не приняты. Итоговая приёмка всех пользовательских сценариев остаётся открытой.
+Интеграционные тесты требуют отдельную локальную YDB; команды описаны в Rust README. Для браузера выполните `npm ci` в `services/id-rust/browser-tests`. [Основной CI](.github/workflows/ci-cd.yml) и [расширенный набор](.github/workflows/rust-pilot.yml) проверяют аутентификацию, данные и интерфейс. Тестовые базы и SMTP не являются проверкой реальных аккаунтов и доставки production-писем.

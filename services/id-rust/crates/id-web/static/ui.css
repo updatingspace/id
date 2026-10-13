@@ -77,3 +77,6 @@ details > :not(summary) { margin-top: .75rem; }
 
 .unavailable { max-width: 38rem; margin: 10vh auto; padding: 1.5rem; }
 .unavailable .brand { margin-bottom: 2rem; }
+
+.legal-links { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 1rem; font-size: .85rem; }
+.auth-legal { grid-column: 1 / -1; justify-self: center; width: min(42rem, calc(100% - 2rem)); margin-top: 1.5rem; padding-bottom: 1rem; }

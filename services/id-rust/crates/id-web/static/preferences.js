@@ -3,8 +3,7 @@
   const form = document.getElementById("preferences-form");
   const message = document.getElementById("preferences-message");
   const error = document.getElementById("preferences-error");
-  if (!form || !message || !error) return;
-  const button = form.querySelector('button[type="submit"]');
+  const button = form?.querySelector('button[type="submit"]');
   let busy = false;
 
   function csrfCookie() {
@@ -14,32 +13,20 @@
     catch { return ""; }
   }
 
-  form.addEventListener("submit", async (event) => {
+  if (form && button && message && error) form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (busy) return;
     busy = true;
+    const data = new FormData(form);
+    form.setAttribute('aria-busy', 'true');
+    for (const select of form.querySelectorAll('select')) select.disabled = true;
     button.disabled = true;
     message.hidden = true;
     error.hidden = true;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30000);
     try {
-      const data = new FormData(form);
-      const policies = {};
-      for (const scope of ["profile_basic", "profile_extended", "email", "phone"]) {
-        policies[scope] = data.get("scope-" + scope);
-      }
-      // Old documents have one combined form; new sections must never write
-      // the other section's hidden snapshot back over newer preferences.
-      const payload = {};
-      if (form.dataset.preferenceSection !== "privacy") {
-        payload.language = data.get("language");
-        payload.timezone = data.get("timezone");
-      }
-      if (form.dataset.preferenceSection !== "settings") {
-        payload.marketing_opt_in = form.elements.marketing_opt_in.checked;
-        payload.privacy_scope_defaults = policies;
-      }
+      const payload = { language: data.get("language"), timezone: data.get("timezone") };
       const response = await fetch("/api/v1/auth/preferences", {
         method: "PATCH",
         credentials: "include",
@@ -49,7 +36,7 @@
         signal: controller.signal,
       });
       if (response.status === 401) {
-        window.location.replace("/login?next=" + encodeURIComponent("/account?section=" + (form.dataset.preferenceSection === "settings" ? "settings" : "privacy")));
+        window.location.replace("/login?next=%2Faccount%3Fsection%3Dprofile");
         return;
       }
       const result = await response.json();
@@ -58,6 +45,12 @@
       }
       message.textContent = "Настройки сохранены.";
       message.hidden = false;
+      const language = document.querySelector('[data-preference-language]');
+      if (language) language.textContent = result.language === 'en' ? 'English' : 'Русский';
+      const timezone = document.querySelector('[data-preference-timezone]');
+      if (timezone) timezone.textContent = [...form.querySelector('[name=timezone]').options]
+        .find(option => option.value === result.timezone)?.textContent || result.timezone || 'Не выбран';
+      form.closest('dialog')?.close();
     } catch (failure) {
       error.textContent = failure instanceof Error && failure.name !== "AbortError"
         ? failure.message
@@ -66,6 +59,8 @@
     } finally {
       clearTimeout(timer);
       busy = false;
+      form.removeAttribute('aria-busy');
+      for (const select of form.querySelectorAll('select')) select.disabled = false;
       button.disabled = false;
     }
   });

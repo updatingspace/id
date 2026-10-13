@@ -1,87 +1,28 @@
 {% import "account-shell.html" as shell %}
+{% import "account-preferences.html" as preferences %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-account>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
   <title>Аккаунт — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  <link rel="stylesheet" href="/_id/account.css?v=profile-20261013-2" />
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
-  {% if edit_mode && features.profile_enabled %}<script src="/_id/profile.js?v=ui-20261008-1" defer></script><script src="/_id/avatar.js?v=ui-20261008-1" defer></script>{% endif %}
-  {% if edit_mode && features.email_management_enabled %}<script src="/_id/email.js?v=ui-20261008-1" defer></script>{% endif %}
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  {% if edit_mode && features.profile_enabled %}<script src="/_id/profile.js?v=profile-20261013-2" defer></script><script src="/_id/avatar.js?v=profile-20261013-2" defer></script>{% endif %}
+  {% if edit_mode && features.email_management_enabled %}<script src="/_id/email.js?v=profile-20261013-2" defer></script>{% endif %}
+  {% if edit_mode && features.preferences_enabled %}<script src="/_id/preferences.js?v=profile-20261013-2" defer></script>{% endif %}
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
 </head>
 <body>
 {% if edit_mode %}{% call shell::open(features, "profile", "Профиль") %}{% endcall %}{% else %}{% call shell::open(features, "overview", "Обзор") %}{% endcall %}{% endif %}
 {% if edit_mode %}
-  <p class="eyebrow">Ваш аккаунт</p><h1>Профиль</h1>
-  <p class="page-intro">Ваши сведения и предпочтения. Откройте то, что хотите изменить.</p>
-  <div class="settings-group">
-    {% if features.profile_enabled %}
-    <details name="profile-editor" data-profile-editor><summary><span>Личные сведения<small>{{ display_name }}</small></span></summary><div>
-
-      <form id="profile-form" aria-describedby="profile-error">
-        <label for="first-name">Имя</label><input id="first-name" name="first_name" autocomplete="given-name" value="{{ first_name }}" />
-        <label for="last-name">Фамилия</label><input id="last-name" name="last_name" autocomplete="family-name" value="{{ last_name }}" />
-        <label for="phone-number">Телефон</label><input id="phone-number" name="phone_number" type="tel" autocomplete="tel" value="{{ phone_number }}" />
-        <label for="birth-date">Дата рождения</label><input id="birth-date" name="birth_date" type="date" value="{{ birth_date }}" />
-        <button type="submit">Сохранить профиль</button>
-      </form>
-      <p id="profile-message" role="status" aria-live="polite" hidden></p>
-      <p id="profile-error" role="alert" hidden></p>
-    </div></details>
-    <details name="profile-editor" data-profile-editor><summary><span>Фото профиля<small>{% if has_avatar %}Аватар установлен{% else %}Добавьте узнаваемое фото{% endif %}</small></span></summary><div>
-
-      <div class="avatar-preview">
-        {% if has_avatar %}<img id="avatar-image" src="{{ avatar_url }}" alt="Текущий аватар" referrerpolicy="no-referrer" />
-        <span id="avatar-placeholder" hidden>Аватар не установлен</span>{% else %}
-        <img id="avatar-image" alt="Текущий аватар" referrerpolicy="no-referrer" hidden />
-        <span id="avatar-placeholder">Аватар не установлен</span>{% endif %}
-      </div>
-      <form id="avatar-form">
-        <label for="avatar-file">Выберите изображение JPEG, PNG или WebP до 6 МБ</label>
-        <input id="avatar-file" name="avatar" type="file" accept="image/jpeg,image/png,image/webp" required />
-        <button type="submit">Загрузить аватар</button>
-      </form>
-      <button id="avatar-delete" type="button" {% if !has_avatar %}disabled{% endif %}>Удалить аватар</button>
-      <p id="avatar-message" role="status" aria-live="polite" hidden></p>
-      <p id="avatar-error" role="alert" hidden></p>
-    </div></details>
-    {% endif %}
-    {% if let Some(email) = email_management %}
-    <details name="profile-editor" data-profile-editor><summary><span>Адрес почты<small>{{ email.email }}</small></span></summary><div>
-
-      <p>Основной адрес: <strong>{{ email.email }}</strong></p>
-      {% if email.verified %}<p>Адрес подтверждён.</p>{% else %}
-      <p>Адрес ещё не подтверждён. Для подтверждения отправим одноразовую ссылку.</p>
-      <button id="email-verify-request" type="button" data-email="{{ email.email }}">Отправить письмо с подтверждением</button>
-      {% endif %}
-      {% if let Some(pending) = email.pending_email %}
-      <p>Ожидает подтверждения: <strong>{{ pending }}</strong></p>
-      <button id="email-change-cancel" type="button">Отменить смену адреса</button>
-      {% endif %}
-      <form id="email-change-form">
-        <label for="new-email">Новый адрес почты</label>
-        <input id="new-email" name="new_email" type="email" autocomplete="email" maxlength="254" required />
-        <button type="submit">Изменить адрес</button>
-      </form>
-      <p>Для смены адреса требуется недавний вход. Мы отправим ссылку на новый адрес.</p>
-      <p id="email-message" role="status" aria-live="polite" hidden></p>
-      <p id="email-error" role="alert" hidden></p>
-    </div></details>
-    {% endif %}
-
-  </div>
-  <section aria-labelledby="settings-title"><h2 id="settings-title">Предпочтения</h2>
-    {% call shell::theme() %}{% endcall %}
-    {% if features.preferences_enabled %}<p><a class="button quiet" href="/account?section=settings">Язык и часовой пояс →</a></p>{% endif %}
-  </section>
+  {% include "account-profile.html" %}
 {% else %}
   <p class="eyebrow">Личное пространство</p><h1>Обзор аккаунта</h1>
   <p class="page-intro">Всё, что важно для вашего входа, доступа и данных.</p>
   <section aria-labelledby="profile-title">
-    <div class="account-identity"><span class="identity-mark" aria-hidden="true">ID</span><div><h2 id="profile-title">{{ display_name }}</h2><p class="muted">{{ user.email }}</p></div></div>
+    <div class="account-identity">{% if has_avatar %}<img class="identity-photo" src="{{ avatar_url }}" alt="Фото профиля" referrerpolicy="no-referrer" />{% else %}<span class="identity-mark" aria-hidden="true">ID</span>{% endif %}<div><h2 id="profile-title">{{ display_name }}</h2><p class="muted">{{ user.email }}</p></div></div>
     <dl class="status-grid"><div><dt>Почта</dt><dd>{{ email_label }}</dd></div><div><dt>Защита входа</dt><dd>{{ mfa_status }}</dd></div></dl>
     <a href="/account?section=profile">Изменить личные сведения →</a>
   </section>

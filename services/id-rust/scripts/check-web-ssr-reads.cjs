@@ -103,6 +103,11 @@ async function main() {
     const reads = await check('privacy', { barrier: ['preferences', 'timezones', 'consents'] });
     assert.ok(reads.slice(1).every(read => read.start >= reads[0].end), 'privacy reads require an authenticated profile');
     await check('settings', { barrier: ['preferences', 'timezones', 'consents'] });
+    const profileSettings = await check('profile', { barrier: ['preferences', 'timezones'], text: 'id="preferences-form"' });
+    assert.deepEqual(profileSettings.map(read => read.name).sort(), ['me', 'preferences', 'timezones']);
+    assert.ok(profileSettings.slice(1).every(read => read.start >= profileSettings[0].end), 'profile settings require an authenticated account');
+    assert.deepEqual((await check('profile', { status: 303, responses: { me: { body: { user: null } } } })).map(read => read.name), ['me']);
+    await check('profile', { status: 503, text: 'Не удалось загрузить настройки', responses: { preferences: { status: 503 } } });
     // A guest or failed profile wins even if the independent read never returns.
     for (const profile of [{ body: { user: null } }, { status: 401 }, { status: 503 }, { raw: '{' }]) {
       await check('security', { status: profile.body ? 303 : 503, responses: { me: profile, security: { hold: true } }, ...(profile.body ? {} : { text: 'Не удалось загрузить кабинет' }) });
@@ -132,6 +137,7 @@ async function main() {
     assert.deepEqual((await check('privacy', { barrier: ['preferences', 'timezones'] })).map(read => read.name).sort(), ['me', 'preferences', 'timezones']);
     await startWeb({ ID_WEB_PREFERENCES_PILOT_ENABLED: 'false' });
     assert.deepEqual((await check('privacy')).map(read => read.name), ['me']);
+    assert.deepEqual((await check('profile')).map(read => read.name), ['me']);
     console.log('SSR reads: overlap, profile denial priority, fail-closed errors, cookies and feature/section gates PASS');
   } finally {
     await stopWeb();

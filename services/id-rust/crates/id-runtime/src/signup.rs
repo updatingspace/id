@@ -24,6 +24,7 @@ pub struct SignupInput {
     pub language: String,
     pub timezone: String,
     pub consent_data_processing: bool,
+    pub age_confirmed: bool,
     pub consent_marketing: bool,
     pub is_minor: bool,
     pub guardian_email: Option<String>,
@@ -99,24 +100,15 @@ pub fn validate(input: &mut SignupInput) -> Result<()> {
         let today = Utc::now().date_naive();
         ensure!(birth_date <= today, "invalid birth date");
     }
-    input.is_minor = requires_guardian(input.is_minor, input.birth_date);
-    if input.is_minor {
-        ensure!(input.guardian_consent, "parental consent required");
-        let guardian_email = input
-            .guardian_email
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .to_lowercase();
-        ensure!(
-            guardian_email.len() <= 254 && crate::password_mail::valid_recipient(&guardian_email),
-            "guardian email required or invalid"
-        );
-        input.guardian_email = Some(guardian_email);
-    } else {
-        input.guardian_email = None;
-        input.guardian_consent = false;
-    }
+    ensure!(input.age_confirmed, "adult age confirmation required");
+    ensure!(
+        !requires_guardian(input.is_minor, input.birth_date),
+        "registration requires age 18 or older"
+    );
+    input.is_minor = false;
+    // Legacy parental fields never authorize registration or get persisted.
+    input.guardian_email = None;
+    input.guardian_consent = false;
     Ok(())
 }
 
@@ -202,11 +194,8 @@ pub async fn create(
                         tx.exec("INSERT INTO accounts_userprofile (user_id, avatar_source, gravatar_enabled, phone_number, phone_verified, birth_date, created_at, updated_at) VALUES ($user_id, 'none', true, '', false, CAST($birth AS Date), CAST($now AS Datetime), CAST($now AS Datetime))")
                             .param("$user_id", user_id).param("$birth", birth_date.to_string()).param("$now", now).await?;
                     }
-                    if input.is_minor {
-                        let guardian_meta = serde_json::json!({"guardian_email": input.guardian_email.as_deref()}).to_string();
-                        tx.exec("INSERT INTO accounts_userconsent (id, user_id, kind, version, granted_at, source, meta) VALUES ($id, $user_id, 'parental', 'v1', CAST($now AS Datetime), 'signup', Unwrap(CAST($meta AS Json)))")
-                            .param("$id", consent_id + 2).param("$user_id", user_id).param("$now", now).param("$meta", guardian_meta).await?;
-                    }
+                    tx.exec("INSERT INTO accounts_userconsent (id, user_id, kind, version, granted_at, source, meta) VALUES ($id, $user_id, 'age_confirmation', '18plus-v1', CAST($now AS Datetime), 'signup', '{\"minimum_age\":18}')")
+                        .param("$id", consent_id + 2).param("$user_id", user_id).param("$now", now).await?;
                     tx.exec(format!("INSERT INTO `{}` (id, user_id, recipient, expires_at, status, attempts, next_attempt_at, claim_token, created_at) VALUES ($mail_id, $user_id, $email, CAST($expires AS Datetime), 'pending', 0, CAST($now AS Datetime), '', CAST($now AS Datetime))", email_verify::TABLE))
                         .param("$mail_id", mail_id.clone()).param("$user_id", user_id).param("$email", input.email.clone())
                         .param("$expires", expires).param("$now", now).await?;
@@ -233,6 +222,7 @@ mod tests {
             language: "ru".into(),
             timezone: "Europe/Moscow".into(),
             consent_data_processing: true,
+            age_confirmed: true,
             consent_marketing: false,
             is_minor: false,
             guardian_email: None,
@@ -242,20 +232,33 @@ mod tests {
     }
 
     #[test]
-    fn birth_date_requires_guardian_and_normalizes_email() {
+    fn parental_checkbox_cannot_bypass_adult_registration() {
         let mut candidate = input();
         candidate.birth_date = Utc::now()
             .date_naive()
             .checked_sub_months(chrono::Months::new(17 * 12));
-        assert!(validate(&mut candidate).is_err());
         candidate.guardian_consent = true;
-        candidate.guardian_email = Some(" Guardian@Example.Invalid ".into());
+        candidate.guardian_email = Some("guardian@example.invalid".into());
+        assert!(validate(&mut candidate).is_err());
+        candidate.birth_date = None;
+        candidate.is_minor = true;
+        assert!(validate(&mut candidate).is_err());
+    }
+
+    #[test]
+    fn requires_explicit_age_confirmation_without_collecting_birth_date() {
+        let mut candidate = input();
+        candidate.age_confirmed = false;
+        assert!(validate(&mut candidate).is_err());
+        candidate.age_confirmed = true;
         assert!(validate(&mut candidate).is_ok());
-        assert!(candidate.is_minor);
-        assert_eq!(
-            candidate.guardian_email.as_deref(),
-            Some("guardian@example.invalid")
-        );
+        let adult_birthday = Utc::now()
+            .date_naive()
+            .checked_sub_months(chrono::Months::new(18 * 12));
+        candidate.birth_date = adult_birthday;
+        assert!(validate(&mut candidate).is_ok());
+        candidate.birth_date = adult_birthday.and_then(|date| date.succ_opt());
+        assert!(validate(&mut candidate).is_err());
     }
 
     #[test]

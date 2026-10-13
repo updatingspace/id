@@ -13,8 +13,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentTransferEncoding},
+    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox,
     transport::smtp::authentication::Credentials,
 };
 use std::{
@@ -506,12 +505,7 @@ fn render(alert: &Alert, from: &Mailbox) -> Result<Message> {
     let body = format!(
         "Обнаружен вход в ваш аккаунт с нового устройства.\n\nIP: {ip}\nУстройство/браузер: {ua}\n\nЕсли это не вы, срочно смените пароль и завершите все сессии."
     );
-    Ok(Message::builder()
-        .from(from.clone())
-        .to(alert.recipient.parse()?)
-        .subject("Новый вход в аккаунт")
-        .header(ContentTransferEncoding::QuotedPrintable)
-        .body(body)?)
+    crate::transactional_mail::render(&alert.recipient, from, "Новый вход в аккаунт", &body, None)
 }
 
 async fn due_ids(client: &Client, now: SystemTime, limit: u64) -> Result<Vec<i64>> {

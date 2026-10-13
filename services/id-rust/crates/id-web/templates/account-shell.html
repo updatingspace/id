@@ -2,22 +2,30 @@
 <nav class="account-links" aria-label="Разделы аккаунта">
   <a href="/account" {% if active == "overview" %}aria-current="page"{% endif %}>Обзор</a>
   {% if features.profile_enabled || features.email_management_enabled || features.preferences_enabled %}<a href="/account?section=profile" {% if active == "profile" %}aria-current="page"{% endif %}>Профиль</a>{% endif %}
-  {% if features.security_enabled %}<a href="/account?section=security" {% if active == "security" %}aria-current="page"{% endif %}>Вход и защита</a>{% endif %}
-  {% if features.sessions_enabled %}<a href="/account?section=sessions" {% if active == "sessions" %}aria-current="page"{% endif %}>Устройства</a>{% else if features.history_enabled %}<a href="/account?section=activity" {% if active == "sessions" %}aria-current="page"{% endif %}>Устройства</a>{% endif %}
+  {% if features.security_enabled %}<a href="/account?section=security" {% if active == "security" || active == "sessions" %}aria-current="page"{% endif %}>Вход и защита</a>{% endif %}
+  {% if !features.security_enabled && features.sessions_enabled %}<a href="/account?section=sessions" {% if active == "sessions" %}aria-current="page"{% endif %}>Устройства</a>{% else if !features.security_enabled && features.history_enabled %}<a href="/account?section=activity" {% if active == "sessions" %}aria-current="page"{% endif %}>Устройства</a>{% endif %}
   {% if features.apps_enabled %}<a href="/account?section=apps" {% if active == "apps" %}aria-current="page"{% endif %}>Приложения</a>{% endif %}
   {% if features.preferences_enabled %}<a href="/account?section=privacy" {% if active == "privacy" %}aria-current="page"{% endif %}>Приватность и данные</a>{% else if features.exports_enabled %}<a href="/account?section=data" {% if active == "privacy" %}aria-current="page"{% endif %}>Приватность и данные</a>{% endif %}
 </nav>
 {% endmacro %}
 {% macro theme() %}
-<label class="theme-control">Оформление<select data-theme-select aria-label="Оформление"><option value="system">Как на устройстве</option><option value="light">Светлое</option><option value="dark">Тёмное</option></select></label>
+<fieldset class="theme-picker" aria-describedby="theme-note">
+  <legend>Тема</legend>
+  <div class="theme-options">
+    <label><input type="radio" name="theme" value="system" data-theme-choice checked><span>Авто</span></label>
+    <label><input type="radio" name="theme" value="light" data-theme-choice><span>Светлая</span></label>
+    <label><input type="radio" name="theme" value="dark" data-theme-choice><span>Тёмная</span></label>
+  </div>
+  <p id="theme-note" class="item-meta">Авто — тема устройства. Выбор сохраняется в этом браузере.</p>
+</fieldset>
 {% endmacro %}
 {% macro open(features, active, title) %}
 <a class="skip-link" href="#main">К содержанию</a>
 <header class="account-header"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">ID</span>UpdSpace ID</a>{% if features.logout_enabled %}<button id="logout" type="button" class="quiet">Выйти</button>{% endif %}</header>
 <div class="account-layout">
-<aside class="account-sidebar">{% call links(features, active) %}{% endcall %}{% call theme() %}{% endcall %}</aside>
+<aside class="account-sidebar">{% call links(features, active) %}{% endcall %}</aside>
 <main id="main">
-<details class="mobile-navigation"><summary>{{ title }} · Разделы</summary>{% call links(features, active) %}{% endcall %}{% call theme() %}{% endcall %}</details>
+<details class="mobile-navigation"><summary>{{ title }} · Разделы</summary>{% call links(features, active) %}{% endcall %}</details>
 {% if features.logout_enabled %}<p id="logout-error" role="alert" hidden></p>{% endif %}
 {% endmacro %}
-{% macro close() %}</main></div>{% endmacro %}
+{% macro close() %}<footer class="legal-links" aria-label="Документы и контакты"><a href="/privacy">Политика конфиденциальности</a><a href="/terms">Условия использования</a><a href="/contacts">Контакты</a></footer></main></div>{% endmacro %}

@@ -134,7 +134,7 @@ async function main() {
     await page.locator('[data-passkey-delete="42"]').click();
     assert.match(await page.locator('[data-passkey-delete-review]').innerText(), /Ключ iPhone/);
     await page.locator('[data-passkey-delete-confirm="42"]').click();
-    await page.locator('#passkeys-empty').waitFor({ state: 'visible' });
+    await page.locator('.passkey-row').waitFor({ state: 'detached' });
     assert.equal(await page.locator('.passkey-row').count(), 0,
       'the deleted key must be absent from the refreshed list');
     assert.deepEqual(calls[1], { pathname: '/api/v1/auth/passkeys/delete', payload: { ids: ['42'] } });

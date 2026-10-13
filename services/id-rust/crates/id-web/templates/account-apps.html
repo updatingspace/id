@@ -1,15 +1,15 @@
 {% import "account-shell.html" as shell %}
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-account>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/_id/ui.css?v=ui-20261008-2" />
+  <link rel="stylesheet" href="/_id/ui.css?v=structure-20261013-2" />
   <title>Приложения — UpdSpace ID</title>
-  <link rel="stylesheet" href="/_id/account.css?v=ui-20261008-1" />
+  <link rel="stylesheet" href="/_id/account.css?v=profile-20261013-2" />
   <script src="/_id/apps.js?v=ui-20261008-1" defer></script>
   {% if features.logout_enabled %}<script src="/_id/account.js?v=ui-20261008-1" defer></script>{% endif %}
-  <script src="/_id/ui.js?v=ui-20261008-1"></script>
+  <script src="/_id/ui.js?v=profile-20261013-2"></script>
 </head>
 <body>
   {% call shell::open(features, "apps", "Приложения") %}{% endcall %}
@@ -32,8 +32,10 @@
         <li class="session-row">
           <div>
             <strong>{{ app.name }}</strong>
-            <small>{{ app.scopes }}</small>
-            <small>Последнее использование: <time datetime="{{ app.last_used_at }}">{{ app.last_used_at }}</time></small>
+            <ul class="app-permissions" aria-label="Разрешения">
+              {% for scope in app.scopes %}<li>{{ scope }}</li>{% endfor %}
+            </ul>
+            <p class="item-meta">{% if let Some(time) = app.last_used_at %}Последнее использование: <time datetime="{{ time }}">{{ time }}</time>{% else %}Нет данных об активности{% endif %}</p>
           </div>
           <button type="button" data-revoke-app="{{ app.client_id }}">Отозвать доступ</button>
         </li>

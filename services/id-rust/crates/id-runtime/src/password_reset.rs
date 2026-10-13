@@ -11,10 +11,7 @@ use crate::{
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentTransferEncoding},
-};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox};
 use sha2::{Digest, Sha256};
 use std::{
     sync::Arc,
@@ -584,10 +581,15 @@ async fn finish(
 }
 
 fn render(address: &str, from: &Mailbox, link: &Url) -> Result<Message> {
-    Ok(Message::builder().from(from.clone()).to(address.parse()?)
-        .subject("Восстановление доступа к UpdSpace ID")
-        .header(ContentTransferEncoding::QuotedPrintable)
-        .body(format!("Для установки нового пароля откройте ссылку:\n\n{link}\n\nСсылка действует один час. Если вы не запрашивали восстановление, проигнорируйте письмо."))?)
+    crate::transactional_mail::render(
+        address,
+        from,
+        "Восстановление доступа к UpdSpace ID",
+        &format!(
+            "Для установки нового пароля откройте ссылку:\n\n{link}\n\nСсылка действует один час. Если вы не запрашивали восстановление, проигнорируйте письмо."
+        ),
+        Some(("Установить новый пароль", link)),
+    )
 }
 
 pub async fn process_one(

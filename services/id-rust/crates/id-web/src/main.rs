@@ -16,6 +16,10 @@ async fn main() -> anyhow::Result<()> {
     let mut router = Router::builder()
         .layer(csp::layer())
         .route(home::page)
+        .route(home::data)
+        .route(home::privacy)
+        .route(home::terms)
+        .route(home::contacts)
         .route(home::style)
         .route(ui::style)
         .route(ui::script);

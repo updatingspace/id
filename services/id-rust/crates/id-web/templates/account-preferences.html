@@ -1,0 +1,22 @@
+{% macro form(language_ru, language_en, timezone_empty, timezones) %}
+<form id="preferences-form" data-preference-section="settings" aria-describedby="preferences-error">
+  <div class="locale-fields">
+    <div><label for="preferences-language">Язык</label>
+      <select id="preferences-language" name="language" aria-describedby="language-note">
+        <option value="ru" {% if language_ru %}selected{% endif %}>Русский</option>
+        <option value="en" {% if language_en %}selected{% endif %}>English</option>
+      </select>
+    </div>
+    <div><label for="preferences-timezone">Часовой пояс</label>
+      <select id="preferences-timezone" name="timezone">
+        <option value="" {% if timezone_empty %}selected{% endif %}>Не выбран</option>
+        {% for zone in timezones %}<option value="{{ zone.name }}" {% if zone.selected %}selected{% endif %}>{{ zone.display_name }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <p id="language-note" class="item-meta">Предпочитаемый язык аккаунта. Интерфейс ID пока доступен только на русском.</p>
+  <button type="submit">Сохранить язык и часовой пояс</button>
+</form>
+<p id="preferences-message" role="status" aria-live="polite" hidden></p>
+<p id="preferences-error" role="alert" hidden></p>
+{% endmacro %}

@@ -31,11 +31,7 @@ async function main() {
     await page.goto(origin + '/signup?next=%2Faccount%3Fsection%3Dsecurity');
     assert.equal(await page.locator('#signup-form').isVisible(), true);
     assert.equal(await page.locator('.signup-card a[href^="/login"]').getAttribute('href'), '/login?next=%2Faccount%3Fsection%3Dsecurity');
-    await page.locator('#is-minor').check();
-    assert.equal(await page.locator('#guardian-fields').isVisible(), true);
-    assert.equal(await page.locator('#guardian-email').getAttribute('required'), '');
-    await page.locator('#is-minor').uncheck();
-    assert.equal(await page.locator('#guardian-fields').isVisible(), false);
+    await page.locator('#age-confirmed').check();
     await page.getByText('Дополнительные сведения', { exact: true }).click();
     await page.locator('#username').fill(username);
     await page.locator('#email').fill(email);
@@ -80,6 +76,7 @@ async function main() {
     await duplicate.locator('#password').fill('A remarkable celestial phrase 2026!');
     await duplicate.locator('#confirmation').fill('A remarkable celestial phrase 2026!');
     await duplicate.locator('#consent-data').check();
+    await duplicate.locator('#age-confirmed').check();
     const duplicateResponse = duplicate.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/signup');
     await duplicate.locator('#submit').click();
     const rejected = await duplicateResponse;
@@ -88,26 +85,23 @@ async function main() {
     assert.equal(duplicateBody.code, 'EMAIL_ALREADY_EXISTS');
     await duplicate.locator('#error').waitFor({ state: 'visible' });
 
-    const minor = await context.newPage();
-    await minor.goto(origin + '/signup');
-    const born = new Date();
-    born.setFullYear(born.getFullYear() - 17);
-    await minor.getByText('Дополнительные сведения', { exact: true }).click();
-    await minor.locator('#birth-date').fill(born.toISOString().slice(0, 10));
-    assert.equal(await minor.locator('#guardian-fields').isVisible(), true);
-    await minor.locator('#username').fill(`minor-${id}`);
-    await minor.locator('#email').fill(`minor-${id}@example.invalid`);
-    await minor.locator('#password').fill('A remarkable celestial phrase 2026!');
-    await minor.locator('#confirmation').fill('A remarkable celestial phrase 2026!');
-    await minor.locator('#guardian-email').fill(`guardian-${id}@example.invalid`);
-    await minor.locator('#guardian-consent').check();
-    await minor.locator('#consent-data').check();
-    const minorResponse = minor.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/signup');
-    await minor.locator('#submit').click();
-    const accepted = await minorResponse;
-    assert.equal(accepted.status(), 201, JSON.stringify(await accepted.json()));
-    assert(!(await context.cookies(origin)).some(cookie => cookie.name === 'sessionid'), 'minor signup issued session before verification');
-    console.log('PASS: Chromium Topcoat adult/minor signup, CSRF/form token, no pre-verification session, duplicate email');
+    // Bypass the UI deliberately: legacy parental fields cannot authorize a minor.
+    const ageRejected = await page.evaluate(async () => {
+      const issued = await fetch('/api/v1/auth/form_token?purpose=register', { credentials: 'include' });
+      const token = await issued.json();
+      const csrf = decodeURIComponent(document.cookie.split('; ').find(item => item.startsWith('csrftoken=')).slice(10));
+      const response = await fetch('/api/v1/auth/signup', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+        body: JSON.stringify({ email: 'minor-denied@example.invalid', password: 'A remarkable celestial phrase 2026!',
+          consent_data_processing: true, age_confirmed: true, is_minor: true,
+          guardian_consent: true, guardian_email: 'guardian@example.invalid', form_token: token.form_token }),
+      });
+      return { status: response.status, body: await response.json() };
+    });
+    assert.equal(ageRejected.status, 400);
+    assert.equal(ageRejected.body.code, 'MINIMUM_AGE_REQUIRED');
+    console.log('PASS: Chromium Topcoat adult signup and server-side age rejection, CSRF/form token, no pre-verification session, duplicate email');
   } finally {
     await browser.close();
   }

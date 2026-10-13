@@ -1,0 +1,85 @@
+<h1>Профиль</h1>
+<div class="profile-heading">
+  {% if features.profile_enabled %}<button class="profile-avatar" type="button" data-dialog-open="photo-editor" aria-label="Изменить фото профиля">{% else %}<div class="profile-avatar">{% endif %}
+    <img id="avatar-image" {% if has_avatar %}src="{{ avatar_url }}"{% else %}hidden{% endif %} alt="Фото профиля" referrerpolicy="no-referrer" />
+    <span id="avatar-placeholder" {% if has_avatar %}hidden{% endif %} aria-hidden="true">ID</span>
+  {% if features.profile_enabled %}</button>{% else %}</div>{% endif %}
+  <div class="profile-heading-text">
+    <h2 id="profile-display-name" data-username="{{ user.username }}">{{ display_name }}</h2>
+    <p>{{ user.email }}</p>
+    {% if features.profile_enabled %}<button class="text-action" type="button" data-dialog-open="photo-editor">Изменить фото</button>{% endif %}
+  </div>
+</div>
+<p id="avatar-message" role="status" aria-live="polite" hidden></p>
+<p id="profile-message" role="status" aria-live="polite" hidden></p>
+
+{% if features.profile_enabled %}
+<section class="profile-panel" aria-labelledby="personal-title">
+  <h2 id="personal-title">Личные данные</h2>
+  <div class="profile-row"><span class="profile-label">Имя и фамилия</span><span id="profile-name-value">{{ display_name }}</span><button type="button" class="text-action" data-dialog-open="personal-editor" data-dialog-focus="first-name" aria-label="Изменить имя и фамилию">Изменить</button></div>
+  <div class="profile-row"><span class="profile-label">Дата рождения</span><span id="profile-birth-value">{% if birth_date.is_empty() %}Не указана{% else %}<time datetime="{{ birth_date }}" data-date-only>{{ birth_date }}</time>{% endif %}</span><button type="button" class="text-action" data-dialog-open="personal-editor" data-dialog-focus="birth-date" aria-label="Изменить дату рождения">Изменить</button></div>
+</section>
+{% endif %}
+
+<section class="profile-panel" aria-labelledby="contact-title">
+  <h2 id="contact-title">Контакты</h2>
+  <div class="profile-row"><span class="profile-label">Почта</span><div><span>{{ user.email }}</span><small>{% if user.email_verified %}Подтверждена{% else %}Не подтверждена{% endif %}</small></div>{% if email_management.is_some() %}<button type="button" class="text-action" data-dialog-open="email-editor" aria-label="Изменить почту">Изменить</button>{% endif %}</div>
+  {% if features.profile_enabled %}<div class="profile-row"><span class="profile-label">Телефон</span><span id="profile-phone-value">{% if phone_number.is_empty() %}Не указан{% else %}{{ phone_number }}{% endif %}</span><button type="button" class="text-action" data-dialog-open="personal-editor" data-dialog-focus="phone-number" aria-label="Изменить телефон">Изменить</button></div>{% endif %}
+</section>
+
+<section id="settings" class="profile-panel" aria-labelledby="settings-title">
+  <h2 id="settings-title">Настройки</h2>
+  <div class="profile-row"><span class="profile-label">Оформление</span><span data-theme-label>Автоматически</span><button type="button" class="text-action" data-dialog-open="theme-editor" aria-label="Изменить оформление">Изменить</button></div>
+  {% if let Some(settings) = settings %}
+  <div class="profile-row"><span class="profile-label">Язык</span><span data-preference-language>{% if settings.language == "en" %}English{% else %}Русский{% endif %}</span><button type="button" class="text-action" data-dialog-open="locale-editor" data-dialog-focus="preferences-language" aria-label="Изменить язык">Изменить</button></div>
+  <div class="profile-row"><span class="profile-label">Часовой пояс</span><span data-preference-timezone>{% if settings.timezone.is_empty() %}Не выбран{% else %}{% for zone in timezones %}{% if zone.selected %}{{ zone.display_name }}{% endif %}{% endfor %}{% endif %}</span><button type="button" class="text-action" data-dialog-open="locale-editor" data-dialog-focus="preferences-timezone" aria-label="Изменить часовой пояс">Изменить</button></div>
+  {% endif %}
+</section>
+
+{% if features.profile_enabled %}
+<dialog id="personal-editor" class="profile-dialog" aria-labelledby="personal-editor-title">
+  <div class="dialog-heading"><h2 id="personal-editor-title">Личные данные</h2><button type="button" data-dialog-close aria-label="Закрыть">×</button></div>
+  <form id="profile-form" aria-describedby="profile-error">
+    <div class="locale-fields"><div><label for="first-name">Имя</label><input id="first-name" name="first_name" autocomplete="given-name" value="{{ first_name }}" /></div><div><label for="last-name">Фамилия</label><input id="last-name" name="last_name" autocomplete="family-name" value="{{ last_name }}" /></div></div>
+    <label for="phone-number">Телефон</label><input id="phone-number" name="phone_number" type="tel" autocomplete="tel" value="{{ phone_number }}" />
+    <label for="birth-date">Дата рождения</label><input id="birth-date" name="birth_date" type="date" value="{{ birth_date }}" />
+    <div class="dialog-actions"><button type="button" data-dialog-close>Закрыть</button><button type="submit">Сохранить</button></div>
+  </form>
+  <p id="profile-error" role="alert" hidden></p>
+</dialog>
+<dialog id="photo-editor" class="profile-dialog" aria-labelledby="photo-editor-title">
+  <div class="dialog-heading"><h2 id="photo-editor-title">Фото профиля</h2><button type="button" data-dialog-close aria-label="Закрыть">×</button></div>
+  <form id="avatar-form">
+    <input id="avatar-file" name="avatar" type="file" accept="image/jpeg,image/png,image/webp" hidden />
+    <button id="avatar-choose" type="button">Выбрать изображение</button>
+    <p id="avatar-file-name" class="item-meta">JPEG, PNG или WebP до 6 МБ</p>
+    <div class="dialog-actions"><button id="avatar-delete" type="button" class="danger" {% if !has_avatar %}disabled hidden{% endif %}>Удалить фото</button><button type="submit" disabled>Сохранить фото</button></div>
+  </form>
+  <p id="avatar-error" role="alert" hidden></p>
+</dialog>
+{% endif %}
+
+{% if let Some(email) = email_management %}
+<dialog id="email-editor" class="profile-dialog" aria-labelledby="email-editor-title">
+  <div class="dialog-heading"><h2 id="email-editor-title">Адрес почты</h2><button type="button" data-dialog-close aria-label="Закрыть">×</button></div>
+  <p>{{ email.email }}</p>
+  {% if !email.verified %}<p class="muted">Подтвердите адрес, чтобы восстанавливать доступ к аккаунту.</p><button id="email-verify-request" type="button" data-email="{{ email.email }}">Подтвердить почту</button>{% endif %}
+  {% if let Some(pending) = email.pending_email %}<p>Ожидает подтверждения: <strong>{{ pending }}</strong></p><button id="email-change-cancel" type="button">Отменить смену адреса</button>{% endif %}
+  <form id="email-change-form">
+    <label for="new-email">Новый адрес почты</label><input id="new-email" name="new_email" type="email" autocomplete="email" maxlength="254" required />
+    <p class="item-meta">Отправим ссылку для подтверждения на новый адрес. Для смены почты нужен недавний вход.</p>
+    <button type="submit">Отправить ссылку</button>
+  </form>
+  <p id="email-message" role="status" aria-live="polite" hidden></p><p id="email-error" role="alert" hidden></p>
+</dialog>
+{% endif %}
+<dialog id="theme-editor" class="profile-dialog" aria-labelledby="theme-editor-title">
+  <div class="dialog-heading"><h2 id="theme-editor-title">Оформление</h2><button type="button" data-dialog-close aria-label="Закрыть">×</button></div>
+  {% call shell::theme() %}{% endcall %}
+</dialog>
+{% if let Some(settings) = settings %}
+<dialog id="locale-editor" class="profile-dialog" aria-labelledby="locale-editor-title">
+  <div class="dialog-heading"><h2 id="locale-editor-title">Язык и часовой пояс</h2><button type="button" data-dialog-close aria-label="Закрыть">×</button></div>
+  {% call preferences::form(settings.language == "ru", settings.language == "en", settings.timezone.is_empty(), timezones) %}{% endcall %}
+</dialog>
+{% endif %}

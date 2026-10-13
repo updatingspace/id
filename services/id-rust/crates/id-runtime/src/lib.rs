@@ -128,7 +128,7 @@ use anyhow::{Context, Result, bail};
 use std::{env, time::Duration};
 use ydb::{
     AccessTokenCredentials, AnonymousCredentials, Client, ClientBuilder, HasGrpcOptions,
-    MetadataUrlCredentials, SessionPoolSettings,
+    MetadataUrlCredentials, SessionPoolSettings, StaticCredentials,
 };
 
 /// Finish in-flight HTTP requests when the process is asked to stop.
@@ -149,8 +149,8 @@ pub async fn connect_ydb() -> Result<Client> {
     let endpoint = env::var("YDB_ENDPOINT").context("YDB_ENDPOINT is required")?;
     let database = env::var("YDB_DATABASE").context("YDB_DATABASE is required")?;
     validate_endpoint(&endpoint, &database)?;
-    let mut builder =
-        ClientBuilder::new_from_connection_string(endpoint.clone())?.with_database(database);
+    let mut builder = ClientBuilder::new_from_connection_string(endpoint.clone())?
+        .with_database(database.clone());
     match env::var("YDB_CREDENTIALS_MODE").as_deref() {
         Ok("anonymous") => {
             if !is_loopback(&endpoint)? {
@@ -174,10 +174,19 @@ pub async fn connect_ydb() -> Result<Client> {
             }
             builder = builder.with_credentials(MetadataUrlCredentials::new());
         }
-        _ => bail!("YDB_CREDENTIALS_MODE must be explicitly anonymous, token or metadata"),
+        Ok("static") => {
+            builder = builder.with_credentials(static_credentials(
+                &endpoint,
+                &database,
+                env::var("YDB_USER").context("YDB_USER is required")?,
+                env::var("YDB_PASSWORD").context("YDB_PASSWORD is required")?,
+                env::var("YDB_CA_FILE").ok().as_deref(),
+            )?);
+        }
+        _ => bail!("YDB_CREDENTIALS_MODE must be explicitly anonymous, token, metadata or static"),
     }
     if let Ok(path) = env::var("YDB_CA_FILE") {
-        builder = builder.load_certificate(path)?;
+        builder = load_ydb_ca(builder, &endpoint, &path)?;
     }
     // Bound discovery/connection too, not just subsequent query execution.
     tokio::time::timeout(Duration::from_secs(15), async {
@@ -193,6 +202,41 @@ pub async fn connect_ydb() -> Result<Client> {
     .await
     .context("YDB connection timed out")?
     .context("YDB connection failed")
+}
+
+fn load_ydb_ca<T: HasGrpcOptions>(connection: T, endpoint: &str, path: &str) -> Result<T> {
+    let mut connection = connection.load_certificate(path)?;
+    let tls = connection
+        .grpc_opts_mut()
+        .tls_config
+        .take()
+        .context("missing YDB TLS config")?;
+    let endpoint = url::Url::parse(endpoint)?;
+    let host = endpoint.host_str().context("missing YDB TLS hostname")?;
+    // The SDK connects to resolved IPs; custom CA config must retain the DNS identity.
+    Ok(connection.with_tls_config(tls.as_ref().clone().domain_name(host.to_owned())))
+}
+
+fn static_credentials(
+    endpoint: &str,
+    database: &str,
+    user: String,
+    password: String,
+    ca_file: Option<&str>,
+) -> Result<StaticCredentials> {
+    if !endpoint.starts_with("grpcs://") && !is_loopback(endpoint)? {
+        bail!("static credentials require TLS outside loopback");
+    }
+    if user.is_empty() || password.is_empty() {
+        bail!("YDB_USER and YDB_PASSWORD must not be empty");
+    }
+    let mut credentials =
+        StaticCredentials::new(user, password, endpoint.parse()?, database.to_owned());
+    // Login uses a separate SDK connection and must trust the same CA as queries.
+    if let Some(path) = ca_file {
+        credentials = load_ydb_ca(credentials, endpoint, path)?;
+    }
+    Ok(credentials)
 }
 
 pub fn validate_endpoint(endpoint: &str, database: &str) -> Result<()> {
@@ -239,6 +283,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn static_auth_requires_tls_and_nonempty_credentials() {
+        for (endpoint, user, password, accepted) in [
+            ("grpc://ydb.updspace-data.svc:2136", "id", "password", false),
+            ("grpcs://ydb.updspace-data.svc:2135", "", "password", false),
+            ("grpcs://ydb.updspace-data.svc:2135", "id", "", false),
+            ("grpcs://ydb.updspace-data.svc:2135", "id", "password", true),
+            ("grpc://127.0.0.1:2136", "id", "password", true),
+        ] {
+            assert_eq!(
+                static_credentials(endpoint, "/local", user.into(), password.into(), None).is_ok(),
+                accepted,
+                "{endpoint}"
+            );
+        }
+        assert!(
+            static_credentials(
+                "grpcs://localhost:2135",
+                "/local",
+                "id".into(),
+                "password".into(),
+                Some("/nonexistent/updspace-ydb-ca.pem")
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn rejects_incomplete_or_embedded_credential_endpoints() {
         for endpoint in [
             "localhost",
@@ -256,3 +327,5 @@ mod tests {
 }
 
 pub(crate) mod credential_methods;
+
+mod transactional_mail;

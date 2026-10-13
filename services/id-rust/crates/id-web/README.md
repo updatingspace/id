@@ -160,17 +160,38 @@ The user UI shares `static/ui.css` colour/control tokens and `static/ui.js`
 (theme, readable dates, password visibility, error focus and explicit recovery
 code copy/download). Load both on every public/account document. The system
 colour scheme is the default; an explicit choice is stored locally and applied
-before paint. `templates/account-shell.html` owns the six-section navigation,
+before paint in the account area. Public/auth pages always use the device theme.
+Only Profile offers the theme control. `templates/account-shell.html` owns the navigation,
 desktop sidebar and native mobile disclosure. Profile editors use native
-`details[name=profile-editor]` so only one opens, without discarding form inputs.
-Language/timezone use `section=settings` within Profile; existing query links
-remain valid. Each preference view uses the existing partial PATCH contract and sends only its
+`dialog` elements opened from compact read-only rows, preserving drafts on close
+and blocking dismissal while a write is pending. Photo editing is available from
+the avatar and its labelled action; the overview displays the installed photo.
+Language/timezone and theme use their own profile dialogs. The old `section=settings` link
+remains available and shares the same form. Profile reads preferences and timezones
+only after authentication and only when preferences are enabled. Each preference view uses the existing partial PATCH contract and sends only its
 own fields, so a stale tab cannot overwrite changes made in the other section.
 
 `scripts/check-web-ui-browser.cjs` starts real Topcoat with a synthetic API and
-checks 17 pages at 320/390/1280 px in both themes, 200% text (also expanded
+checks 21 pages at 320/390/1280 px in both themes, 200% text (also expanded
 forms), token contrast, navigation, draft/error retention, revoked/empty device
 lists, consent defaults, theme persistence and current-session vs reauth entry.
 Run with the same browser dependencies as the other scripts. `--preview` keeps
 the synthetic preview running for manual visual review; it is never a live
 account or proof of delivery/deletion success.
+
+
+### Foundation update (13 October 2026)
+
+`/data` is an always-available public page with confirmed operator details and
+operational data information, linked from the home page, signup and account.
+It is explicitly separate from the still-pending full legal documents. Add its
+exact path to the active web router before release; preserve `/data/export`.
+
+Signup now requires an explicit `age_confirmed` declaration for new accounts.
+It no longer requests birth date, parental details or marketing subscription.
+The API enforces 18+ independently; release this web version before or together
+with the corresponding API version. Existing accounts are unaffected.
+Privacy saves only its own fields, preserving existing marketing consent; its
+history and revocation remain available. Returning OAuth consent is compact.
+
+See [deployment and rollback](../../../../docs/operations.md).

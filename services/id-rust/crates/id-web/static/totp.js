@@ -88,7 +88,10 @@
       const code = form.querySelector("input").value.trim();
       const data = await post("/api/v1/auth/mfa/totp/confirm", { code });
       const totpStatus = document.getElementById("totp-status");
-      if (totpStatus) totpStatus.textContent = "Включена";
+      if (totpStatus) {
+        totpStatus.textContent = "Приложение подключено.";
+        totpStatus.hidden = false;
+      }
       pending.hidden = true;
       begin.hidden = true;
       document.getElementById("totp-secret").textContent = "";
@@ -107,8 +110,15 @@
         if (guidance) guidance.hidden = true;
         const recoveryStatus = document.getElementById("recovery-status");
         const recoveryLeft = document.getElementById("recovery-left");
-        if (recoveryStatus) recoveryStatus.textContent = "Есть";
-        if (recoveryLeft) recoveryLeft.textContent = String(data.recovery_codes.length);
+        const used = document.getElementById("recovery-used");
+        const usage = document.getElementById("recovery-usage");
+        if (used) used.textContent = "0";
+        if (usage) usage.hidden = false;
+        if (recoveryStatus) recoveryStatus.textContent = "Осталось кодов:";
+        if (recoveryLeft) {
+          recoveryLeft.textContent = String(data.recovery_codes.length);
+          recoveryLeft.hidden = false;
+        }
         const saved = document.getElementById("totp-recovery-saved");
         if (saved) saved.hidden = false;
       }

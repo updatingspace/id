@@ -6,10 +6,7 @@ use crate::tx_retry::retry_known_abort;
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
-use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, header::ContentTransferEncoding},
-};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor, message::Mailbox};
 use sha2::Sha256;
 use std::time::{Duration, SystemTime};
 use url::Url;
@@ -402,10 +399,9 @@ pub async fn process_one(
     match mail_row(client, &config.secret, id, SystemTime::now()).await {
         Ok(Some(row)) => {
             let delivered = match config.link(Uuid::parse_str(id)?, &row).and_then(|link| {
-                Ok(Message::builder().from(from.clone()).to(row.recipient.parse()?)
-                    .subject("Вход в UpdSpace ID")
-                    .header(ContentTransferEncoding::QuotedPrintable)
-                    .body(format!("Чтобы войти, откройте ссылку:\n\n{link}\n\nСсылка действует 15 минут и работает один раз. Если вы не запрашивали вход, проигнорируйте письмо."))?)
+                crate::transactional_mail::render(&row.recipient, from, "Вход в UpdSpace ID",
+                    &format!("Чтобы войти, откройте ссылку:\n\n{link}\n\nСсылка действует 15 минут и работает один раз. Если вы не запрашивали вход, проигнорируйте письмо."),
+                    Some(("Войти в аккаунт", &link)))
             }) {
                 Ok(message) => tokio::time::timeout(Duration::from_secs(30), mailer.send(message))
                     .await.is_ok_and(|outcome| outcome.is_ok()),

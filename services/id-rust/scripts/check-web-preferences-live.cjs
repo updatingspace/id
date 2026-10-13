@@ -39,14 +39,20 @@ async function main() {
 
     const privacy = await context.newPage();
     await privacy.goto(origin + '/account?section=privacy');
-    await privacy.locator('#preferences-marketing').check();
-    await privacy.locator('#scope-email').selectOption('deny');
-    const [privacyUpdate] = await Promise.all([
-      privacy.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/preferences' && response.request().method() === 'PATCH'),
-      privacy.locator('#preferences-form button[type="submit"]').click(),
-    ]);
-    assert.equal(privacyUpdate.status(), 200, await privacyUpdate.text());
-    assert.deepEqual(Object.keys(privacyUpdate.request().postDataJSON()).sort(), ['marketing_opt_in', 'privacy_scope_defaults']);
+    assert.equal(await privacy.locator('#preferences-form').count(), 0);
+    assert.equal(await privacy.locator('#preferences-marketing').count(), 0);
+    assert.equal(await privacy.locator('select[id^="scope-"]').count(), 0);
+    // Seed legacy preferences through the API; these controls are no longer offered in the UI.
+    const seeded = await privacy.evaluate(async () => {
+      const csrf = document.cookie.split('; ').find(value => value.startsWith('csrftoken=')).slice('csrftoken='.length);
+      const response = await fetch('/api/v1/auth/preferences', {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': decodeURIComponent(csrf) },
+        body: JSON.stringify({ marketing_opt_in: true, privacy_scope_defaults: { email: 'deny' } }),
+      });
+      return { status: response.status, body: await response.json() };
+    });
+    assert.equal(seeded.status, 200, JSON.stringify(seeded.body));
     await page.locator('#preferences-language').selectOption('ru');
     await page.locator('#preferences-timezone').selectOption('Europe/Moscow');
     const [updated] = await Promise.all([
@@ -72,17 +78,14 @@ async function main() {
     assert.equal(await page.locator('#preferences-language').inputValue(), 'ru');
     assert.equal(await page.locator('#preferences-timezone').inputValue(), 'Europe/Moscow');
     await privacy.reload();
-    assert.equal(await privacy.locator('#preferences-marketing').isChecked(), true);
-    assert.equal(await privacy.locator('#scope-email').inputValue(), 'deny');
-
-    await privacy.locator('#preferences-marketing').uncheck();
     const [optedOut] = await Promise.all([
-      privacy.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/preferences'
-        && response.request().method() === 'PATCH'),
-      privacy.locator('#preferences-form button[type="submit"]').click(),
+      privacy.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/auth/consents/revoke'
+        && response.request().method() === 'POST'),
+      privacy.locator('button.consent-revoke[data-kind="marketing"]').click(),
     ]);
     assert.equal(optedOut.status(), 200, await optedOut.text());
-    const after = await optedOut.json();
+    await privacy.getByText('Отозвано', { exact: true }).waitFor();
+    const after = await privacy.evaluate(async () => (await fetch('/api/v1/auth/preferences', { credentials: 'include', cache: 'no-store' })).json());
     assert.equal(after.marketing_opt_in, false);
     assert.equal(typeof after.marketing_opt_out_at, 'string');
     console.log('PASS: Topcoat settings → Rust preferences → YDB → SSR reload; marketing transition and CSRF denial');
