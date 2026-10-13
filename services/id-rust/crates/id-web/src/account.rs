@@ -1037,6 +1037,15 @@ mod tests {
         assert!(!html.contains("id=\"scope-profile_basic\""));
         assert!(html.contains("data-kind=\"marketing\""));
         assert!(html.contains("id=\"consents-error\""));
+        assert!(html.contains("Запросить удаление аккаунта"));
+        assert!(html.contains("mailto:admin@updspace.com"));
+        assert!(!html.contains("href=\"/account?section=delete\""));
+        view.features.deletion_enabled = true;
+        let html = view.render()?;
+        assert!(html.contains("Удалить аккаунт"));
+        assert!(html.contains("href=\"/account?section=delete\""));
+        assert!(!html.contains("Запросить удаление аккаунта"));
+        view.features.deletion_enabled = false;
         view.settings_mode = true;
         let html = view.render()?;
         assert!(html.contains("id=\"preferences-form\""));
