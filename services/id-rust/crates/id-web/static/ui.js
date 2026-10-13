@@ -9,9 +9,8 @@
     for (const label of document.querySelectorAll('[data-theme-label]')) {
       label.textContent = { system: 'Автоматически', light: 'Светлое', dark: 'Тёмное' }[theme];
     }
-    for (const control of document.querySelectorAll("[data-theme-select], [data-theme-choice]")) {
-      if (control instanceof HTMLInputElement) control.checked = control.value === theme;
-      else control.value = theme;
+    for (const control of document.querySelectorAll("[data-theme-choice]")) {
+      control.checked = control.value === theme;
     }
   };
   const accountPage = document.documentElement.hasAttribute("data-account");
@@ -34,9 +33,9 @@
       dialog.addEventListener('cancel', event => { if (busy()) event.preventDefault(); });
     }
     applyTheme(accountPage ? storedTheme() : "system");
-    for (const control of document.querySelectorAll("[data-theme-select], [data-theme-choice]")) {
+    for (const control of document.querySelectorAll("[data-theme-choice]")) {
       control.addEventListener("change", () => {
-        if (control instanceof HTMLInputElement && !control.checked) return;
+        if (!control.checked) return;
         applyTheme(control.value);
         try { localStorage.setItem("id-theme", control.value); } catch {}
       });

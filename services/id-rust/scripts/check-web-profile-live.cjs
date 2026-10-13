@@ -38,7 +38,7 @@ async function main() {
       (await fetch('/api/v1/auth/me', { credentials: 'include', cache: 'no-store' })).json());
     assert.notEqual(before.user.first_name, 'Denied');
 
-    await page.locator('[data-profile-editor] > summary').first().click();
+    await page.getByRole('button', { name: 'Изменить имя и фамилию', exact: true }).click();
     await page.locator('#first-name').fill('  Ada  ');
     await page.locator('#last-name').fill('  Lovelace  ');
     await page.locator('#phone-number').fill(' +1 555 ');
