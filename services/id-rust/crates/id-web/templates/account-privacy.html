@@ -43,7 +43,24 @@
       <p id="consents-error" role="alert" hidden></p>
     </section>
     {% endif %}
-  {% if !settings_mode %}<section><h2>Ваши данные</h2><p><a href="/data">Какие данные хранит ID</a></p><div class="actions">{% if features.exports_enabled %}<a class="button" href="/account?section=data">Получить копию данных</a>{% endif %}{% if features.deletion_enabled %}<a class="button danger" href="/account?section=delete">Удаление аккаунта</a>{% endif %}</div></section>{% endif %}
+  {% if !settings_mode %}
+    <section aria-labelledby="your-data-title">
+      <h2 id="your-data-title">Ваши данные</h2>
+      <p><a href="/data">Какие данные хранит ID</a></p>
+      {% if features.exports_enabled %}<div class="actions"><a class="button" href="/account?section=data">Получить копию данных</a></div>{% endif %}
+    </section>
+    <section aria-labelledby="account-deletion-title">
+      <h2 id="account-deletion-title">Удаление аккаунта</h2>
+      {% if features.deletion_enabled %}
+        <p>Перед удалением можно сохранить копию данных и проверить связанные приложения.</p>
+        <div class="actions"><a class="button danger" href="/account?section=delete">Удалить аккаунт</a></div>
+      {% else %}
+        <p>Самостоятельное удаление пока недоступно. Запросите его у оператора: сначала потребуется подтвердить, что аккаунт принадлежит вам.</p>
+        <div class="actions"><a class="button" href="mailto:admin@updspace.com?subject=UpdSpace%20ID%3A%20account%20deletion">Запросить удаление аккаунта</a></div>
+        <p class="item-meta">Если почтовая программа не открылась, напишите на <a href="mailto:admin@updspace.com">admin@updspace.com</a>. Не отправляйте пароль и коды входа.</p>
+      {% endif %}
+    </section>
+  {% endif %}
   {% call shell::close() %}{% endcall %}
 </body>
 </html>

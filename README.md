@@ -4,6 +4,7 @@ UpdSpace ID — единый вход, управление доступом п�
 
 ## Проект
 
+- [Документация по задачам](docs/README.md): устройство сервиса, разработка, проверки и операторские процедуры.
 - [Rust workspace](services/id-rust/README.md): API на Axum, Topcoat SSR, фоновые задания и операторский CLI `idctl`.
 - [Интерфейс](services/id-rust/crates/id-web/README.md): публичные страницы, вход и личный кабинет.
 - [Эксплуатация и релизы](docs/operations.md): домашний k3s, проверки и откат.
@@ -23,4 +24,4 @@ cargo test --locked --workspace
 cargo build --locked --workspace --bins
 ```
 
-Интеграционные тесты требуют отдельную локальную YDB; команды описаны в Rust README. Для браузера выполните `npm ci` в `services/id-rust/browser-tests`. [Основной CI](.github/workflows/ci-cd.yml) и [расширенный набор](.github/workflows/rust-pilot.yml) проверяют аутентификацию, данные и интерфейс. Тестовые базы и SMTP не являются проверкой реальных аккаунтов и доставки production-писем.
+Интеграционные тесты требуют отдельную локальную YDB; команды описаны в [руководстве по локальной разработке](docs/development/rust-local.md). Для браузера выполните `npm ci` в `services/id-rust/browser-tests`. [Основной CI](.github/workflows/ci-cd.yml) и [расширенный набор](.github/workflows/rust-pilot.yml) проверяют аутентификацию, данные и интерфейс. Тестовые базы и SMTP не являются проверкой реальных аккаунтов и доставки production-писем.
