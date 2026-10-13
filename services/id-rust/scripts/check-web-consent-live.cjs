@@ -116,7 +116,10 @@ async function main() {
     assert.equal(new URL(page.url()).pathname, '/oauth/consent');
     assert.equal(await page.locator('#approve').textContent(), 'Продолжить');
     assert.equal(await page.locator('input[name="scope"]').count(), 0);
-    assert.equal(await page.locator('details').getAttribute('open'), null);
+    assert.equal(await page.locator('details').count(), 0);
+    const permissions = page.getByRole('link', { name: 'Посмотреть разрешения', exact: true });
+    assert.equal(await permissions.isVisible(), true);
+    assert.equal(await permissions.getAttribute('href'), '/account?section=apps');
     await checkLayout('returning');
     await page.locator('#approve').focus();
     await page.keyboard.press('Enter');
