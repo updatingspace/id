@@ -45,6 +45,7 @@ pub enum ExchangeFailure {
 pub struct TokenResponse {
     pub access_token: String,
     pub id_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
     pub token_type: &'static str,
     pub expires_in: u64,
@@ -221,4 +222,31 @@ pub async fn exchange_code(
                 .timeout(Duration::from_secs(10)).await
         }
     }).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TokenResponse;
+    use serde_json::to_value;
+
+    #[test]
+    fn token_response_omits_absent_refresh_token_and_keeps_issued_one() {
+        let mut response = TokenResponse {
+            access_token: "access".into(),
+            id_token: "id".into(),
+            refresh_token: None,
+            token_type: "Bearer",
+            expires_in: 600,
+            scope: "openid".into(),
+        };
+        let json = to_value(&response).expect("serialize openid-only token response");
+        assert!(json.get("refresh_token").is_none());
+        assert_eq!(json["scope"], "openid");
+
+        response.scope = "openid offline_access".into();
+        response.refresh_token = Some("refresh".into());
+        let json = to_value(&response).expect("serialize offline-access token response");
+        assert_eq!(json["refresh_token"], "refresh");
+        assert_eq!(json["scope"], "openid offline_access");
+    }
 }
