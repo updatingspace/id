@@ -230,7 +230,7 @@ mod tests {
     use serde_json::to_value;
 
     #[test]
-    fn token_response_omits_absent_refresh_token_and_keeps_issued_one() {
+    fn token_response_omits_absent_refresh_token_and_keeps_issued_one() -> serde_json::Result<()> {
         let mut response = TokenResponse {
             access_token: "access".into(),
             id_token: "id".into(),
@@ -239,14 +239,15 @@ mod tests {
             expires_in: 600,
             scope: "openid".into(),
         };
-        let json = to_value(&response).expect("serialize openid-only token response");
+        let json = to_value(&response)?;
         assert!(json.get("refresh_token").is_none());
         assert_eq!(json["scope"], "openid");
 
         response.scope = "openid offline_access".into();
         response.refresh_token = Some("refresh".into());
-        let json = to_value(&response).expect("serialize offline-access token response");
+        let json = to_value(&response)?;
         assert_eq!(json["refresh_token"], "refresh");
         assert_eq!(json["scope"], "openid offline_access");
+        Ok(())
     }
 }
