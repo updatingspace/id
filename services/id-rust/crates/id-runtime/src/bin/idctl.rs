@@ -179,7 +179,7 @@ enum Command {
         #[arg(long)]
         apply: bool,
     },
-    /// Seal completed legacy reset before admitting new Rust traffic.
+    /// Read the cutover marker, or explicitly seal a completed legacy reset.
     LegacyCutoverSeal {
         #[arg(long)]
         apply: bool,
@@ -580,8 +580,12 @@ async fn main() -> Result<()> {
                 let created = id_runtime::legacy_cutover_reset::seal(&client).await?;
                 println!("{}", json!({"sealed":true,"created":created}));
             } else {
+                let sealed = id_runtime::legacy_cutover_reset::read_seal_status(&client).await?;
                 let ready = id_runtime::legacy_cutover_reset::seal_readiness(&client).await?;
-                println!("{}", json!({"dry_run":true,"ready_to_seal":ready}));
+                println!(
+                    "{}",
+                    json!({"dry_run":true,"sealed":sealed,"ready_to_seal":ready})
+                );
             }
         }
         Command::DeletionStatus { id } => {
