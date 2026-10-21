@@ -18,6 +18,11 @@ async fn ensure_seal_schema(client: &Client) -> Result<()> {
 
 pub async fn is_sealed(client: &Client) -> Result<bool> {
     ensure_seal_schema(client).await?;
+    read_seal_status(client).await
+}
+
+/// Read the existing cutover marker without changing the YDB schema.
+pub async fn read_seal_status(client: &Client) -> Result<bool> {
     Ok(client
         .query_client()
         .query_row(format!(
