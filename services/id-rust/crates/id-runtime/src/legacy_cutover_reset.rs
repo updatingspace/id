@@ -122,7 +122,7 @@ pub async fn audit_inventory(client: &Client) -> Result<LegacyAuditInventory> {
                 }
                 *report
                     .actions
-                    .entry(known_rust_action(&action, &target_type).to_owned())
+                    .entry(known_action(&action, &target_type).to_owned())
                     .or_default() += 1;
                 report.scanned += 1;
                 page += 1;
@@ -144,7 +144,7 @@ pub async fn audit_inventory(client: &Client) -> Result<LegacyAuditInventory> {
     Ok(report)
 }
 
-fn known_rust_action(action: &str, target_type: &str) -> &'static str {
+fn known_action(action: &str, target_type: &str) -> &'static str {
     match (action, target_type) {
         ("account.suspended", "user") => "account.suspended",
         ("magic_link.consumed", "user") => "magic_link.consumed",
@@ -152,26 +152,36 @@ fn known_rust_action(action: &str, target_type: &str) -> &'static str {
         ("oidc_client.created", "oidc_client") => "oidc_client.created",
         ("oidc_client.secret_rotated", "oidc_client") => "oidc_client.secret_rotated",
         ("oidc_client.redirects_updated", "oidc_client") => "oidc_client.redirects_updated",
+        // Exact action/target pairs from the retired Django record_audit callers.
+        // Classifying them does not prove row provenance or ownership.
+        ("magic_link.requested", "user") => "magic_link.requested",
+        ("auth.oauth_login", "user") => "auth.oauth_login",
+        ("application.approved", "application") => "application.approved",
+        ("application.rejected", "application") => "application.rejected",
+        ("account.activated", "user") => "account.activated",
+        ("external_identity.linked", "external_identity") => "external_identity.linked",
         _ => "unclassified",
     }
 }
 
 #[cfg(test)]
 mod inventory_tests {
-    use super::known_rust_action;
+    use super::known_action;
 
     #[test]
-    fn only_exact_current_writer_pairs_are_reported() {
+    fn only_exact_known_writer_pairs_are_reported() {
         assert_eq!(
-            known_rust_action("magic_link.consumed", "user"),
+            known_action("magic_link.consumed", "user"),
             "magic_link.consumed"
         );
+        assert_eq!(known_action("auth.oauth_login", "user"), "auth.oauth_login");
         assert_eq!(
-            known_rust_action("magic_link.consumed", "other"),
-            "unclassified"
+            known_action("application.approved", "application"),
+            "application.approved"
         );
+        assert_eq!(known_action("magic_link.consumed", "other"), "unclassified");
         assert_eq!(
-            known_rust_action("someone@example.invalid", "user"),
+            known_action("someone@example.invalid", "user"),
             "unclassified"
         );
     }
