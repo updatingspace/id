@@ -45,6 +45,17 @@ async fn resets_only_selected_legacy_state() -> Result<()> {
         .param("$id", row_id).param("$tenant", identity).await?;
 
     let dry_run = id_runtime::legacy_cutover_reset::reset(&client, 1, false).await?;
+    let audit = id_runtime::legacy_cutover_reset::audit_inventory(&client).await?;
+    ensure!(
+        audit.total == 1
+            && audit.scanned == 1
+            && !audit.truncated
+            && audit.missing_actor == 1
+            && audit.actions.get("unclassified") == Some(&1)
+            && audit.first_at_epoch.is_some()
+            && audit.last_at_epoch.is_some(),
+        "read-only audit inventory leaked or missed synthetic legacy row: {audit:?}"
+    );
     ensure!(
         !id_runtime::legacy_cutover_reset::is_sealed(&client).await?,
         "fresh disposable database unexpectedly has a cutover seal"

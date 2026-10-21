@@ -4,7 +4,11 @@
 
 use anyhow::{Result, bail, ensure};
 use serde::Serialize;
-use std::time::Duration;
+use std::{
+    collections::BTreeMap,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use uuid::Uuid;
 use ydb::Client;
 
 const SEAL_TABLE: &str = "id_legacy_cutover_seal";
@@ -58,6 +62,119 @@ pub async fn seal_readiness(client: &Client) -> Result<bool> {
         }
     }
     Ok(true)
+}
+
+const AUDIT_PAGE_SIZE: usize = 100;
+const MAX_AUDIT_ROWS: u64 = 10_000;
+
+#[derive(Debug, Default, Serialize, PartialEq, Eq)]
+pub struct LegacyAuditInventory {
+    pub total: u64,
+    pub scanned: u64,
+    pub truncated: bool,
+    pub missing_actor: u64,
+    pub first_at_epoch: Option<u64>,
+    pub last_at_epoch: Option<u64>,
+    pub actions: BTreeMap<String, u64>,
+}
+
+/// Report only bounded counts and dates. Neither identifiers nor JSON bodies
+/// leave this read-only diagnostic; it does not prove the cutover can be sealed.
+pub async fn audit_inventory(client: &Client) -> Result<LegacyAuditInventory> {
+    let mut report = LegacyAuditInventory {
+        total: count(client, "usid_audit_log").await?,
+        ..Default::default()
+    };
+    let mut after: Option<i64> = None;
+    let mut pager = client.query_client();
+    while report.scanned < MAX_AUDIT_ROWS {
+        let filter = if after.is_some() {
+            "WHERE id > $after "
+        } else {
+            ""
+        };
+        let query = pager.query(format!(
+            "SELECT id, action, target_type, actor_user_id, created_at FROM usid_audit_log {filter}ORDER BY id LIMIT {AUDIT_PAGE_SIZE}"
+        )).timeout(Duration::from_secs(15));
+        let mut stream = if let Some(id) = after {
+            query.param("$after", id).await?
+        } else {
+            query.await?
+        };
+        let mut page = 0;
+        while let Some(rows) = stream.next_result_set().await? {
+            for mut row in rows {
+                let id: i64 = row.remove_field_by_name("id")?.try_into()?;
+                let action: String = row.remove_field_by_name("action")?.try_into()?;
+                let target_type: String = row.remove_field_by_name("target_type")?.try_into()?;
+                let actor: Option<Uuid> = row.remove_field_by_name("actor_user_id")?.try_into()?;
+                let created_at: SystemTime = row.remove_field_by_name("created_at")?.try_into()?;
+                let epoch = created_at.duration_since(UNIX_EPOCH)?.as_secs();
+                report.first_at_epoch = Some(
+                    report
+                        .first_at_epoch
+                        .map_or(epoch, |value| value.min(epoch)),
+                );
+                report.last_at_epoch =
+                    Some(report.last_at_epoch.map_or(epoch, |value| value.max(epoch)));
+                if actor.is_none() {
+                    report.missing_actor += 1;
+                }
+                *report
+                    .actions
+                    .entry(known_rust_action(&action, &target_type).to_owned())
+                    .or_default() += 1;
+                report.scanned += 1;
+                page += 1;
+                after = Some(id);
+                if report.scanned == MAX_AUDIT_ROWS {
+                    break;
+                }
+            }
+            if report.scanned == MAX_AUDIT_ROWS {
+                break;
+            }
+        }
+        stream.close().await?;
+        if page < AUDIT_PAGE_SIZE {
+            break;
+        }
+    }
+    report.truncated = report.scanned < report.total;
+    Ok(report)
+}
+
+fn known_rust_action(action: &str, target_type: &str) -> &'static str {
+    match (action, target_type) {
+        ("account.suspended", "user") => "account.suspended",
+        ("magic_link.consumed", "user") => "magic_link.consumed",
+        ("provider.linked", "provider") => "provider.linked",
+        ("oidc_client.created", "oidc_client") => "oidc_client.created",
+        ("oidc_client.secret_rotated", "oidc_client") => "oidc_client.secret_rotated",
+        ("oidc_client.redirects_updated", "oidc_client") => "oidc_client.redirects_updated",
+        _ => "unclassified",
+    }
+}
+
+#[cfg(test)]
+mod inventory_tests {
+    use super::known_rust_action;
+
+    #[test]
+    fn only_exact_current_writer_pairs_are_reported() {
+        assert_eq!(
+            known_rust_action("magic_link.consumed", "user"),
+            "magic_link.consumed"
+        );
+        assert_eq!(
+            known_rust_action("magic_link.consumed", "other"),
+            "unclassified"
+        );
+        assert_eq!(
+            known_rust_action("someone@example.invalid", "user"),
+            "unclassified"
+        );
+    }
 }
 
 const TABLES: &[(&str, &str)] = &[

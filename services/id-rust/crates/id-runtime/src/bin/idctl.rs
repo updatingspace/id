@@ -184,6 +184,8 @@ enum Command {
         #[arg(long)]
         apply: bool,
     },
+    /// Summarize legacy audit actions without printing users, targets or JSON.
+    LegacyCutoverAuditInventory,
     /// Read an account deletion operation without exposing its owner or reason.
     DeletionStatus { id: i64 },
     /// Count residual identity references without printing personal data.
@@ -587,6 +589,11 @@ async fn main() -> Result<()> {
                     json!({"dry_run":true,"sealed":sealed,"ready_to_seal":ready})
                 );
             }
+        }
+        Command::LegacyCutoverAuditInventory => {
+            let client = id_runtime::connect_ydb().await?;
+            let report = id_runtime::legacy_cutover_reset::audit_inventory(&client).await?;
+            println!("{}", serde_json::to_string(&report)?);
         }
         Command::DeletionStatus { id } => {
             let client = id_runtime::connect_ydb().await?;
