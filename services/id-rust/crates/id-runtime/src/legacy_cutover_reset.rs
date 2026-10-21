@@ -76,13 +76,25 @@ pub struct LegacyAuditInventory {
     pub first_at_epoch: Option<u64>,
     pub last_at_epoch: Option<u64>,
     pub actions: BTreeMap<String, u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine_action_review: Option<BTreeMap<String, u64>>,
 }
 
 /// Report only bounded counts and dates. Neither identifiers nor JSON bodies
 /// leave this read-only diagnostic; it does not prove the cutover can be sealed.
 pub async fn audit_inventory(client: &Client) -> Result<LegacyAuditInventory> {
+    audit_inventory_with_review(client, false).await
+}
+
+/// Opt-in operator review of short machine event names for otherwise unknown
+/// categories. Reject free text so a malformed action cannot echo personal data.
+pub async fn audit_inventory_with_review(
+    client: &Client,
+    review_machine_actions: bool,
+) -> Result<LegacyAuditInventory> {
     let mut report = LegacyAuditInventory {
         total: count(client, "usid_audit_log").await?,
+        machine_action_review: review_machine_actions.then(BTreeMap::new),
         ..Default::default()
     };
     let mut after: Option<i64> = None;
@@ -120,10 +132,20 @@ pub async fn audit_inventory(client: &Client) -> Result<LegacyAuditInventory> {
                 if actor.is_none() {
                     report.missing_actor += 1;
                 }
-                *report
-                    .actions
-                    .entry(known_action(&action, &target_type).to_owned())
-                    .or_default() += 1;
+                let label = known_action(&action, &target_type);
+                *report.actions.entry(label.to_owned()).or_default() += 1;
+                if label == "unclassified"
+                    && let Some(review) = report.machine_action_review.as_mut()
+                {
+                    let category = machine_action_category(&action, &target_type)
+                        .unwrap_or_else(|| "opaque".to_owned());
+                    let category = if review.len() < 16 || review.contains_key(&category) {
+                        category
+                    } else {
+                        "overflow".to_owned()
+                    };
+                    *review.entry(category).or_default() += 1;
+                }
                 report.scanned += 1;
                 page += 1;
                 after = Some(id);
@@ -142,6 +164,38 @@ pub async fn audit_inventory(client: &Client) -> Result<LegacyAuditInventory> {
     }
     report.truncated = report.scanned < report.total;
     Ok(report)
+}
+
+fn machine_action_category(action: &str, target_type: &str) -> Option<String> {
+    let (namespace, verb) = action.split_once('.')?;
+    if !matches!(
+        namespace,
+        "account"
+            | "admin"
+            | "application"
+            | "auth"
+            | "external_identity"
+            | "magic_link"
+            | "oidc_client"
+            | "operator"
+            | "provider"
+            | "session"
+            | "system"
+            | "tenant"
+    ) || verb.is_empty()
+        || verb.len() > 32
+        || !verb
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+        || target_type.is_empty()
+        || target_type.len() > 32
+        || !target_type
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+    {
+        return None;
+    }
+    Some(format!("{action}/{target_type}"))
 }
 
 fn known_action(action: &str, target_type: &str) -> &'static str {
@@ -166,7 +220,7 @@ fn known_action(action: &str, target_type: &str) -> &'static str {
 
 #[cfg(test)]
 mod inventory_tests {
-    use super::known_action;
+    use super::{known_action, machine_action_category};
 
     #[test]
     fn only_exact_known_writer_pairs_are_reported() {
@@ -184,6 +238,23 @@ mod inventory_tests {
             known_action("someone@example.invalid", "user"),
             "unclassified"
         );
+    }
+
+    #[test]
+    fn review_only_returns_short_machine_action_pairs() {
+        assert_eq!(
+            machine_action_category("operator.bootstrapped", "user").as_deref(),
+            Some("operator.bootstrapped/user")
+        );
+        for (action, target) in [
+            ("person@example.invalid", "user"),
+            ("operator.john.doe", "user"),
+            ("operator.name-with-email", "user"),
+            ("operator.created", "user@example.invalid"),
+            ("unknown.event", "user"),
+        ] {
+            assert_eq!(machine_action_category(action, target), None);
+        }
     }
 }
 
