@@ -179,10 +179,16 @@ enum Command {
         #[arg(long)]
         apply: bool,
     },
-    /// Seal completed legacy reset before admitting new Rust traffic.
+    /// Read the cutover marker, or explicitly seal a completed legacy reset.
     LegacyCutoverSeal {
         #[arg(long)]
         apply: bool,
+    },
+    /// Summarize legacy audit actions without printing users, targets or JSON.
+    LegacyCutoverAuditInventory {
+        /// Include only short, validated machine event names for unknown categories.
+        #[arg(long)]
+        review_machine_actions: bool,
     },
     /// Read an account deletion operation without exposing its owner or reason.
     DeletionStatus { id: i64 },
@@ -580,9 +586,24 @@ async fn main() -> Result<()> {
                 let created = id_runtime::legacy_cutover_reset::seal(&client).await?;
                 println!("{}", json!({"sealed":true,"created":created}));
             } else {
+                let sealed = id_runtime::legacy_cutover_reset::read_seal_status(&client).await?;
                 let ready = id_runtime::legacy_cutover_reset::seal_readiness(&client).await?;
-                println!("{}", json!({"dry_run":true,"ready_to_seal":ready}));
+                println!(
+                    "{}",
+                    json!({"dry_run":true,"sealed":sealed,"ready_to_seal":ready})
+                );
             }
+        }
+        Command::LegacyCutoverAuditInventory {
+            review_machine_actions,
+        } => {
+            let client = id_runtime::connect_ydb().await?;
+            let report = id_runtime::legacy_cutover_reset::audit_inventory_with_review(
+                &client,
+                review_machine_actions,
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&report)?);
         }
         Command::DeletionStatus { id } => {
             let client = id_runtime::connect_ydb().await?;

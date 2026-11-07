@@ -45,6 +45,36 @@ async fn resets_only_selected_legacy_state() -> Result<()> {
         .param("$id", row_id).param("$tenant", identity).await?;
 
     let dry_run = id_runtime::legacy_cutover_reset::reset(&client, 1, false).await?;
+    let audit = id_runtime::legacy_cutover_reset::audit_inventory(&client).await?;
+    let reviewed =
+        id_runtime::legacy_cutover_reset::audit_inventory_with_review(&client, true).await?;
+    ensure!(
+        audit.total == 1
+            && audit.scanned == 1
+            && !audit.truncated
+            && audit.missing_actor == 1
+            && audit.actions.get("unclassified") == Some(&1)
+            && audit.machine_action_review.is_none()
+            && audit.first_at_epoch.is_some()
+            && audit.last_at_epoch.is_some(),
+        "read-only audit inventory leaked or missed synthetic legacy row: {audit:?}"
+    );
+    ensure!(
+        reviewed
+            .machine_action_review
+            .as_ref()
+            .and_then(|counts| counts.get("opaque"))
+            == Some(&1),
+        "operator review echoed an unrecognized event: {reviewed:?}"
+    );
+    ensure!(
+        !id_runtime::legacy_cutover_reset::is_sealed(&client).await?,
+        "fresh disposable database unexpectedly has a cutover seal"
+    );
+    ensure!(
+        !id_runtime::legacy_cutover_reset::read_seal_status(&client).await?,
+        "read-only status reported a seal before cutover"
+    );
     ensure!(
         !id_runtime::legacy_cutover_reset::seal_readiness(&client).await?,
         "cutover seal ignored unscoped legacy records"
@@ -214,6 +244,11 @@ async fn resets_only_selected_legacy_state() -> Result<()> {
         .param("$key", format!("cutover-final-{stamp}")).await?;
     client.query_client().exec("UPSERT INTO usid_audit_log (id, action, target_type, target_id, meta_json, created_at) VALUES ($id, 'late-write', '', '', Unwrap(CAST('{}' AS Json)), CurrentUtcDatetime())")
         .param("$id", row_id).await?;
+    ensure!(
+        id_runtime::legacy_cutover_reset::read_seal_status(&client).await?
+            && !id_runtime::legacy_cutover_reset::seal_readiness(&client).await?,
+        "new audit rows must not hide an existing cutover seal"
+    );
     client.query_client().exec("UPSERT INTO usid_outbox (id, tenant_id, event_type, payload_json, created_at, attempts, last_error) VALUES ($id, $tenant, 'unrelated', Unwrap(CAST('{}' AS Json)), CurrentUtcDatetime(), 0, '')")
         .param("$id", row_id).param("$tenant", Uuid::nil()).await?;
     client.query_client().exec("INSERT INTO accounts_userdevice (id, user_id, device_id, user_agent, first_seen, last_seen, last_ip) VALUES ($id, $user_id, 'late-device', '', CurrentUtcDatetime(), CurrentUtcDatetime(), '')")
