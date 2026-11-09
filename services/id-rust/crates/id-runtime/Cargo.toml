@@ -23,7 +23,7 @@ hex.workspace = true
 hmac.workspace = true
 jsonwebtoken.workspace = true
 lettre.workspace = true
-openssl = "=0.10.81"
+openssl = "=0.10.82"
 pem.workspace = true
 serde.workspace = true
 serde_json.workspace = true
